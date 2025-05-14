@@ -1,0 +1,108 @@
+name: CI Build and Test
+
+on:
+  push:
+    branches: [ main, dev, abstract ]
+  pull_request:
+    branches: [ main ]
+  workflow_dispatch:
+
+jobs:
+  build-and-test:
+    runs-on: ${{ matrix.os }}
+    strategy:
+      matrix:
+        os: [ubuntu-latest, windows-latest] # disabled for now: , macos-latest]
+        dotnet-version: ['8.0.x']
+
+    steps:
+    - name: Checkout Code
+      uses: actions/checkout@v4
+      with:
+        fetch-depth: 0  # Full history for versioning tests
+
+    - name: Setup .NET
+      uses: actions/setup-dotnet@v4
+      with:
+        dotnet-version: ${{ matrix.dotnet-version }}
+
+    - name: Restore Dependencies
+      run: dotnet restore
+
+    - name: Build Solution
+      run: dotnet build --no-restore --configuration Release
+
+    - name: Run Unit Tests
+      run: dotnet test --no-build --configuration Release --verbosity normal
+
+    - name: Run Integration Tests (Linux/macOS)
+      if: runner.os != 'Windows'
+      uses: ./.github/actions/test-versioning-linux
+      with:
+        dotnet-version: ${{ matrix.dotnet-version }}
+
+    - name: Run Integration Tests (Windows)
+      if: runner.os == 'Windows'
+      uses: ./.github/actions/test-versioning-windows
+      with:
+        dotnet-version: ${{ matrix.dotnet-version }}
+
+  versioning-scenarios:
+    strategy:
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    needs: build-and-test
+    
+    steps:
+    - name: Checkout Code
+      uses: actions/checkout@v4
+      with:
+        fetch-depth: 0
+
+    - name: Setup .NET
+      uses: actions/setup-dotnet@v4
+      with:
+        dotnet-version: '8.0.x'
+
+    - name: Run Versioning Tests (Linux)
+      if: runner.os != 'Windows'
+      uses: ./.github/actions/test-versioning-linux
+      with:
+        dotnet-version: '8.0.x'
+
+    - name: Run Versioning Tests (Windows)
+      if: runner.os == 'Windows'
+      uses: ./.github/actions/test-versioning-windows
+      with:
+        dotnet-version: '8.0.x'
+
+  code-coverage:
+    runs-on: ubuntu-latest
+    
+    steps:
+    - name: Checkout Code
+      uses: actions/checkout@v4
+      with:
+        fetch-depth: 0
+
+    - name: Setup .NET
+      uses: actions/setup-dotnet@v4
+      with:
+        dotnet-version: '8.0.x'
+
+    - name: Restore Dependencies
+      run: dotnet restore
+
+    - name: Build
+      run: dotnet build --no-restore --configuration Debug
+
+    - name: Test with Coverage
+      run: dotnet test --no-build --configuration Debug --collect:"XPlat Code Coverage" --results-directory ./coverage
+
+    - name: Upload Coverage to Codecov
+      uses: codecov/codecov-action@v3
+      with:
+        directory: ./coverage
+        fail_ci_if_error: false
+        verbose: true
