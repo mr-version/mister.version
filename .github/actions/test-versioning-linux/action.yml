@@ -37,9 +37,16 @@ runs:
         echo "Building Mister.Version CLI tool..."
         dotnet build ./Mister.Version.CLI/Mister.Version.CLI.csproj -c Debug
         
-        # Set tool path
-        TOOL_PATH="${{ inputs.working-directory }}/Mister.Version.CLI/bin/Debug/net8.0/mr-version"
+        # Set tool path (make it absolute)
+        TOOL_PATH="$(cd "${{ inputs.working-directory }}" && pwd)/Mister.Version.CLI/bin/Debug/net8.0/mr-version"
         echo "TOOL_PATH=$TOOL_PATH" >> $GITHUB_ENV
+        
+        # Verify tool exists
+        if [ ! -f "$TOOL_PATH" ]; then
+          echo "Error: CLI tool not found at $TOOL_PATH"
+          exit 1
+        fi
+        echo "Tool found at: $TOOL_PATH"
 
     - name: Test - Initial Repository (No Tags)
       shell: bash

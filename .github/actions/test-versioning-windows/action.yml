@@ -38,11 +38,19 @@ runs:
         Write-Host "Building Mister.Version CLI tool..."
         dotnet build .\Mister.Version.CLI\Mister.Version.CLI.csproj -c Debug
         
-        # Set tool path
-        $toolPath = "${{ inputs.working-directory }}\Mister.Version.CLI\bin\Debug\net8.0\mr-version.exe"
+        # Set tool path (make it absolute)
+        $workDir = (Get-Location).Path
+        $toolPath = Join-Path $workDir "Mister.Version.CLI\bin\Debug\net8.0\mr-version.exe"
         if (-not (Test-Path $toolPath)) {
-          $toolPath = "${{ inputs.working-directory }}\Mister.Version.CLI\bin\Debug\net8.0\mr-version"
+          $toolPath = Join-Path $workDir "Mister.Version.CLI\bin\Debug\net8.0\mr-version"
         }
+        
+        # Verify tool exists
+        if (-not (Test-Path $toolPath)) {
+          Write-Error "CLI tool not found at $toolPath"
+          exit 1
+        }
+        Write-Host "Tool found at: $toolPath"
         echo "TOOL_PATH=$toolPath" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
 
     - name: Test - Initial Repository (No Tags)

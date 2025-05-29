@@ -73,7 +73,7 @@ function Test-VersioningTool {
         $output = & $env:TOOL_PATH version --repo $RepoPath --project $projectFile.FullName 2>&1 | Out-String
         
         # Extract version from "Version: X.X.X" format
-        if ($output -match 'Version:\s*(.+)$') {
+        if ($output -match 'Version:\s*([^\r\n]+)') {
             $actualVersion = $matches[1].Trim()
         }
         
@@ -131,7 +131,7 @@ function Test-MonorepoVersioningTool {
     $output = & $env:TOOL_PATH version --repo $RepoPath --project $ProjectPath 2>&1 | Out-String
     
     # Extract version from "Version: X.X.X" format
-    if ($output -match 'Version:\s*(.+)$') {
+    if ($output -match 'Version:\s*([^\r\n]+)') {
         $actualVersion = $matches[1].Trim()
     }
     
@@ -385,8 +385,7 @@ function Test-DevBranch {
         git add . | Out-Null
         git commit -m "Initial commit" | Out-Null
         
-        # Create main branch and tag
-        git checkout -b main | Out-Null
+        # Tag on the current branch (which is already main/master)
         git tag v1.0.0 | Out-Null
         
         # Create and switch to dev branch
