@@ -18,14 +18,25 @@ runs:
       working-directory: ${{ inputs.working-directory }}
       run: |
         Write-Host "Setting up test environment..."
-        $env:TEST_DIR = "${{ runner.temp }}\test-repos"
+        # Create a unique test directory in runner temp
+        $timestamp = Get-Date -Format "yyyyMMddHHmmss"
+        $env:TEST_DIR = "${{ runner.temp }}\mister-version-tests-$timestamp"
         echo "TEST_DIR=$env:TEST_DIR" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+        
+        # Export RUNNER_TEMP for test functions
+        $env:RUNNER_TEMP = "${{ runner.temp }}"
+        echo "RUNNER_TEMP=$env:RUNNER_TEMP" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
         
         # Clean up any previous test runs
         if (Test-Path $env:TEST_DIR) {
           Remove-Item -Path $env:TEST_DIR -Recurse -Force
         }
         New-Item -ItemType Directory -Path $env:TEST_DIR -Force | Out-Null
+        
+        # Ensure test results file exists
+        New-Item -ItemType File -Path "$env:RUNNER_TEMP\test-results.txt" -Force | Out-Null
+        
+        Write-Host "Test directory: $env:TEST_DIR"
 
     - name: Build CLI Tool
       shell: pwsh
@@ -34,11 +45,19 @@ runs:
         Write-Host "Building Mister.Version CLI tool..."
         dotnet build .\Mister.Version.CLI\Mister.Version.CLI.csproj -c Debug
         
-        # Set tool path
-        $toolPath = "${{ inputs.working-directory }}\Mister.Version.CLI\bin\Debug\net8.0\mr-version.exe"
+        # Set tool path (make it absolute)
+        $workDir = (Get-Location).Path
+        $toolPath = Join-Path $workDir "Mister.Version.CLI\bin\Debug\net8.0\mr-version.exe"
         if (-not (Test-Path $toolPath)) {
-          $toolPath = "${{ inputs.working-directory }}\Mister.Version.CLI\bin\Debug\net8.0\mr-version"
+          $toolPath = Join-Path $workDir "Mister.Version.CLI\bin\Debug\net8.0\mr-version"
         }
+        
+        # Verify tool exists
+        if (-not (Test-Path $toolPath)) {
+          Write-Error "CLI tool not found at $toolPath"
+          exit 1
+        }
+        Write-Host "Tool found at: $toolPath"
         echo "TOOL_PATH=$toolPath" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
 
     - name: Test - Initial Repository (No Tags)
@@ -96,6 +115,55 @@ runs:
       run: |
         . .github\actions\test-versioning-windows\test-functions.ps1
         Test-BuildMetadata
+
+    # - name: Test - Configuration Alpha
+    #   shell: pwsh
+    #   working-directory: ${{ inputs.working-directory }}
+    #   run: |
+    #     . .github\actions\test-versioning-windows\test-functions.ps1
+    #     Test-ConfigAlpha
+
+    # - name: Test - Configuration Beta
+    #   shell: pwsh
+    #   working-directory: ${{ inputs.working-directory }}
+    #   run: |
+    #     . .github\actions\test-versioning-windows\test-functions.ps1
+    #     Test-ConfigBeta
+
+    # - name: Test - Configuration RC
+    #   shell: pwsh
+    #   working-directory: ${{ inputs.working-directory }}
+    #   run: |
+    #     . .github\actions\test-versioning-windows\test-functions.ps1
+    #     Test-ConfigRC
+
+    # - name: Test - YAML Configuration
+    #   shell: pwsh
+    #   working-directory: ${{ inputs.working-directory }}
+    #   run: |
+    #     . .github\actions\test-versioning-windows\test-functions.ps1
+    #     Test-YamlConfig
+
+    # - name: Test - Force Version
+    #   shell: pwsh
+    #   working-directory: ${{ inputs.working-directory }}
+    #   run: |
+    #     . .github\actions\test-versioning-windows\test-functions.ps1
+    #     Test-ForceVersion
+
+    # - name: Test - Tag Prefix Variations
+    #   shell: pwsh
+    #   working-directory: ${{ inputs.working-directory }}
+    #   run: |
+    #     . .github\actions\test-versioning-windows\test-functions.ps1
+    #     Test-TagPrefix
+
+    # - name: Test - Dependency Tracking
+    #   shell: pwsh
+    #   working-directory: ${{ inputs.working-directory }}
+    #   run: |
+    #     . .github\actions\test-versioning-windows\test-functions.ps1
+    #     Test-DependencyTracking
 
     - name: Generate Test Report
       if: always()

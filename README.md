@@ -226,6 +226,8 @@ mr-version version -p src/MyProject/MyProject.csproj -j
 | `MonoRepoVersionSkipTestProjects` | Skip versioning for test projects | `true` |
 | `MonoRepoVersionSkipNonPackableProjects` | Skip versioning for non-packable projects | `true` |
 | `MonoRepoVersionForce` | Force a specific version | Empty |
+| `MonoRepoVersionCreateTag` | Create a git tag for the calculated version | `false` |
+| `MonoRepoVersionTagMessage` | Custom message for the git tag | Auto-generated |
 
 Example configuration:
 
@@ -236,16 +238,32 @@ Example configuration:
 </PropertyGroup>
 ```
 
+Example for automated tag creation during CI/CD:
+
+```xml
+<PropertyGroup Condition="'$(CI)' == 'true' and '$(CreateReleaseTags)' == 'true'">
+  <MonoRepoVersionCreateTag>true</MonoRepoVersionCreateTag>
+  <MonoRepoVersionTagMessage>Automated release from CI build $(BUILD_NUMBER)</MonoRepoVersionTagMessage>
+</PropertyGroup>
+```
+
 ## Advanced Features
 
 ### Global vs. Project-Specific Tags
 
 MonoRepo Versioning supports two types of tags:
 
-1. **Global tags**: Apply to the entire repository (e.g., `v8.2.0`)
-2. **Project-specific tags**: Apply to specific projects (e.g., `v8.2.1-myproject`)
+1. **Project-specific tags** (default): Apply to individual projects
+   - Format: `v1.2.3-projectname` (e.g., `v1.2.3-core`)
+   - Used for patch and minor releases
+   - Allows independent versioning of projects in the monorepo
 
-The system intelligently combines these to determine the appropriate base version for each project.
+2. **Global tags**: Apply to the entire repository
+   - Format: `v1.0.0` (no project suffix)
+   - Created automatically for major version releases (x.0.0)
+   - Used to mark significant milestones across the entire monorepo
+
+The system automatically creates project-specific tags by default, and only creates global tags when releasing a new major version (e.g., going from v1.x.x to v2.0.0).
 
 ### Enhanced Change Detection
 

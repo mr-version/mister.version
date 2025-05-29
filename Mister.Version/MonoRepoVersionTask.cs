@@ -22,9 +22,9 @@ public class MonoRepoVersionTask : Task
     public string ProjectPath { get; set; }
 
     /// <summary>
-    /// Path to the root of the monorepo
+    /// Path to start searching for the Git repository root.
+    /// If not specified, will start from the project directory.
     /// </summary>
-    [Required]
     public string RepoRoot { get; set; }
 
     /// <summary>
@@ -38,6 +38,12 @@ public class MonoRepoVersionTask : Task
     /// </summary>
     [Output]
     public bool VersionChanged { get; set; }
+
+    /// <summary>
+    /// Output parameter for the discovered Git repository root path
+    /// </summary>
+    [Output]
+    public string DiscoveredRepoRoot { get; set; }
 
     /// <summary>
     /// Whether to automatically update the project file with the new version
@@ -90,43 +96,71 @@ public class MonoRepoVersionTask : Task
     /// </summary>
     public bool IsPackable { get; set; } = true;
 
+    /// <summary>
+    /// Prerelease type to use for main/dev branches when incrementing versions
+    /// Options: none, alpha, beta, rc
+    /// Default: none (no prerelease suffix)
+    /// </summary>
+    public string PrereleaseType { get; set; } = "none";
+    
+    /// <summary>
+    /// Whether to create a git tag for the calculated version
+    /// </summary>
+    public bool CreateTag { get; set; } = false;
+    
+    /// <summary>
+    /// Custom message for the git tag (used with CreateTag)
+    /// </summary>
+    public string TagMessage { get; set; }
+
+    /// <summary>
+    /// Path to version configuration YAML file
+    /// </summary>
+    public string ConfigFile { get; set; }
+    
+    /// <summary>
+    /// Whether to run in dry-run mode (show what would be done without making changes)
+    /// </summary>
+    public bool DryRun { get; set; } = false;
+
     public override bool Execute()
     {
         try
         {
+            // Validate required properties
+            if (string.IsNullOrEmpty(ProjectPath))
+                throw new InvalidOperationException("ProjectPath is required but was not provided.");
+            
+            // Use project directory as starting point if RepoRoot is not specified
+            var searchStartPath = string.IsNullOrEmpty(RepoRoot) 
+                ? Path.GetDirectoryName(ProjectPath) 
+                : RepoRoot;
+                
             Log.LogMessage(MessageImportance.High, $"Starting Mister.Version versioning for {ProjectPath}");
 
             // Create logger function for core services
-            Action<string, string> logger = (level, message) =>
+            var logger = MSBuildLoggerFactory.CreateMSBuildLogger(Log, Debug, ExtraDebug);
+
+            // Discover Git repository root
+            var gitRepoRoot = RepositoryService.DiscoverRepository(searchStartPath, logger, "search start path");
+            if (gitRepoRoot == null)
             {
-                var importance = level switch
-                {
-                    "Error" => MessageImportance.High,
-                    "Warning" => MessageImportance.Normal,
-                    "Info" => MessageImportance.High,
-                    "Debug" when Debug || ExtraDebug => MessageImportance.High,
-                    _ => MessageImportance.Low
-                };
+                Log.LogError(string.Format(RepositoryService.NoRepositoryFoundError, searchStartPath));
+                Log.LogError(RepositoryService.EnsureGitRepositoryMessage);
+                return false;
+            }
 
-                if (importance != MessageImportance.Low)
-                {
-                    Log.LogMessage(importance, $"[{level}] {message}");
-                }
-            };
+            // Initialize versioning service
+            using var versioningService = new VersioningService(gitRepoRoot, logger);
 
-            // Initialize services
-            using var gitService = new GitService(RepoRoot);
-            var versionCalculator = new VersionCalculator(gitService, logger);
-
-            // Prepare version options
+            // Prepare version request
             var dependencies = Dependencies?.Select(d => d.ItemSpec).ToList() ?? new List<string>();
-            var projectName = Path.GetFileNameWithoutExtension(ProjectPath);
-
-            var versionOptions = new VersionOptions
+            var versionRequest = new VersioningRequest
             {
-                RepoRoot = RepoRoot,
+                RepoRoot = gitRepoRoot,
                 ProjectPath = ProjectPath,
-                ProjectName = projectName,
+                ConfigFile = ConfigFile,
+                PrereleaseType = PrereleaseType,
                 TagPrefix = TagPrefix,
                 ForceVersion = ForceVersion,
                 Dependencies = dependencies,
@@ -139,13 +173,20 @@ public class MonoRepoVersionTask : Task
             };
 
             // Calculate version
-            var versionResult = versionCalculator.CalculateVersion(versionOptions);
+            var versionResult = versioningService.CalculateProjectVersion(versionRequest);
+            
+            if (!versionResult.Success)
+            {
+                Log.LogError($"Version calculation failed: {versionResult.ErrorMessage}");
+                return false;
+            }
 
             // Set output parameters
             Version = versionResult.Version;
             VersionChanged = versionResult.VersionChanged;
+            DiscoveredRepoRoot = gitRepoRoot;
 
-            Log.LogMessage(MessageImportance.High, $"Calculated version: {Version} for {projectName}");
+            Log.LogMessage(MessageImportance.High, $"Calculated version: {Version} for {versionResult.ProjectName}");
 
             if (VersionChanged)
             {
@@ -155,7 +196,25 @@ public class MonoRepoVersionTask : Task
             // Update the project file if enabled (disabled by default)
             if (UpdateProjectFile && !string.IsNullOrEmpty(Version))
             {
-                UpdateProjectFileVersion();
+                if (DryRun)
+                {
+                    Log.LogMessage(MessageImportance.High, $"[DRY RUN] Would update project file {ProjectPath} with version {Version}");
+                }
+                else
+                {
+                    UpdateProjectFileVersion();
+                }
+            }
+            
+            // Create git tag if requested
+            if (CreateTag && !string.IsNullOrEmpty(Version))
+            {
+                var tagSuccess = versioningService.CreateTag(versionResult, TagPrefix, TagMessage, DryRun);
+                
+                if (!tagSuccess && !DryRun)
+                {
+                    Log.LogWarning("Tag creation failed");
+                }
             }
 
             return !Log.HasLoggedErrors;
@@ -205,8 +264,9 @@ public class MonoRepoVersionTask : Task
     /// </summary>
     internal BranchType DetermineBranchType(string branchName)
     {
-        using var gitService = new GitService(RepoRoot);
-        return gitService.GetBranchType(branchName);
+        return RepositoryService.ExecuteGitOperation(RepoRoot, 
+            gitService => gitService.GetBranchType(branchName), 
+            BranchType.Feature);
     }
 
     /// <summary>
@@ -214,8 +274,9 @@ public class MonoRepoVersionTask : Task
     /// </summary>
     internal SemVer ExtractReleaseVersion(string branchName)
     {
-        using var gitService = new GitService(RepoRoot);
-        return gitService.ExtractReleaseVersion(branchName, TagPrefix);
+        return RepositoryService.ExecuteGitOperation(RepoRoot, 
+            gitService => gitService.ExtractReleaseVersion(branchName, TagPrefix), 
+            null);
     }
 
     /// <summary>
@@ -223,7 +284,9 @@ public class MonoRepoVersionTask : Task
     /// </summary>
     internal SemVer ParseSemVer(string version)
     {
-        using var gitService = new GitService(RepoRoot);
-        return gitService.ParseSemVer(version);
+        return RepositoryService.ExecuteGitOperation(RepoRoot, 
+            gitService => gitService.ParseSemVer(version), 
+            null);
     }
+
 }

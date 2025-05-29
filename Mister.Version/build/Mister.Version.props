@@ -5,7 +5,7 @@
         <AppSettingStronglyTyped_TFM Condition=" '$(MSBuildRuntimeType)' != 'Core' ">net472</AppSettingStronglyTyped_TFM>
         <AppSettingStronglyTyped_TFM Condition=" '$(MSBuildRuntimeType)' == 'Core' ">net8.0</AppSettingStronglyTyped_TFM>
         <MonoRepoVersioningEnabled Condition="'$(MonoRepoVersioningEnabled)' == ''">true</MonoRepoVersioningEnabled>
-        <MonoRepoRoot Condition="'$(MonoRepoRoot)' == ''">$(ProjectDir)../</MonoRepoRoot>
+        <MonoRepoRoot Condition="'$(MonoRepoRoot)' == ''">$(ProjectDir)</MonoRepoRoot>
         <MonoRepoTagPrefix Condition="'$(MonoRepoTagPrefix)' == ''">v</MonoRepoTagPrefix>
         <!-- Default to NOT updating project files to avoid requiring commits -->
         <MonoRepoUpdateProjectFile Condition="'$(MonoRepoUpdateProjectFile)' == ''">false</MonoRepoUpdateProjectFile>
@@ -17,6 +17,10 @@
         <MonoRepoSkipTestProjects Condition="'$(MonoRepoSkipTestProjects)' == ''">true</MonoRepoSkipTestProjects>
         <!-- Skip non-packable projects by default -->
         <MonoRepoSkipNonPackableProjects Condition="'$(MonoRepoSkipNonPackableProjects)' == ''">true</MonoRepoSkipNonPackableProjects>
+        <!-- Prerelease type for main/dev branches (none, alpha, beta, rc) -->
+        <MonoRepoPrereleaseType Condition="'$(MonoRepoPrereleaseType)' == ''">none</MonoRepoPrereleaseType>
+        <!-- Optional path to version configuration YAML file -->
+        <MonoRepoConfigFile Condition="'$(MonoRepoConfigFile)' == ''"></MonoRepoConfigFile>
     </PropertyGroup>
 
     <!-- Wire up our version calculation to run before any target that might use the version -->

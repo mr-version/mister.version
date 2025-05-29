@@ -129,6 +129,49 @@ public static class PathUtils
 
     /// <summary>Returns a comparison that can be used to compare file and directory names for equality.</summary>
     internal static StringComparison StringComparison => StringComparison.OrdinalIgnoreCase;
+
+    /// <summary>
+    /// Discovers the Git repository root by searching for .git directory starting from the given path
+    /// and walking up the directory tree.
+    /// </summary>
+    /// <param name="startPath">The path to start searching from</param>
+    /// <returns>The path to the Git repository root, or null if not found</returns>
+    public static string DiscoverGitRepository(string startPath)
+    {
+        if (string.IsNullOrEmpty(startPath))
+            return null;
+
+        // Start with the full path
+        var currentPath = Path.GetFullPath(startPath);
+        
+        // If it's a file, start from its directory
+        if (File.Exists(currentPath))
+        {
+            currentPath = Path.GetDirectoryName(currentPath);
+        }
+
+        // Walk up the directory tree
+        while (!string.IsNullOrEmpty(currentPath))
+        {
+            var gitPath = Path.Combine(currentPath, ".git");
+            
+            // Check if .git exists (either as directory or file for worktrees)
+            if (Directory.Exists(gitPath) || File.Exists(gitPath))
+            {
+                return currentPath;
+            }
+
+            // Move to parent directory
+            var parent = Directory.GetParent(currentPath);
+            if (parent == null)
+                break;
+                
+            currentPath = parent.FullName;
+        }
+
+        return null;
+    }
+
 }
 
 /// <summary>Contains internal path helpers that are shared between many projects.</summary>

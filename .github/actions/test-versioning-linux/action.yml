@@ -18,14 +18,24 @@ runs:
       working-directory: ${{ inputs.working-directory }}
       run: |
         echo "Setting up test environment..."
-        export TEST_DIR="${{ runner.temp }}/test-repos"
+        # Create a unique test directory in runner temp
+        export TEST_DIR="${{ runner.temp }}/mister-version-tests-$(date +%s)"
         echo "TEST_DIR=$TEST_DIR" >> $GITHUB_ENV
+        
+        # Export RUNNER_TEMP for test functions
+        export RUNNER_TEMP="${{ runner.temp }}"
+        echo "RUNNER_TEMP=$RUNNER_TEMP" >> $GITHUB_ENV
         
         # Clean up any previous test runs
         if [ -d "$TEST_DIR" ]; then
           rm -rf "$TEST_DIR"
         fi
         mkdir -p "$TEST_DIR"
+        
+        # Ensure test results file exists
+        touch "$RUNNER_TEMP/test-results.txt"
+        
+        echo "Test directory: $TEST_DIR"
 
     - name: Build CLI Tool
       shell: bash
@@ -34,8 +44,27 @@ runs:
         echo "Building Mister.Version CLI tool..."
         dotnet build ./Mister.Version.CLI/Mister.Version.CLI.csproj -c Debug
         
-        # Set tool path
-        TOOL_PATH="${{ inputs.working-directory }}/Mister.Version.CLI/bin/Debug/net8.0/mr-version"
+        # Set tool path (make it absolute)
+        TOOL_DIR="$(cd "${{ inputs.working-directory }}" && pwd)/Mister.Version.CLI/bin/Debug/net8.0"
+        
+        # Check what files are in the output directory
+        echo "Files in output directory:"
+        ls -la "$TOOL_DIR"
+        
+        # Check if we have an executable or need to use the .dll
+        if [ -f "$TOOL_DIR/mr-version" ] && [ -x "$TOOL_DIR/mr-version" ]; then
+          TOOL_PATH="$TOOL_DIR/mr-version"
+          echo "Found executable at: $TOOL_PATH"
+          echo "USE_DOTNET=false" >> $GITHUB_ENV
+        elif [ -f "$TOOL_DIR/mr-version.dll" ]; then
+          TOOL_PATH="$TOOL_DIR/mr-version.dll"
+          echo "Found DLL at: $TOOL_PATH, will use dotnet to run"
+          echo "USE_DOTNET=true" >> $GITHUB_ENV
+        else
+          echo "Error: CLI tool not found in $TOOL_DIR"
+          exit 1
+        fi
+        
         echo "TOOL_PATH=$TOOL_PATH" >> $GITHUB_ENV
 
     - name: Test - Initial Repository (No Tags)
@@ -93,6 +122,55 @@ runs:
       run: |
         source .github/actions/test-versioning-linux/test-functions.sh
         test_build_metadata
+
+    # - name: Test - Configuration Alpha
+    #   shell: bash
+    #   working-directory: ${{ inputs.working-directory }}
+    #   run: |
+    #     source .github/actions/test-versioning-linux/test-functions.sh
+    #     test_config_alpha
+
+    # - name: Test - Configuration Beta
+    #   shell: bash
+    #   working-directory: ${{ inputs.working-directory }}
+    #   run: |
+    #     source .github/actions/test-versioning-linux/test-functions.sh
+    #     test_config_beta
+
+    # - name: Test - Configuration RC
+    #   shell: bash
+    #   working-directory: ${{ inputs.working-directory }}
+    #   run: |
+    #     source .github/actions/test-versioning-linux/test-functions.sh
+    #     test_config_rc
+
+    # - name: Test - YAML Configuration
+    #   shell: bash
+    #   working-directory: ${{ inputs.working-directory }}
+    #   run: |
+    #     source .github/actions/test-versioning-linux/test-functions.sh
+    #     test_yaml_config
+
+    # - name: Test - Force Version
+    #   shell: bash
+    #   working-directory: ${{ inputs.working-directory }}
+    #   run: |
+    #     source .github/actions/test-versioning-linux/test-functions.sh
+    #     test_force_version
+
+    # - name: Test - Tag Prefix Variations
+    #   shell: bash
+    #   working-directory: ${{ inputs.working-directory }}
+    #   run: |
+    #     source .github/actions/test-versioning-linux/test-functions.sh
+    #     test_tag_prefix
+
+    # - name: Test - Dependency Tracking
+    #   shell: bash
+    #   working-directory: ${{ inputs.working-directory }}
+    #   run: |
+    #     source .github/actions/test-versioning-linux/test-functions.sh
+    #     test_dependency_tracking
 
     - name: Generate Test Report
       if: always()

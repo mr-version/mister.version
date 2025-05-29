@@ -11,6 +11,7 @@ namespace Mister.Version.Core.Services
     {
         List<ProjectInfo> AnalyzeProjects(string repositoryPath, string projectDirectory = null);
         ProjectInfo AnalyzeProject(string projectPath, string repositoryPath);
+        ProjectInfo AnalyzeProject(string projectPath, string repositoryPath, VersionOptions additionalOptions);
         List<string> GetProjectDependencies(string projectPath, string repositoryPath);
         void BuildDependencyGraph(List<ProjectInfo> projects);
     }
@@ -75,6 +76,11 @@ namespace Mister.Version.Core.Services
 
         public ProjectInfo AnalyzeProject(string projectPath, string repositoryPath)
         {
+            return AnalyzeProject(projectPath, repositoryPath, null);
+        }
+
+        public ProjectInfo AnalyzeProject(string projectPath, string repositoryPath, VersionOptions additionalOptions)
+        {
             if (!File.Exists(projectPath))
             {
                 _logger("Error", $"Project file does not exist: {projectPath}");
@@ -99,8 +105,24 @@ namespace Mister.Version.Core.Services
                 ProjectName = projectName,
                 Dependencies = dependencies,
                 IsTestProject = isTestProject,
-                IsPackable = isPackable
+                IsPackable = isPackable,
+                BaseVersion = additionalOptions.BaseVersion
             };
+
+            // Apply additional options if provided
+            if (additionalOptions != null)
+            {
+                versionOptions.PrereleaseType = additionalOptions.PrereleaseType;
+                versionOptions.Debug = additionalOptions.Debug;
+                versionOptions.TagPrefix = additionalOptions.TagPrefix;
+                versionOptions.ForceVersion = additionalOptions.ForceVersion;
+                
+                // Override dependencies if provided in additional options
+                if (additionalOptions.Dependencies != null && additionalOptions.Dependencies.Count > 0)
+                {
+                    versionOptions.Dependencies = additionalOptions.Dependencies;
+                }
+            }
 
             var versionResult = _versionCalculator.CalculateVersion(versionOptions);
 
@@ -134,14 +156,19 @@ namespace Mister.Version.Core.Services
                 {
                     var dependencyPath = match.Groups[1].Value;
                     
+                    // Normalize path separators for cross-platform compatibility
+                    dependencyPath = dependencyPath.Replace('\\', Path.DirectorySeparatorChar);
+                    
                     // Resolve relative path to absolute path
                     if (!Path.IsPathRooted(dependencyPath))
                     {
                         dependencyPath = Path.GetFullPath(Path.Combine(projectDir, dependencyPath));
                     }
-
-                    // Normalize path separators
-                    dependencyPath = Path.GetFullPath(dependencyPath);
+                    else
+                    {
+                        // Even for rooted paths, ensure they're fully resolved
+                        dependencyPath = Path.GetFullPath(dependencyPath);
+                    }
                     
                     if (File.Exists(dependencyPath))
                     {

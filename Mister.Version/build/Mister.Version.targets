@@ -14,10 +14,10 @@
         </ItemGroup>
 
         <!-- Run the versioning task -->
-        <MonoRepoVersionTask ProjectPath="$(MSBuildProjectFullPath)" RepoRoot="$(MonoRepoRoot)" TagPrefix="$(MonoRepoTagPrefix)" UpdateProjectFile="$(MonoRepoUpdateProjectFile)" ForceVersion="$(ForceVersion)" Debug="$(MonoRepoDebug)" ExtraDebug="$(MonoRepoExtraDebug)" SkipTestProjects="$(MonoRepoSkipTestProjects)" SkipNonPackableProjects="$(MonoRepoSkipNonPackableProjects)" IsTestProject="$(IsTestProject)" IsPackable="$(IsPackable)" Dependencies="@(_MonoRepoDependencies)">
-
+        <MonoRepoVersionTask ProjectPath="$(MSBuildProjectFullPath)" RepoRoot="$(MonoRepoRoot)" TagPrefix="$(MonoRepoTagPrefix)" UpdateProjectFile="$(MonoRepoUpdateProjectFile)" ForceVersion="$(ForceVersion)" Debug="$(MonoRepoDebug)" ExtraDebug="$(MonoRepoExtraDebug)" SkipTestProjects="$(MonoRepoSkipTestProjects)" SkipNonPackableProjects="$(MonoRepoSkipNonPackableProjects)" IsTestProject="$(IsTestProject)" IsPackable="$(IsPackable)" PrereleaseType="$(MonoRepoPrereleaseType)" ConfigFile="$(MonoRepoConfigFile)" Dependencies="@(_MonoRepoDependencies)">
             <Output TaskParameter="Version" PropertyName="FullVersion" />
             <Output TaskParameter="VersionChanged" PropertyName="VersionChanged" />
+            <Output TaskParameter="DiscoveredRepoRoot" PropertyName="DiscoveredRepoRoot" />
         </MonoRepoVersionTask>
 
         <!-- Set MSBuild properties from our calculated version -->
@@ -53,7 +53,7 @@
     <!-- Target to create version tags for the current project -->
     <Target Name="TagMonoRepoVersion" DependsOnTargets="_MonoRepoCalculateVersion">
         <PropertyGroup>
-            <TagName>$(MonoRepoTagPrefix)$(PackageVersion)-$(MSBuildProjectName.ToLowerInvariant())</TagName>
+            <TagName>$(MSBuildProjectName.ToLowerInvariant())-$(MonoRepoTagPrefix)$(PackageVersion)</TagName>
             <GitExec Condition="'$(OS)' == 'Windows_NT'">git</GitExec>
             <GitExec Condition="'$(OS)' != 'Windows_NT'">git</GitExec>
             <!-- Check if version changed from base version, indicating changes were detected -->
@@ -66,7 +66,7 @@
         </PropertyGroup>
 
         <!-- Only create a tag if changes were detected and we shouldn't skip tagging -->
-        <Exec Command="$(GitExec) tag -a $(TagName) -m &quot;Version $(PackageVersion) of $(MSBuildProjectName)&quot;" WorkingDirectory="$(MonoRepoRoot)" ContinueOnError="true" Condition="'$(HasChanges)' == 'true' AND '$(ShouldSkipTagging)' != 'true'" />
+        <Exec Command="$(GitExec) tag -a $(TagName) -m &quot;Version $(PackageVersion) of $(MSBuildProjectName)&quot;" WorkingDirectory="$(DiscoveredRepoRoot)" ContinueOnError="true" Condition="'$(HasChanges)' == 'true' AND '$(ShouldSkipTagging)' != 'true'" />
 
         <Message Text="Created version tag $(TagName) for $(MSBuildProjectName)" Importance="High" Condition="'$(HasChanges)' == 'true' AND '$(ShouldSkipTagging)' != 'true'" />
 
@@ -81,7 +81,7 @@
             <GitExec Condition="'$(OS)' != 'Windows_NT'">git</GitExec>
         </PropertyGroup>
 
-        <Exec Command="$(GitExec) push origin --tags" WorkingDirectory="$(MonoRepoRoot)" ContinueOnError="true" />
+        <Exec Command="$(GitExec) push origin --tags" WorkingDirectory="$(DiscoveredRepoRoot)" ContinueOnError="true" />
 
         <Message Text="Pushed version tags for $(MSBuildProjectName)" Importance="High" />
     </Target>

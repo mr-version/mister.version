@@ -17,4 +17,6 @@ public class VersionResult
     public BranchType BranchType { get; set; }
     public string BranchName { get; set; }
     public int CommitHeight { get; set; }
+    public string PreviousVersion { get; set; }
+    public string PreviousCommitSha { get; set; }
 }

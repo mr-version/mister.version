@@ -100,6 +100,8 @@ This command calculates the version for a specific project, showing the exact lo
 | `-t, --tag-prefix <prefix>` | Tag prefix | `v` |
 | `-d, --detailed` | Show detailed calculation | `false` |
 | `-j, --json` | JSON output | `false` |
+| `--create-tag` | Create a git tag for the calculated version | `false` |
+| `--tag-message <message>` | Custom message for the git tag | Auto-generated |
 
 #### Example
 
@@ -109,6 +111,12 @@ mr-version version -p src/Core/Core.csproj -d
 
 # Get version information in JSON format
 mr-version version -p src/Api/Api.csproj -j
+
+# Calculate version and create a git tag
+mr-version version -p src/Core/Core.csproj --create-tag
+
+# Create a tag with a custom message
+mr-version version -p src/Core/Core.csproj --create-tag --tag-message "Release Core v1.0.0"
 ```
 
 ## Report Formats

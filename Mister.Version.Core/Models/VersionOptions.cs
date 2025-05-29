@@ -19,4 +19,24 @@ public class VersionOptions
     public bool SkipNonPackableProjects { get; set; } = true;
     public bool IsTestProject { get; set; } = false;
     public bool IsPackable { get; set; } = true;
+    
+    /// <summary>
+    /// Prerelease type to use for main/dev branches when incrementing versions.
+    /// Options: none, alpha, beta, rc
+    /// Default: none (no prerelease suffix)
+    /// </summary>
+    public string PrereleaseType { get; set; } = "none";
+    
+    /// <summary>
+    /// Base global version used as fallback when no tags or versions are found.
+    /// Applies to all projects including test projects and artifacts normally ignored.
+    /// </summary>
+    public string BaseVersion { get; set; }
+    
+    /// <summary>
+    /// Default increment level for version bumps.
+    /// Options: patch, minor, major
+    /// Default: patch
+    /// </summary>
+    public string DefaultIncrement { get; set; } = "patch";
 }

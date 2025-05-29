@@ -162,13 +162,20 @@ namespace Mister.Version.Tests
         }
     }
 
-    // Mock implementations for testing
+    // Simple mock for basic testing - more comprehensive mocks are in other test files
     public class MockGitService : IGitService
     {
         public LibGit2Sharp.Repository Repository => null;
-        public string CurrentBranch => "main";
+        public string CurrentBranchOverride { get; set; } = "main";
+        public string CurrentBranch => CurrentBranchOverride;
+        
+        // Override properties for testing
+        public VersionTag GlobalVersionTagOverride { get; set; }
+        public VersionTag ProjectVersionTagOverride { get; set; }
+        public bool HasChangesOverride { get; set; } = true;
+        public int CommitHeightOverride { get; set; } = 1;
 
-        public BranchType GetBranchType(string branchName)
+        public virtual BranchType GetBranchType(string branchName)
         {
             if (branchName.Equals("main", System.StringComparison.OrdinalIgnoreCase) ||
                 branchName.Equals("master", System.StringComparison.OrdinalIgnoreCase))
@@ -234,12 +241,24 @@ namespace Mister.Version.Tests
         }
 
         // Implement other interface members as needed for testing
-        public VersionTag GetGlobalVersionTag(BranchType branchType, string tagPrefix) => null;
-        public VersionTag GetProjectVersionTag(string projectName, BranchType branchType, string tagPrefix) => null;
-        public bool ProjectHasChangedSinceTag(LibGit2Sharp.Commit tagCommit, string projectPath, System.Collections.Generic.List<string> dependencies, string repoRoot, bool debug = false) => false;
-        public int GetCommitHeight(LibGit2Sharp.Commit fromCommit, LibGit2Sharp.Commit toCommit = null) => 0;
+        public virtual VersionTag GetGlobalVersionTag(BranchType branchType, VersionOptions options) => GlobalVersionTagOverride;
+        public virtual VersionTag GetProjectVersionTag(string projectName, BranchType branchType, string tagPrefix) => ProjectVersionTagOverride;
+        public virtual bool ProjectHasChangedSinceTag(LibGit2Sharp.Commit tagCommit, string projectPath, System.Collections.Generic.List<string> dependencies, string repoRoot, bool debug = false) => HasChangesOverride;
+        public virtual int GetCommitHeight(LibGit2Sharp.Commit fromCommit, LibGit2Sharp.Commit toCommit = null) => CommitHeightOverride;
         public string GetCommitShortHash(LibGit2Sharp.Commit commit) => "abcdef1";
         public System.Collections.Generic.List<ChangeInfo> GetChangesSinceCommit(LibGit2Sharp.Commit sinceCommit, string projectPath = null) => new();
+        public bool CreateTag(string tagName, string message, bool isGlobalTag, string projectName = null, bool dryRun = false)
+        {
+            // Mock implementation - always succeeds for testing
+            return true;
+        }
+        
+        public bool TagExists(string tagName)
+        {
+            // Mock implementation - no tags exist by default
+            return false;
+        }
+        
         public void Dispose() { }
     }
 
@@ -266,6 +285,18 @@ namespace Mister.Version.Tests
 
             return testFrameworks.Any(framework => 
                 System.Text.RegularExpressions.Regex.IsMatch(projectContent, $@"<PackageReference[^>]+Include\s*=\s*""{System.Text.RegularExpressions.Regex.Escape(framework)}""", System.Text.RegularExpressions.RegexOptions.IgnoreCase));
+        }
+        
+        public bool CreateTag(string tagName, string message, bool isGlobalTag, string projectName = null)
+        {
+            // Mock implementation - always succeeds for testing
+            return true;
+        }
+        
+        public bool TagExists(string tagName)
+        {
+            // Mock implementation - no tags exist by default
+            return false;
         }
     }
 }

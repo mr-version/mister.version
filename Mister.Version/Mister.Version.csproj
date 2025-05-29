@@ -38,6 +38,7 @@
 		<PackageReference Include="LibGit2Sharp" Version="0.31.0" PrivateAssets="all" />
 		<PackageReference Include="LibGit2Sharp.NativeBinaries" Version="2.0.323" PrivateAssets="all" ExcludeAssets="all" />
 		<PackageReference Include="System.Text.Json" Version="8.0.5" PrivateAssets="all" />
+		<PackageReference Include="YamlDotNet" Version="13.7.1" PrivateAssets="all" />
 	</ItemGroup>
 
 	<!-- Reference the core project -->
@@ -60,11 +61,32 @@
 
 	<Target Name="CopyProjectReferencesToPackage" DependsOnTargets="ResolveReferences">
 		<ItemGroup>
-			<LibGitRefs Include="$(SolutionDir)libs/**" />
+			<!-- Include native libraries from libs folder -->
+			<LibGitRefs Include="../libs/git2-3f4182d.dll" />
+			<LibGitRefs Include="../libs/libgit2-3f4182d.dylib" />
+			<LibGitRefs Include="../libs/libgit2-3f4182d.so" />
+			
 			<!-- The TargetPath is the path inside the package that the source file will be placed. This is already precomputed in the ReferenceCopyLocalPaths items' DestinationSubPath, so reuse it here. -->
 			<BuildOutputInPackage Include="@(ReferenceCopyLocalPaths)" TargetPath="%(ReferenceCopyLocalPaths.DestinationSubPath)" />
-			<BuildOutputInPackage Include="@(LibGitRefs)" TargetPath="%(LibGitRefs.FileName)%(LibGitRefs.Extension)">
-        		<TargetFramework>$(TargetFramework)</TargetFramework>
+			
+			<!-- Add native libraries to both framework targets -->
+			<BuildOutputInPackage Include="../libs/git2-3f4182d.dll" TargetPath="git2-3f4182d.dll">
+				<TargetFramework>net472</TargetFramework>
+			</BuildOutputInPackage>
+			<BuildOutputInPackage Include="../libs/libgit2-3f4182d.dylib" TargetPath="libgit2-3f4182d.dylib">
+				<TargetFramework>net472</TargetFramework>
+			</BuildOutputInPackage>
+			<BuildOutputInPackage Include="../libs/libgit2-3f4182d.so" TargetPath="libgit2-3f4182d.so">
+				<TargetFramework>net472</TargetFramework>
+			</BuildOutputInPackage>
+			<BuildOutputInPackage Include="../libs/git2-3f4182d.dll" TargetPath="git2-3f4182d.dll">
+				<TargetFramework>net8.0</TargetFramework>
+			</BuildOutputInPackage>
+			<BuildOutputInPackage Include="../libs/libgit2-3f4182d.dylib" TargetPath="libgit2-3f4182d.dylib">
+				<TargetFramework>net8.0</TargetFramework>
+			</BuildOutputInPackage>
+			<BuildOutputInPackage Include="../libs/libgit2-3f4182d.so" TargetPath="libgit2-3f4182d.so">
+				<TargetFramework>net8.0</TargetFramework>
 			</BuildOutputInPackage>
 		</ItemGroup>
 	</Target>
@@ -82,6 +104,14 @@
         for automatic inclusion in the build. -->
 		<Content Include="build\Mister.Version.props" PackagePath="build\" />
 		<Content Include="build\Mister.Version.targets" PackagePath="build\" />
+		
+		<!-- Include native libraries for all platforms -->
+		<Content Include="../libs/git2-3f4182d.dll" PackagePath="tasks/net472/" />
+		<Content Include="../libs/libgit2-3f4182d.dylib" PackagePath="tasks/net472/" />
+		<Content Include="../libs/libgit2-3f4182d.so" PackagePath="tasks/net472/" />
+		<Content Include="../libs/git2-3f4182d.dll" PackagePath="tasks/net8.0/" />
+		<Content Include="../libs/libgit2-3f4182d.dylib" PackagePath="tasks/net8.0/" />
+		<Content Include="../libs/libgit2-3f4182d.so" PackagePath="tasks/net8.0/" />
 	</ItemGroup>
 
 	<ItemGroup>

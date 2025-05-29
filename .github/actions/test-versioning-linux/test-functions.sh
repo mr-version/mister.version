@@ -6,6 +6,9 @@
 RED='\033[0;31m'
 GREEN='\033[0;32m'
 YELLOW='\033[1;33m'
+BLUE="\033[0;34m"
+PURPLE="\033[0;35m"
+CYAN="\033[0;36m"
 NC='\033[0m' # No Color
 
 # Results tracking
@@ -19,7 +22,11 @@ print_status() {
     echo -e "${color}${message}${NC}"
     
     # Also log to results file
-    echo "$message" >> "$RUNNER_TEMP/test-results.txt"
+    if [ -n "$RUNNER_TEMP" ]; then
+        echo "$message" >> "$RUNNER_TEMP/test-results.txt"
+    elif [ -n "$TEST_DIR" ]; then
+        echo "$message" >> "$TEST_DIR/test-results.txt"
+    fi
 }
 
 # Function to create a test project
@@ -57,20 +64,132 @@ run_versioning_tool() {
     local expected_version=$2
     local test_name=$3
     
-    print_status "$YELLOW" "\nRunning test: $test_name"
+    print_status "$YELLOW" "Running test: $test_name"
     print_status "$YELLOW" "Expected version: $expected_version"
-    
+    print_status "$YELLOW" "Repo path: $repo_path"
+
     # Run the versioning tool
-    cd "$repo_path"
-    local output=$("$TOOL_PATH" calculate --repo-root . 2>&1) || true
-    local actual_version=$(echo "$output" | grep -oP "Version: \K[^\s]+" | head -1)
+    print_status "$PURPLE" "Current Directory: $PWD"
+
+    # Find the first .csproj file
+    local project_file=$(find . -name "*.csproj" -type f | head -1)
+    if [ -z "$project_file" ]; then
+        print_status "$RED" "No .csproj file found in $repo_path"
+        return 1
+    fi
     
-    if [ -z "$actual_version" ]; then
-        # Try to extract version from JSON output
-        actual_version=$(echo "$output" | grep -oP '"Version":\s*"\K[^"]+' | head -1)
+    # Build command with prerelease type if set
+    # Build command with prerelease type if set
+    if [ "$USE_DOTNET" = "true" ]; then
+        local display_cmd="dotnet \"$TOOL_PATH\" version --repo \"$repo_path\" --project \"$project_file\""
+    else
+        local display_cmd="\"$TOOL_PATH\" version --repo \"$repo_path\" --project \"$project_file\""
+    fi
+    if [ -n "$PRERELEASE_TYPE" ] && [ "$PRERELEASE_TYPE" != "none" ]; then
+        display_cmd="$display_cmd --prerelease-type $PRERELEASE_TYPE"
+    fi
+    print_status "$BLUE" "Running command: $display_cmd"
+
+    # Run the version command (with prerelease type if set)
+    if [ "$USE_DOTNET" = "true" ]; then
+        local cmd="dotnet \"$TOOL_PATH\" version --repo \"$repo_path\" --project \"$project_file\""
+    else
+        local cmd="\"$TOOL_PATH\" version --repo \"$repo_path\" --project \"$project_file\""
+    fi
+    if [ -n "$PRERELEASE_TYPE" ] && [ "$PRERELEASE_TYPE" != "none" ]; then
+        cmd="$cmd --prerelease-type $PRERELEASE_TYPE"
+    fi
+    local output=$(eval "$cmd 2>&1") || true
+    
+    # Extract version from "Version: X.X.X" format
+    local actual_version=$(echo "$output" | grep "^Version: " | sed 's/Version: //' | tr -d '\r\n' | xargs)
+    
+    # Handle case where version might be "Unknown"
+    if [ "$actual_version" == "Unknown" ]; then
+        actual_version=""
     fi
     
     TOTAL_TESTS=$((TOTAL_TESTS + 1))
+    
+    # Debug output
+    if [ -z "$actual_version" ]; then
+        print_status "$YELLOW" "Debug: Could not extract version from output"
+        print_status "$YELLOW" "Debug: Raw output:"
+        echo "$output"
+    fi
+    
+    if [ "$actual_version" == "$expected_version" ]; then
+        print_status "$GREEN" "✓ PASSED: Got version $actual_version"
+        PASSED_TESTS=$((PASSED_TESTS + 1))
+        
+        # Add to GitHub summary
+        echo "✅ **$test_name**: $actual_version" >> $GITHUB_STEP_SUMMARY
+        return 0
+    else
+        print_status "$RED" "✗ FAILED: Expected $expected_version but got $actual_version"
+        echo "Full output:"
+        echo "$output"
+        
+        # Add to GitHub summary
+        echo "❌ **$test_name**: Expected $expected_version but got $actual_version" >> $GITHUB_STEP_SUMMARY
+        return 1
+    fi
+}
+
+# Function to run versioning tool for monorepo projects
+run_monorepo_versioning_tool() {
+    local repo_path=$1
+    local project_path=$2
+    local expected_version=$3
+    local test_name=$4
+    
+    print_status "$YELLOW" "Running test: $test_name"
+    print_status "$YELLOW" "Expected version: $expected_version"
+    print_status "$YELLOW" "Repo path: $repo_path"
+    print_status "$YELLOW" "Project path: $project_path"
+
+    # Run the versioning tool
+    print_status "$PURPLE" "Current Directory: $PWD"
+    
+    # Build command with prerelease type if set
+    # Build command with prerelease type if set
+    if [ "$USE_DOTNET" = "true" ]; then
+        local display_cmd="dotnet \"$TOOL_PATH\" version --repo \"$repo_path\" --project \"$project_path\""
+    else
+        local display_cmd="\"$TOOL_PATH\" version --repo \"$repo_path\" --project \"$project_path\""
+    fi
+    if [ -n "$PRERELEASE_TYPE" ] && [ "$PRERELEASE_TYPE" != "none" ]; then
+        display_cmd="$display_cmd --prerelease-type $PRERELEASE_TYPE"
+    fi
+    print_status "$BLUE" "Running command: $display_cmd"
+
+    # Run the version command (with prerelease type if set)
+    if [ "$USE_DOTNET" = "true" ]; then
+        local cmd="dotnet \"$TOOL_PATH\" version --repo \"$repo_path\" --project \"$project_path\""
+    else
+        local cmd="\"$TOOL_PATH\" version --repo \"$repo_path\" --project \"$project_path\""
+    fi
+    if [ -n "$PRERELEASE_TYPE" ] && [ "$PRERELEASE_TYPE" != "none" ]; then
+        cmd="$cmd --prerelease-type $PRERELEASE_TYPE"
+    fi
+    local output=$(eval "$cmd 2>&1") || true
+    
+    # Extract version from "Version: X.X.X" format
+    local actual_version=$(echo "$output" | grep "^Version: " | sed 's/Version: //' | tr -d '\r\n' | xargs)
+    
+    # Handle case where version might be "Unknown"
+    if [ "$actual_version" == "Unknown" ]; then
+        actual_version=""
+    fi
+    
+    TOTAL_TESTS=$((TOTAL_TESTS + 1))
+    
+    # Debug output
+    if [ -z "$actual_version" ]; then
+        print_status "$YELLOW" "Debug: Could not extract version from output"
+        print_status "$YELLOW" "Debug: Raw output:"
+        echo "$output"
+    fi
     
     if [ "$actual_version" == "$expected_version" ]; then
         print_status "$GREEN" "✓ PASSED: Got version $actual_version"
@@ -95,6 +214,7 @@ test_initial_repo() {
     local test_name="Initial Repository (No Tags)"
     local repo_dir="$TEST_DIR/test1-initial"
     
+    print_status "$YELLOW" "Creating test repo at: $repo_dir"
     mkdir -p "$repo_dir"
     cd "$repo_dir"
     git init
@@ -106,7 +226,7 @@ test_initial_repo() {
     git add .
     git commit -m "Initial commit"
     
-    run_versioning_tool "$repo_dir" "0.1.0-alpha.1" "$test_name"
+    run_versioning_tool "$repo_dir" "0.1.0" "$test_name"
 }
 
 # Test 2: Repository with a single release tag
@@ -131,7 +251,7 @@ test_single_release_tag() {
     git add .
     git commit -m "Add new feature"
     
-    run_versioning_tool "$repo_dir" "1.0.1-alpha.1" "$test_name"
+    run_versioning_tool "$repo_dir" "1.0.1" "$test_name"
 }
 
 # Test 3: Feature branch versioning
@@ -158,7 +278,7 @@ test_feature_branch() {
     git add .
     git commit -m "Add feature"
     
-    run_versioning_tool "$repo_dir" "1.1.0-new-feature.1" "$test_name"
+    run_versioning_tool "$repo_dir" "1.0.1-new-feature.1" "$test_name"
 }
 
 # Test 4: Release branch versioning
@@ -210,16 +330,82 @@ test_monorepo() {
     # Tag global version
     git tag v1.0.0
     
-    # Tag project-specific version
-    git tag ProjectA/v1.2.0
+    # Tag project-specific versions using new format
+    git tag ProjectA-v1.2.0
+    git tag ProjectB-v1.0.0
+    git tag ProjectC-v1.0.0
     
     # Make changes to ProjectA
     echo "// ProjectA update" >> src/ProjectA/Program.cs
     git add .
     git commit -m "Update ProjectA"
     
-    run_versioning_tool "$repo_dir/src/ProjectA" "1.2.1-alpha.1" "$test_name - ProjectA"
-    run_versioning_tool "$repo_dir/src/ProjectB" "1.0.1-alpha.1" "$test_name - ProjectB"
+    run_monorepo_versioning_tool "$repo_dir" "./src/ProjectA/ProjectA.csproj" "1.2.1" "$test_name - ProjectA"
+    run_monorepo_versioning_tool "$repo_dir" "./src/ProjectB/ProjectB.csproj" "1.0.0" "$test_name - ProjectB"
+    run_monorepo_versioning_tool "$repo_dir" "./src/ProjectC/ProjectC.csproj" "1.0.0" "$test_name - ProjectC"
+}
+
+# Test 5b: Multiple projects in monorepo with dependencies
+test_monorepo_with_dependencies() {
+    local test_name="Monorepo with Dependencies"
+    local repo_dir="$TEST_DIR/test5b-monorepo-deps"
+    
+    mkdir -p "$repo_dir"
+    cd "$repo_dir"
+    git init
+    git config user.email "test@example.com"
+    git config user.name "Test User"
+    
+    # Create ProjectA (base library)
+    create_test_project "ProjectA" "src/ProjectA"
+    
+    # Create ProjectB with dependency on ProjectA
+    mkdir -p "src/ProjectB"
+    cat > "src/ProjectB/ProjectB.csproj" << EOF
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>net8.0</TargetFramework>
+    <IsPackable>true</IsPackable>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="../ProjectA/ProjectA.csproj" />
+  </ItemGroup>
+</Project>
+EOF
+    
+    cat > "src/ProjectB/Program.cs" << EOF
+namespace ProjectB
+{
+    public class Program
+    {
+        public static void Main(string[] args)
+        {
+            Console.WriteLine("Hello from ProjectB");
+            ProjectA.Program.Main(args);
+        }
+    }
+}
+EOF
+
+    # Create ProjectC (standalone)
+    create_test_project "ProjectC" "src/ProjectC"
+    
+    git add .
+    git commit -m "Initial commit with dependencies"
+    
+    # Tag project-specific versions using new format
+    git tag ProjectA-v1.0.0
+    git tag ProjectB-v1.0.0
+    git tag ProjectC-v1.0.0
+    
+    # Make changes to ProjectA (which should trigger ProjectB version bump)
+    echo "// ProjectA update" >> src/ProjectA/Program.cs
+    git add .
+    git commit -m "Update ProjectA"
+    
+    run_monorepo_versioning_tool "$repo_dir" "./src/ProjectA/ProjectA.csproj" "1.0.1" "$test_name - ProjectA"
+    run_monorepo_versioning_tool "$repo_dir" "./src/ProjectB/ProjectB.csproj" "1.0.1" "$test_name - ProjectB (depends on A)"
+    run_monorepo_versioning_tool "$repo_dir" "./src/ProjectC/ProjectC.csproj" "1.0.0" "$test_name - ProjectC (independent)"
 }
 
 # Test 6: Pre-release versions
@@ -271,8 +457,7 @@ test_dev_branch() {
     git add .
     git commit -m "Initial commit"
     
-    # Create main branch and tag
-    git checkout -b main
+    # Tag on the current branch (which is already main)
     git tag v1.0.0
     
     # Create and switch to dev branch
@@ -282,7 +467,7 @@ test_dev_branch() {
     git add .
     git commit -m "Add dev feature"
     
-    run_versioning_tool "$repo_dir" "1.1.0-dev.1" "$test_name"
+    run_versioning_tool "$repo_dir" "1.0.1-dev.1" "$test_name"
 }
 
 # Test 8: Version with build metadata
@@ -292,6 +477,7 @@ test_build_metadata() {
     
     mkdir -p "$repo_dir"
     cd "$repo_dir"
+    git config --global init.defaultBranch main
     git init
     git config user.email "test@example.com"
     git config user.name "Test User"
@@ -307,7 +493,399 @@ test_build_metadata() {
     git commit -m "New build"
     
     # The tool should increment patch and add its own metadata
-    run_versioning_tool "$repo_dir" "1.0.1-alpha.1" "$test_name"
+    run_versioning_tool "$repo_dir" "1.0.1" "$test_name"
+}
+
+# Test 8: Configuration Tests - PrereleaseType=alpha
+test_config_alpha() {
+    local test_name="Configuration: PrereleaseType=alpha"
+    local repo_dir="$TEST_DIR/test8-config-alpha"
+    
+    mkdir -p "$repo_dir"
+    cd "$repo_dir"
+    git init
+    git config user.email "test@example.com"
+    git config user.name "Test User"
+    
+    create_test_project "TestProject" "src/TestProject"
+    
+    git add .
+    git commit -m "Initial commit"
+    
+    # Test with alpha prerelease type - should get 0.1.0-alpha.1 for initial repo
+    run_versioning_tool_with_prerelease "$repo_dir" "alpha" "0.1.0-alpha.1" "$test_name - Initial"
+    
+    # Tag and make another commit
+    git tag v0.1.0-alpha.1
+    echo "// Update" >> src/TestProject/Program.cs
+    git add .
+    git commit -m "Update code"
+    
+    # Should increment to alpha.2
+    run_versioning_tool_with_prerelease "$repo_dir" "alpha" "0.1.0-alpha.2" "$test_name - Increment"
+}
+
+# Test 9: Configuration Tests - PrereleaseType=beta
+test_config_beta() {
+    local test_name="Configuration: PrereleaseType=beta"
+    local repo_dir="$TEST_DIR/test9-config-beta"
+    
+    mkdir -p "$repo_dir"
+    cd "$repo_dir"
+    git init
+    git config user.email "test@example.com"
+    git config user.name "Test User"
+    
+    create_test_project "TestProject" "src/TestProject"
+    
+    git add .
+    git commit -m "Initial commit"
+    git tag v1.0.0
+    
+    echo "// Beta feature" >> src/TestProject/Program.cs
+    git add .
+    git commit -m "Add beta feature"
+    
+    # Should get 1.0.1-beta.1 with beta prerelease type
+    run_versioning_tool_with_prerelease "$repo_dir" "beta" "1.0.1-beta.1" "$test_name"
+}
+
+# Test 10: Configuration Tests - PrereleaseType=rc
+test_config_rc() {
+    local test_name="Configuration: PrereleaseType=rc"
+    local repo_dir="$TEST_DIR/test10-config-rc"
+    
+    mkdir -p "$repo_dir"
+    cd "$repo_dir"
+    git init
+    git config user.email "test@example.com"
+    git config user.name "Test User"
+    
+    create_test_project "TestProject" "src/TestProject"
+    
+    git add .
+    git commit -m "Initial commit"
+    git tag v2.0.0
+    
+    echo "// RC feature" >> src/TestProject/Program.cs
+    git add .
+    git commit -m "Add RC feature"
+    
+    # Should get 2.0.1-rc.1 with rc prerelease type
+    run_versioning_tool_with_prerelease "$repo_dir" "rc" "2.0.1-rc.1" "$test_name"
+}
+
+# Test 11: YAML Configuration Tests
+test_yaml_config() {
+    local test_name="YAML Configuration File"
+    local repo_dir="$TEST_DIR/test11-yaml-config"
+    
+    mkdir -p "$repo_dir"
+    cd "$repo_dir"
+    git init
+    git config user.email "test@example.com"
+    git config user.name "Test User"
+    
+    create_test_project "TestProject" "src/TestProject"
+    
+    # Create YAML config file
+    cat > mister-version.yml << EOF
+tagPrefix: "v"
+prereleaseType: "beta"
+EOF
+    
+    git add .
+    git commit -m "Initial commit with config"
+    
+    # Should use beta from config file
+    run_versioning_tool "$repo_dir" "0.1.0-beta.1" "$test_name"
+}
+
+# Test 12: Force Version Tests
+test_force_version() {
+    local test_name="Force Version Override"
+    local repo_dir="$TEST_DIR/test12-force-version"
+    
+    mkdir -p "$repo_dir"
+    cd "$repo_dir"
+    git init
+    git config user.email "test@example.com"
+    git config user.name "Test User"
+    
+    create_test_project "TestProject" "src/TestProject"
+    
+    git add .
+    git commit -m "Initial commit"
+    git tag v1.0.0
+    
+    echo "// Some changes" >> src/TestProject/Program.cs
+    git add .
+    git commit -m "Some changes"
+    
+    # Force specific version
+    run_versioning_tool_force "$repo_dir" "2.5.0" "2.5.0" "$test_name"
+}
+
+# Test 13: Tag Prefix Variations
+test_tag_prefix() {
+    local test_name="Tag Prefix Variations"
+    local repo_dir="$TEST_DIR/test13-tag-prefix"
+    
+    mkdir -p "$repo_dir"
+    cd "$repo_dir"
+    git init
+    git config user.email "test@example.com"
+    git config user.name "Test User"
+    
+    create_test_project "TestProject" "src/TestProject"
+    
+    git add .
+    git commit -m "Initial commit"
+    git tag release-1.0.0  # Different prefix
+    
+    echo "// Changes" >> src/TestProject/Program.cs
+    git add .
+    git commit -m "Changes"
+    
+    # Test with custom tag prefix
+    run_versioning_tool_with_tag_prefix "$repo_dir" "release-" "1.0.1" "$test_name"
+}
+
+# Test 14: Dependency Tracking
+test_dependency_tracking() {
+    local test_name="Dependency Tracking in Monorepo"
+    local repo_dir="$TEST_DIR/test14-dependencies"
+    
+    mkdir -p "$repo_dir"
+    cd "$repo_dir"
+    git init
+    git config user.email "test@example.com"
+    git config user.name "Test User"
+    
+    # Create projects with dependencies
+    create_test_project "SharedLib" "src/SharedLib"
+    create_test_project "App" "src/App"
+    
+    # Add shared dependency file
+    echo "// Shared utility" > src/SharedLib/Utils.cs
+    
+    git add .
+    git commit -m "Initial commit"
+    git tag v1.0.0
+    
+    # Update shared lib
+    echo "// Updated utility" >> src/SharedLib/Utils.cs
+    git add .
+    git commit -m "Update shared lib"
+    
+    # App should be affected by shared lib changes
+    run_versioning_tool_with_dependencies "$repo_dir" "./src/App/App.csproj" "src/SharedLib" "1.0.1" "$test_name"
+}
+
+# Helper function for prerelease type tests
+run_versioning_tool_with_prerelease() {
+    local repo_dir=$1
+    local prerelease_type=$2
+    local expected_version=$3
+    local test_name=$4
+    
+    echo ""
+    print_status "$CYAN" "Running test: $test_name"
+    print_status "$BLUE" "Expected version: $expected_version"
+    print_status "$PURPLE" "Repo path: $repo_dir"
+    print_status "$PURPLE" "Current Directory: $(pwd)"
+    print_status "$PURPLE" "Prerelease Type: $prerelease_type"
+    
+    # Verify tool exists
+    if [ ! -f "$TOOL_PATH" ]; then
+        print_status "$RED" "Tool not found at: $TOOL_PATH"
+        return 1
+    fi
+    
+    # Check if we need to use dotnet
+    if [ "$USE_DOTNET" = "true" ]; then
+        local cmd="dotnet \"$TOOL_PATH\" version --repo \"$repo_dir\" --project \"./src/TestProject/TestProject.csproj\" --prerelease-type \"$prerelease_type\" --debug"
+    else
+        local cmd="\"$TOOL_PATH\" version --repo \"$repo_dir\" --project \"./src/TestProject/TestProject.csproj\" --prerelease-type \"$prerelease_type\" --debug"
+    fi
+    
+    print_status "$YELLOW" "Running command: $cmd"
+    
+    local output
+    local stderr_file=$(mktemp)
+    output=$(eval $cmd 2>"$stderr_file")
+    local exit_code=$?
+    
+    if [ $exit_code -ne 0 ]; then
+        print_status "$RED" "✗ FAILED: Command failed with exit code $exit_code"
+        echo "Standard output:"
+        echo "$output"
+        echo ""
+        echo "Standard error:"
+        cat "$stderr_file"
+        rm -f "$stderr_file"
+        ((TOTAL_TESTS++))
+        return 1
+    fi
+    rm -f "$stderr_file"
+    
+    # Extract version from output
+    local actual_version=$(echo "$output" | grep "^Version:" | cut -d' ' -f2- | tr -d '\r\n' | xargs)
+    
+    ((TOTAL_TESTS++))
+    
+    if [ "$actual_version" = "$expected_version" ]; then
+        print_status "$GREEN" "✓ PASSED: Got version $actual_version"
+        ((PASSED_TESTS++))
+        echo "✅ **$test_name**: $actual_version" >> $GITHUB_STEP_SUMMARY
+    else
+        print_status "$RED" "✗ FAILED: Expected $expected_version but got $actual_version"
+        echo "Full output:"
+        echo "$output"
+        echo "❌ **$test_name**: Expected $expected_version but got $actual_version" >> $GITHUB_STEP_SUMMARY
+    fi
+}
+
+# Helper function for force version tests
+run_versioning_tool_force() {
+    local repo_dir=$1
+    local force_version=$2
+    local expected_version=$3
+    local test_name=$4
+    
+    echo ""
+    print_status "$CYAN" "Running test: $test_name"
+    print_status "$BLUE" "Expected version: $expected_version"
+    print_status "$PURPLE" "Force Version: $force_version"
+    
+    if [ "$USE_DOTNET" = "true" ]; then
+        local cmd="dotnet \"$TOOL_PATH\" version --repo \"$repo_dir\" --project \"./src/TestProject/TestProject.csproj\" --force-version \"$force_version\""
+    else
+        local cmd="\"$TOOL_PATH\" version --repo \"$repo_dir\" --project \"./src/TestProject/TestProject.csproj\" --force-version \"$force_version\""
+    fi
+    print_status "$YELLOW" "Running command: $cmd"
+    
+    local output
+    output=$(eval $cmd 2>&1)
+    local exit_code=$?
+    
+    if [ $exit_code -ne 0 ]; then
+        print_status "$RED" "✗ FAILED: Command failed with exit code $exit_code"
+        echo "Error output:"
+        echo "$output"
+        ((TOTAL_TESTS++))
+        return 1
+    fi
+    
+    local actual_version=$(echo "$output" | grep "^Version:" | cut -d' ' -f2- | tr -d '\r\n' | xargs)
+    
+    ((TOTAL_TESTS++))
+    
+    if [ "$actual_version" = "$expected_version" ]; then
+        print_status "$GREEN" "✓ PASSED: Got version $actual_version"
+        ((PASSED_TESTS++))
+        echo "✅ **$test_name**: $actual_version" >> $GITHUB_STEP_SUMMARY
+    else
+        print_status "$RED" "✗ FAILED: Expected $expected_version but got $actual_version"
+        echo "Full output:"
+        echo "$output"
+        echo "❌ **$test_name**: Expected $expected_version but got $actual_version" >> $GITHUB_STEP_SUMMARY
+    fi
+}
+
+# Helper function for tag prefix tests
+run_versioning_tool_with_tag_prefix() {
+    local repo_dir=$1
+    local tag_prefix=$2
+    local expected_version=$3
+    local test_name=$4
+    
+    echo ""
+    print_status "$CYAN" "Running test: $test_name"
+    print_status "$BLUE" "Expected version: $expected_version"
+    print_status "$PURPLE" "Tag Prefix: $tag_prefix"
+    
+    if [ "$USE_DOTNET" = "true" ]; then
+        local cmd="dotnet \"$TOOL_PATH\" version --repo \"$repo_dir\" --project \"./src/TestProject/TestProject.csproj\" --tag-prefix \"$tag_prefix\""
+    else
+        local cmd="\"$TOOL_PATH\" version --repo \"$repo_dir\" --project \"./src/TestProject/TestProject.csproj\" --tag-prefix \"$tag_prefix\""
+    fi
+    print_status "$YELLOW" "Running command: $cmd"
+    
+    local output
+    output=$(eval $cmd 2>&1)
+    local exit_code=$?
+    
+    if [ $exit_code -ne 0 ]; then
+        print_status "$RED" "✗ FAILED: Command failed with exit code $exit_code"
+        echo "Error output:"
+        echo "$output"
+        ((TOTAL_TESTS++))
+        return 1
+    fi
+    
+    local actual_version=$(echo "$output" | grep "^Version:" | cut -d' ' -f2- | tr -d '\r\n' | xargs)
+    
+    ((TOTAL_TESTS++))
+    
+    if [ "$actual_version" = "$expected_version" ]; then
+        print_status "$GREEN" "✓ PASSED: Got version $actual_version"
+        ((PASSED_TESTS++))
+        echo "✅ **$test_name**: $actual_version" >> $GITHUB_STEP_SUMMARY
+    else
+        print_status "$RED" "✗ FAILED: Expected $expected_version but got $actual_version"
+        echo "Full output:"
+        echo "$output"
+        echo "❌ **$test_name**: Expected $expected_version but got $actual_version" >> $GITHUB_STEP_SUMMARY
+    fi
+}
+
+# Helper function for dependency tracking tests
+run_versioning_tool_with_dependencies() {
+    local repo_dir=$1
+    local project_path=$2
+    local dependencies=$3
+    local expected_version=$4
+    local test_name=$5
+    
+    echo ""
+    print_status "$CYAN" "Running test: $test_name"
+    print_status "$BLUE" "Expected version: $expected_version"
+    print_status "$PURPLE" "Dependencies: $dependencies"
+    
+    if [ "$USE_DOTNET" = "true" ]; then
+        local cmd="dotnet \"$TOOL_PATH\" version --repo \"$repo_dir\" --project \"$project_path\" --dependencies \"$dependencies\""
+    else
+        local cmd="\"$TOOL_PATH\" version --repo \"$repo_dir\" --project \"$project_path\" --dependencies \"$dependencies\""
+    fi
+    print_status "$YELLOW" "Running command: $cmd"
+    
+    local output
+    output=$(eval $cmd 2>&1)
+    local exit_code=$?
+    
+    if [ $exit_code -ne 0 ]; then
+        print_status "$RED" "✗ FAILED: Command failed with exit code $exit_code"
+        echo "Error output:"
+        echo "$output"
+        ((TOTAL_TESTS++))
+        return 1
+    fi
+    
+    local actual_version=$(echo "$output" | grep "^Version:" | cut -d' ' -f2- | tr -d '\r\n' | xargs)
+    
+    ((TOTAL_TESTS++))
+    
+    if [ "$actual_version" = "$expected_version" ]; then
+        print_status "$GREEN" "✓ PASSED: Got version $actual_version"
+        ((PASSED_TESTS++))
+        echo "✅ **$test_name**: $actual_version" >> $GITHUB_STEP_SUMMARY
+    else
+        print_status "$RED" "✗ FAILED: Expected $expected_version but got $actual_version"
+        echo "Full output:"
+        echo "$output"
+        echo "❌ **$test_name**: Expected $expected_version but got $actual_version" >> $GITHUB_STEP_SUMMARY
+    fi
 }
 
 # Export test summary at the end
