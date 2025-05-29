@@ -62,16 +62,34 @@ function Test-VersioningTool {
     # Run the versioning tool
     Push-Location $RepoPath
     try {
-        $output = & $env:TOOL_PATH calculate --repo-root . 2>&1 | Out-String
-        $actualVersion = if ($output -match 'Version:\s*([^\s]+)') { $matches[1] }
-        if (-not $actualVersion) {
-            # Try to extract version from JSON output
-            if ($output -match '"Version":\s*"([^"]+)"') {
-                $actualVersion = $matches[1]
-            }
+        # Find the first .csproj file
+        $projectFile = Get-ChildItem -Path . -Filter "*.csproj" -Recurse | Select-Object -First 1
+        if (-not $projectFile) {
+            Write-ColorOutput "No .csproj file found in $RepoPath" -Color Red
+            return $false
+        }
+        
+        # Run the version command
+        $output = & $env:TOOL_PATH version --repo $RepoPath --project $projectFile.FullName 2>&1 | Out-String
+        
+        # Extract version from "Version: X.X.X" format
+        if ($output -match 'Version:\s*(.+)$') {
+            $actualVersion = $matches[1].Trim()
+        }
+        
+        # Handle case where version might be "Unknown"
+        if ($actualVersion -eq "Unknown") {
+            $actualVersion = $null
         }
         
         $script:TotalTests++
+        
+        # Debug output
+        if (-not $actualVersion) {
+            Write-ColorOutput "Debug: Could not extract version from output" -Color Yellow
+            Write-ColorOutput "Debug: Raw output:" -Color Yellow
+            Write-Host $output
+        }
         
         if ($actualVersion -eq $ExpectedVersion) {
             Write-ColorOutput "✓ PASSED: Got version $actualVersion" -Color Green
@@ -95,6 +113,61 @@ function Test-VersioningTool {
     }
 }
 
+# Function to run versioning tool for monorepo projects
+function Test-MonorepoVersioningTool {
+    param(
+        [string]$RepoPath,
+        [string]$ProjectPath,
+        [string]$ExpectedVersion,
+        [string]$TestName
+    )
+    
+    Write-ColorOutput "Running test: $TestName" -Color Yellow
+    Write-ColorOutput "Expected version: $ExpectedVersion" -Color Yellow
+    Write-ColorOutput "Repo path: $RepoPath" -Color Yellow
+    Write-ColorOutput "Project path: $ProjectPath" -Color Yellow
+    
+    # Run the version command
+    $output = & $env:TOOL_PATH version --repo $RepoPath --project $ProjectPath 2>&1 | Out-String
+    
+    # Extract version from "Version: X.X.X" format
+    if ($output -match 'Version:\s*(.+)$') {
+        $actualVersion = $matches[1].Trim()
+    }
+    
+    # Handle case where version might be "Unknown"
+    if ($actualVersion -eq "Unknown") {
+        $actualVersion = $null
+    }
+    
+    $script:TotalTests++
+    
+    # Debug output
+    if (-not $actualVersion) {
+        Write-ColorOutput "Debug: Could not extract version from output" -Color Yellow
+        Write-ColorOutput "Debug: Raw output:" -Color Yellow
+        Write-Host $output
+    }
+    
+    if ($actualVersion -eq $ExpectedVersion) {
+        Write-ColorOutput "✓ PASSED: Got version $actualVersion" -Color Green
+        $script:PassedTests++
+        
+        # Add to GitHub summary
+        "✅ **$TestName**: $actualVersion" | Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Encoding utf8 -Append
+        return $true
+    }
+    else {
+        Write-ColorOutput "✗ FAILED: Expected $ExpectedVersion but got $actualVersion" -Color Red
+        Write-Host "Full output:"
+        Write-Host $output
+        
+        # Add to GitHub summary
+        "❌ **$TestName**: Expected $ExpectedVersion but got $actualVersion" | Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Encoding utf8 -Append
+        return $false
+    }
+}
+
 # Test 1: Initial repository with no tags
 function Test-InitialRepo {
     $testName = "Initial Repository (No Tags)"
@@ -103,6 +176,7 @@ function Test-InitialRepo {
     New-Item -ItemType Directory -Path $repoDir -Force | Out-Null
     Push-Location $repoDir
     try {
+        git config --global init.defaultBranch main
         git init | Out-Null
         git config user.email "test@example.com"
         git config user.name "Test User"
@@ -237,15 +311,15 @@ function Test-Monorepo {
         git tag v1.0.0 | Out-Null
         
         # Tag project-specific version
-        git tag ProjectA/v1.2.0 | Out-Null
+        git tag v1.2.0-projecta | Out-Null
         
         # Make changes to ProjectA
         Add-Content -Path "src\ProjectA\Program.cs" -Value "// ProjectA update"
         git add . | Out-Null
         git commit -m "Update ProjectA" | Out-Null
         
-        $result1 = Test-VersioningTool -RepoPath "$repoDir\src\ProjectA" -ExpectedVersion "1.2.1-alpha.1" -TestName "$testName - ProjectA"
-        $result2 = Test-VersioningTool -RepoPath "$repoDir\src\ProjectB" -ExpectedVersion "1.0.1-alpha.1" -TestName "$testName - ProjectB"
+        $result1 = Test-MonorepoVersioningTool -RepoPath $repoDir -ProjectPath ".\src\ProjectA\ProjectA.csproj" -ExpectedVersion "1.2.1-alpha.1" -TestName "$testName - ProjectA"
+        $result2 = Test-MonorepoVersioningTool -RepoPath $repoDir -ProjectPath ".\src\ProjectB\ProjectB.csproj" -ExpectedVersion "1.0.0" -TestName "$testName - ProjectB"
         
         return $result1 -and $result2
     }

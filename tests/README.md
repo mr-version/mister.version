@@ -22,6 +22,8 @@ make unit-test
 
 #### Using Scripts Directly
 
+The test scripts now use the same test functions as the GitHub Actions, ensuring consistency between local and CI testing.
+
 **Linux/macOS:**
 ```bash
 ./test-versioning-scenarios.sh
@@ -36,6 +38,13 @@ make unit-test
 ```bash
 ./test-versioning-scenarios.sh
 ```
+
+**Important Notes:**
+- Tests run in a temporary directory outside the current git repository to avoid interference
+- Linux/macOS tests create directories in `/tmp/mister-version-tests-*`
+- Windows tests create directories in `%TEMP%\mister-version-tests-*`
+- Test directories are automatically cleaned up after test completion
+- The scripts source test functions from `.github/actions/test-versioning-{linux|windows}/test-functions.{sh|ps1}`
 
 ### Test Scenarios
 
@@ -72,6 +81,18 @@ The integration tests cover the following scenarios:
 8. **Version with Build Metadata**
    - Tests handling of versions with build metadata
    - Ensures metadata is properly parsed and handled
+
+## Unified Testing Architecture
+
+The test infrastructure uses a unified approach where:
+- Test logic is defined once in the GitHub Actions composite actions
+- Local test scripts are thin wrappers that source the same functions
+- This ensures consistency between local development and CI/CD testing
+- Updates to test logic only need to be made in one location
+
+### Test Function Locations
+- **Linux/macOS**: `.github/actions/test-versioning-linux/test-functions.sh`
+- **Windows**: `.github/actions/test-versioning-windows/test-functions.ps1`
 
 ## CI/CD Integration
 

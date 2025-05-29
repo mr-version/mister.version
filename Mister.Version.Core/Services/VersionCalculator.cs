@@ -110,14 +110,10 @@ namespace Mister.Version.Core.Services
         private VersionTag DetermineBaseVersion(VersionTag globalTag, VersionTag projectTag, BranchType branchType)
         {
             // If we have a project-specific tag, use it as the base
+            // Project-specific tags always take precedence over global tags
             if (projectTag != null)
             {
-                // Check if the project tag is based on the current global tag
-                if (projectTag.SemVer.Major == globalTag.SemVer.Major &&
-                    projectTag.SemVer.Minor == globalTag.SemVer.Minor)
-                {
-                    return projectTag;
-                }
+                return projectTag;
             }
 
             return globalTag;
@@ -137,12 +133,23 @@ namespace Mister.Version.Core.Services
 
             // Check if the project has any changes since the base tag
             bool hasChanges = false;
-            if (baseVersionTag.Commit != null)
+            bool isInitialRepository = baseVersionTag.Commit == null;
+            
+            if (isInitialRepository)
+            {
+                // For initial repository with no tags, always consider it as having changes
+                hasChanges = true;
+                _logger("Debug", "Initial repository detected (no tags), treating as having changes");
+            }
+            else
             {
                 hasChanges = _gitService.ProjectHasChangedSinceTag(baseVersionTag.Commit, projectPath, 
                     options.Dependencies, options.RepoRoot, options.Debug);
-                
-                // Get commit information
+            }
+            
+            // Get commit information for current HEAD
+            if (_gitService.Repository.Head.Tip != null)
+            {
                 result.CommitSha = _gitService.GetCommitShortHash(_gitService.Repository.Head.Tip);
                 result.CommitDate = _gitService.Repository.Head.Tip.Author.When.DateTime;
                 result.CommitMessage = _gitService.Repository.Head.Tip.MessageShort;
@@ -155,16 +162,57 @@ namespace Mister.Version.Core.Services
                 switch (branchType)
                 {
                     case BranchType.Main:
-                        newVersion.Patch++;
-                        result.ChangeReason = "Main branch: Incrementing patch version due to changes";
-                        _logger("Debug", $"Main branch: Incrementing patch version to {newVersion.Patch}");
+                        // Check if the base version already has a prerelease
+                        if (!string.IsNullOrEmpty(baseVersionTag.SemVer.PreRelease))
+                        {
+                            // Handle prerelease progression (alpha.1 -> alpha.2, etc.)
+                            var prereleaseMatch = System.Text.RegularExpressions.Regex.Match(
+                                baseVersionTag.SemVer.PreRelease, 
+                                @"^(alpha|beta|rc)\.(\d+)$");
+                            
+                            if (prereleaseMatch.Success)
+                            {
+                                var prereleaseType = prereleaseMatch.Groups[1].Value;
+                                var prereleaseNumber = int.Parse(prereleaseMatch.Groups[2].Value);
+                                newVersion.PreRelease = $"{prereleaseType}.{prereleaseNumber + 1}";
+                                result.ChangeReason = $"Main branch: Incrementing {prereleaseType} version";
+                            }
+                            else
+                            {
+                                // Unknown prerelease format, increment patch and reset to alpha.1
+                                newVersion.Patch++;
+                                newVersion.PreRelease = "alpha.1";
+                                result.ChangeReason = "Main branch: Incrementing patch version with alpha prerelease";
+                            }
+                        }
+                        else
+                        {
+                            // No prerelease, increment patch and add alpha.1
+                            if (!isInitialRepository)
+                            {
+                                newVersion.Patch++;
+                            }
+                            newVersion.PreRelease = "alpha.1";
+                            result.ChangeReason = isInitialRepository 
+                                ? "Initial repository: Adding alpha prerelease" 
+                                : "Main branch: Incrementing patch version with alpha prerelease";
+                        }
+                        _logger("Debug", $"Main branch: Version {newVersion.ToVersionString()}");
                         break;
 
                     case BranchType.Dev:
-                        // Dev branches now also increment patch like main branches
-                        newVersion.Patch++;
-                        result.ChangeReason = "Dev branch: Incrementing patch version due to changes";
-                        _logger("Debug", $"Dev branch: Incrementing patch version to {newVersion.Patch}");
+                        // Dev branches increment minor version and add dev prerelease
+                        newVersion.Minor++;
+                        newVersion.Patch = 0; // Reset patch when incrementing minor
+                        
+                        // Calculate commit height from base tag
+                        var devCommitHeight = _gitService.GetCommitHeight(baseVersionTag.Commit);
+                        result.CommitHeight = devCommitHeight;
+                        
+                        // Format: 1.1.0-dev.1 where 1 is commit height
+                        newVersion.PreRelease = $"dev.{devCommitHeight}";
+                        result.ChangeReason = $"Dev branch: Incrementing minor version with dev.{devCommitHeight}";
+                        _logger("Debug", $"Dev branch: Using version {newVersion.ToVersionString()}");
                         break;
 
                     case BranchType.Release:
@@ -173,15 +221,39 @@ namespace Mister.Version.Core.Services
                         {
                             newVersion.Major = releaseVersion.Major;
                             newVersion.Minor = releaseVersion.Minor;
-                            newVersion.Patch++;
-                            result.ChangeReason = $"Release branch: Using version {newVersion.Major}.{newVersion.Minor}.{newVersion.Patch}";
-                            _logger("Debug", $"Release branch: Using version {newVersion.Major}.{newVersion.Minor}.{newVersion.Patch}");
+                            newVersion.Patch = 0; // Reset patch for release branches
+                            
+                            // Calculate RC number based on commits since base tag
+                            var rcNumber = 1; // Default to rc.1
+                            if (!isInitialRepository)
+                            {
+                                var rcCommitHeight = _gitService.GetCommitHeight(baseVersionTag.Commit);
+                                if (rcCommitHeight > 0)
+                                {
+                                    rcNumber = rcCommitHeight;
+                                }
+                            }
+                            
+                            newVersion.PreRelease = $"rc.{rcNumber}";
+                            result.ChangeReason = $"Release branch: Using version {newVersion.Major}.{newVersion.Minor}.{newVersion.Patch}-rc.{rcNumber}";
+                            _logger("Debug", $"Release branch: Using version {newVersion.ToVersionString()}");
                         }
                         break;
 
                     case BranchType.Feature:
-                        // Feature branches include commit height and branch name
-                        var branchNameNormalized = branchName
+                        // Feature branches increment minor version
+                        newVersion.Minor++;
+                        newVersion.Patch = 0; // Reset patch when incrementing minor
+                        
+                        // Extract feature name from branch (remove "feature/" prefix)
+                        var featureName = branchName;
+                        if (featureName.StartsWith("feature/", StringComparison.OrdinalIgnoreCase))
+                        {
+                            featureName = featureName.Substring("feature/".Length);
+                        }
+                        
+                        // Normalize the feature name
+                        featureName = featureName
                             .Replace("/", "-")
                             .Replace("_", "-")
                             .ToLowerInvariant();
@@ -190,13 +262,10 @@ namespace Mister.Version.Core.Services
                         var commitHeight = _gitService.GetCommitHeight(baseVersionTag.Commit);
                         result.CommitHeight = commitHeight;
 
-                        // Generate hash for uniqueness
-                        var hashPart = _gitService.GetCommitShortHash(_gitService.Repository.Head.Tip);
-
-                        // Format: v3.0.4-feature.1-{git-hash} where 1 is commit height
-                        newVersion.PreRelease = $"{branchNameNormalized}.{commitHeight}-{hashPart}";
-                        result.ChangeReason = $"Feature branch: Using pre-release version with commit height {commitHeight}";
-                        _logger("Debug", $"Feature branch: Using pre-release version {newVersion.ToVersionString()}");
+                        // Format: 1.1.0-new-feature.1 where 1 is commit height
+                        newVersion.PreRelease = $"{featureName}.{commitHeight}";
+                        result.ChangeReason = $"Feature branch: Incrementing minor version with pre-release {featureName}.{commitHeight}";
+                        _logger("Debug", $"Feature branch: Using version {newVersion.ToVersionString()}");
                         break;
                 }
             }

@@ -12,7 +12,12 @@ namespace Mister.Version.CLI
     {
         static int Main(string[] args)
         {
-            return Parser.Default.ParseArguments<ReportOptions, VersionOptions>(args)
+            var parser = new Parser(with => {
+                with.EnableDashDash = true;
+                with.AutoVersion = false;
+                with.AutoHelp = true;
+            });
+            return parser.ParseArguments<ReportOptions, VersionOptions>(args)
                 .MapResult(
                     (ReportOptions opts) => RunReportCommand(opts),
                     (VersionOptions opts) => RunVersionCommand(opts),

@@ -85,7 +85,22 @@ namespace Mister.Version.Core.Services
         {
             var globalVersionTags = _repository.Tags
                 .Where(t => t.FriendlyName.StartsWith(tagPrefix, StringComparison.OrdinalIgnoreCase))
-                .Where(t => !t.FriendlyName.Contains("-")) // Exclude project-specific tags
+                .Where(t => {
+                    // Exclude project-specific tags (format: v1.0.0-projectname)
+                    // But include prerelease tags (format: v1.0.0-alpha.1, v1.0.0-beta.2, etc.)
+                    var tagWithoutPrefix = t.FriendlyName.Substring(tagPrefix.Length);
+                    var parsed = ParseSemVer(tagWithoutPrefix);
+                    if (parsed == null) return false;
+                    
+                    // If it has a prerelease part that looks like a project name (no dots), exclude it
+                    if (!string.IsNullOrEmpty(parsed.PreRelease) && !parsed.PreRelease.Contains("."))
+                    {
+                        // This might be a project-specific tag like v1.0.0-projecta
+                        // Check if there's a project with this name
+                        return false;
+                    }
+                    return true;
+                })
                 .Select(t => new VersionTag
                 {
                     Tag = t,
@@ -97,6 +112,8 @@ namespace Mister.Version.Core.Services
                 .OrderByDescending(vt => vt.SemVer.Major)
                 .ThenByDescending(vt => vt.SemVer.Minor)
                 .ThenByDescending(vt => vt.SemVer.Patch)
+                .ThenByDescending(vt => GetPrereleasePrecedence(vt.SemVer.PreRelease))
+                .ThenByDescending(vt => GetPrereleaseNumber(vt.SemVer.PreRelease))
                 .ToList();
 
             // Filter tags based on branch type
@@ -150,6 +167,8 @@ namespace Mister.Version.Core.Services
                 .OrderByDescending(vt => vt.SemVer.Major)
                 .ThenByDescending(vt => vt.SemVer.Minor)
                 .ThenByDescending(vt => vt.SemVer.Patch)
+                .ThenByDescending(vt => GetPrereleasePrecedence(vt.SemVer.PreRelease))
+                .ThenByDescending(vt => GetPrereleaseNumber(vt.SemVer.PreRelease))
                 .ToList();
 
             // Filter tags based on branch type
@@ -345,6 +364,27 @@ namespace Mister.Version.Core.Services
                 return string.Empty;
 
             return path.Replace('\\', '/');
+        }
+
+        private int GetPrereleasePrecedence(string prerelease)
+        {
+            if (string.IsNullOrEmpty(prerelease)) return 999; // No prerelease = highest precedence
+            if (prerelease.StartsWith("rc.")) return 3;
+            if (prerelease.StartsWith("beta.")) return 2;
+            if (prerelease.StartsWith("alpha.")) return 1;
+            return 0; // Unknown prerelease type
+        }
+
+        private int GetPrereleaseNumber(string prerelease)
+        {
+            if (string.IsNullOrEmpty(prerelease)) return 999;
+            
+            var match = Regex.Match(prerelease, @"\.(\d+)");
+            if (match.Success && int.TryParse(match.Groups[1].Value, out var number))
+            {
+                return number;
+            }
+            return 0;
         }
 
         public void Dispose()
