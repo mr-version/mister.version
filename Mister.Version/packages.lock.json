@@ -56,6 +56,12 @@
           "System.ValueTuple": "4.5.0"
         }
       },
+      "YamlDotNet": {
+        "type": "Direct",
+        "requested": "[13.7.1, )",
+        "resolved": "13.7.1",
+        "contentHash": "X4m1PnFcJwvAj1sCDMntg/eZcX96CJLrWMiYnq41KqhFVZPuw63ZTSxIGqgdCwHWHvCAyTxheELC/VDf1HsU2A=="
+      },
       "Microsoft.Bcl.AsyncInterfaces": {
         "type": "Transitive",
         "resolved": "8.0.0",
@@ -148,7 +154,8 @@
         "type": "Project",
         "dependencies": {
           "LibGit2Sharp": "[0.31.0, )",
-          "System.Text.Json": "[8.0.5, )"
+          "System.Text.Json": "[8.0.5, )",
+          "YamlDotNet": "[13.7.1, )"
         }
       }
     },
@@ -202,6 +209,12 @@
         "requested": "[8.0.5, )",
         "resolved": "8.0.5",
         "contentHash": "0f1B50Ss7rqxXiaBJyzUu9bWFOO2/zSlifZ/UNMdiIpDYe4cY4LQQicP4nirK1OS31I43rn062UIJ1Q9bpmHpg=="
+      },
+      "YamlDotNet": {
+        "type": "Direct",
+        "requested": "[13.7.1, )",
+        "resolved": "13.7.1",
+        "contentHash": "X4m1PnFcJwvAj1sCDMntg/eZcX96CJLrWMiYnq41KqhFVZPuw63ZTSxIGqgdCwHWHvCAyTxheELC/VDf1HsU2A=="
       },
       "Microsoft.NET.StringTools": {
         "type": "Transitive",
@@ -283,7 +296,8 @@
         "type": "Project",
         "dependencies": {
           "LibGit2Sharp": "[0.31.0, )",
-          "System.Text.Json": "[8.0.5, )"
+          "System.Text.Json": "[8.0.5, )",
+          "YamlDotNet": "[13.7.1, )"
         }
       }
     }

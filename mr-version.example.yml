@@ -1,0 +1,26 @@
+# Mr. Version Configuration Example
+# This file demonstrates how to configure version behavior for your monorepo
+
+# Base global version used as fallback when no tags or versions are found
+# Applies to all projects including test projects and artifacts normally ignored
+baseVersion: "8.2.0"
+
+# Global settings that apply to all projects
+prereleaseType: none  # Options: none, alpha, beta, rc
+tagPrefix: v         # Prefix for version tags (default: v)
+skipTestProjects: true
+skipNonPackableProjects: true
+
+# Project-specific overrides
+projects:
+  # Example: Force a specific project to use alpha prereleases
+  MyLibrary:
+    prereleaseType: alpha
+  
+  # Example: Pin a specific project to a fixed version
+  LegacyProject:
+    forceVersion: 1.0.0
+  
+  # Example: Project that should use beta prereleases
+  ExperimentalFeature:
+    prereleaseType: beta

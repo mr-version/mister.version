@@ -1,0 +1,8 @@
+{
+  "profiles": {
+    "Mister.Version.CLI": {
+      "commandName": "Project",
+      "commandLineArgs": "report --repo D:\\source\\other\\mr-version\\shared.libs --debug"
+    }
+  }
+}

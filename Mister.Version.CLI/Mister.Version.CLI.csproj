@@ -30,11 +30,19 @@
 		<PackageReference Include="CommandLineParser" Version="2.9.1" />
 		<PackageReference Include="LibGit2Sharp" Version="0.31.0" />
 		<PackageReference Include="System.Text.Json" Version="8.0.5" />
+		<PackageReference Include="YamlDotNet" Version="13.7.1" />
 	</ItemGroup>
 
 	<!-- Reference the core project -->
 	<ItemGroup>
 		<ProjectReference Include="..\Mister.Version.Core\Mister.Version.Core.csproj" />
+	</ItemGroup>
+
+	<!-- Ensure native libraries are copied to output -->
+	<ItemGroup>
+		<None Include="../libs/libgit2-3f4182d.so" CopyToOutputDirectory="PreserveNewest" />
+		<None Include="../libs/libgit2-3f4182d.dylib" CopyToOutputDirectory="PreserveNewest" />
+		<None Include="../libs/git2-3f4182d.dll" CopyToOutputDirectory="PreserveNewest" />
 	</ItemGroup>
 
 </Project>

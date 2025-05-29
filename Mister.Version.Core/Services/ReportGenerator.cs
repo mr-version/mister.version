@@ -58,6 +58,11 @@ namespace Mister.Version.Core.Services
                 sb.AppendLine($"Project: {project.Name}");
                 sb.AppendLine($"  Path: {project.Path}");
                 sb.AppendLine($"  Version: {project.Version?.Version ?? "Unknown"}");
+                sb.AppendLine($"  Previous: {project.Version?.PreviousVersion ?? "N/A"}");
+                if (!string.IsNullOrEmpty(project.Version?.PreviousCommitSha))
+                {
+                    sb.AppendLine($"  Previous Commit: {project.Version.PreviousCommitSha}");
+                }
                 sb.AppendLine($"  Changed: {(project.Version?.VersionChanged == true ? "Yes" : "No")}");
 
                 if (project.Version?.VersionChanged == true && !string.IsNullOrEmpty(project.Version.ChangeReason))
@@ -130,8 +135,8 @@ namespace Mister.Version.Core.Services
                 branchType = report.BranchType.ToString(),
                 globalVersion = report.GlobalVersion?.ToVersionString(),
                 generatedAt = report.GeneratedAt.ToString("yyyy-MM-ddTHH:mm:ssZ"),
-                totalProjects = report.TotalProjects,
-                projectsWithChanges = report.ProjectsWithChanges,
+                totalProjects = filteredProjects.Count,
+                projectsWithChanges = filteredProjects.Count(p => p.Version?.VersionChanged == true),
                 projects = filteredProjects.OrderBy(p => p.Name).Select(p => new
                 {
                     name = p.Name,
@@ -140,6 +145,8 @@ namespace Mister.Version.Core.Services
                     version = new
                     {
                         version = p.Version?.Version,
+                        previousVersion = p.Version?.PreviousVersion,
+                        previousCommitSha = p.Version?.PreviousCommitSha,
                         semVer = p.Version?.SemVer != null ? new
                         {
                             major = p.Version.SemVer.Major,
@@ -196,6 +203,8 @@ namespace Mister.Version.Core.Services
                 "ProjectName",
                 "ProjectPath",
                 "Version",
+                "PreviousVersion",
+                "PreviousCommitSha",
                 "VersionChanged",
                 "ChangeReason"
             };
@@ -222,6 +231,8 @@ namespace Mister.Version.Core.Services
                     EscapeCsv(project.Name),
                     EscapeCsv(project.Path),
                     EscapeCsv(project.Version?.Version ?? ""),
+                    EscapeCsv(project.Version?.PreviousVersion ?? "N/A"),
+                    EscapeCsv(project.Version?.PreviousCommitSha ?? "N/A"),
                     (project.Version?.VersionChanged == true).ToString(),
                     EscapeCsv(project.Version?.ChangeReason ?? "")
                 };

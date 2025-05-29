@@ -35,18 +35,6 @@ jobs:
     - name: Run Unit Tests
       run: dotnet test --no-build --configuration Release --verbosity normal
 
-    - name: Run Integration Tests (Linux/macOS)
-      if: runner.os != 'Windows'
-      uses: ./.github/actions/test-versioning-linux
-      with:
-        dotnet-version: ${{ matrix.dotnet-version }}
-
-    - name: Run Integration Tests (Windows)
-      if: runner.os == 'Windows'
-      uses: ./.github/actions/test-versioning-windows
-      with:
-        dotnet-version: ${{ matrix.dotnet-version }}
-
   versioning-scenarios:
     strategy:
       matrix:

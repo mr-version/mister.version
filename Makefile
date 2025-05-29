@@ -1,6 +1,6 @@
 # Mister.Version Makefile
 
-.PHONY: all build test clean restore unit-test integration-test
+.PHONY: all build test clean restore unit-test integration-test coverage
 
 # Default target
 all: build test
@@ -28,12 +28,14 @@ unit-test: build
 integration-test: build-debug
 	@echo "Running integration tests..."
 	@chmod +x ./test-versioning-scenarios.sh
+	@chmod +x ./.github/actions/test-versioning-linux/test-functions.sh
 	@./test-versioning-scenarios.sh
 
 # Clean build artifacts
 clean:
 	dotnet clean
 	rm -rf test-repos/
+	rm -rf /tmp/mister-version-tests-* 2>/dev/null || true
 	find . -type d -name "bin" -exec rm -rf {} + 2>/dev/null || true
 	find . -type d -name "obj" -exec rm -rf {} + 2>/dev/null || true
 
@@ -43,7 +45,7 @@ run-cli: build-debug
 
 # Package for NuGet
 pack: build
-	dotnet pack --no-build --configuration Release --output ./nupkg
+	dotnet pack --no-restore --configuration Release --output ./nupkg
 
 # Run a quick smoke test
 smoke-test: build-debug
@@ -58,3 +60,18 @@ install-global: pack
 # Uninstall global tool
 uninstall-global:
 	dotnet tool uninstall --global Mister.Version
+
+# Run tests with code coverage
+coverage: build-debug
+	@echo "Running tests with code coverage..."
+	@rm -rf coverage
+	@dotnet test --collect:"XPlat Code Coverage" --results-directory:"coverage" --verbosity:normal
+	@COVERAGE_FILE=$$(find coverage -name "coverage.cobertura.xml" | head -1); \
+	if [ -n "$$COVERAGE_FILE" ]; then \
+		echo "Generating HTML coverage report..."; \
+		reportgenerator "-reports:$$COVERAGE_FILE" "-targetdir:coverage/report" "-reporttypes:Html;HtmlSummary"; \
+		echo "Coverage report generated at: coverage/report/index.html"; \
+	else \
+		echo "Coverage file not found!"; \
+		exit 1; \
+	fi
