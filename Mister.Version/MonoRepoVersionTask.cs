@@ -130,7 +130,7 @@ public class MonoRepoVersionTask : Task
             // Validate required properties
             if (string.IsNullOrEmpty(ProjectPath))
                 throw new InvalidOperationException("ProjectPath is required but was not provided.");
-            
+
             // Use project directory as starting point if RepoRoot is not specified
             var searchStartPath = string.IsNullOrEmpty(RepoRoot) 
                 ? Path.GetDirectoryName(ProjectPath) 
