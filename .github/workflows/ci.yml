@@ -33,7 +33,19 @@ jobs:
       run: dotnet build --no-restore --configuration Release
 
     - name: Run Unit Tests
-      run: dotnet test --no-build --configuration Release --verbosity normal
+      run: |
+        dotnet test --no-build --configuration Release --verbosity normal --logger "trx;LogFileName=test-results.trx"
+        if [ $? -ne 0 ]; then
+          echo "Unit tests failed!"
+          exit 1
+        fi
+    
+    - name: Upload Test Results
+      if: always()
+      uses: actions/upload-artifact@v4
+      with:
+        name: test-results-${{ matrix.os }}
+        path: "**/*.trx"
 
   versioning-scenarios:
     strategy:
@@ -65,6 +77,56 @@ jobs:
       with:
         dotnet-version: '8.0.x'
 
+  regression-tests:
+    runs-on: ubuntu-latest
+    needs: build-and-test
+    
+    steps:
+    - name: Checkout Code
+      uses: actions/checkout@v4
+      with:
+        fetch-depth: 0
+
+    - name: Setup .NET
+      uses: actions/setup-dotnet@v4
+      with:
+        dotnet-version: '8.0.x'
+
+    - name: Restore Dependencies
+      run: dotnet restore
+
+    - name: Build
+      run: dotnet build --no-restore --configuration Release
+
+    - name: Run Version Resolution Tests
+      run: |
+        echo "Running specific version resolution regression tests..."
+        dotnet test --no-build --configuration Release --filter "FullyQualifiedName~VersionResolutionTests" --verbosity detailed
+        if [ $? -ne 0 ]; then
+          echo "Version resolution tests failed!"
+          exit 1
+        fi
+
+    - name: Run Version Calculator Tests
+      run: |
+        echo "Running version calculator tests..."
+        dotnet test --no-build --configuration Release --filter "FullyQualifiedName~VersionCalculatorTests" --verbosity normal
+        if [ $? -ne 0 ]; then
+          echo "Version calculator tests failed!"
+          exit 1
+        fi
+
+    - name: Run Integration Test Suite
+      run: |
+        echo "Running integration test suite..."
+        cd mister.version
+        export USE_DOTNET=true
+        ./test-versioning-scenarios.sh
+        if [ $? -ne 0 ]; then
+          echo "Integration tests failed!"
+          exit 1
+        fi
+
   code-coverage:
     runs-on: ubuntu-latest
     
@@ -86,7 +148,12 @@ jobs:
       run: dotnet build --no-restore --configuration Debug
 
     - name: Test with Coverage
-      run: dotnet test --no-build --configuration Debug --collect:"XPlat Code Coverage" --results-directory ./coverage
+      run: |
+        dotnet test --no-build --configuration Debug --collect:"XPlat Code Coverage" --results-directory ./coverage
+        if [ $? -ne 0 ]; then
+          echo "Tests failed during coverage run!"
+          exit 1
+        fi
 
     - name: Upload Coverage to Codecov
       uses: codecov/codecov-action@v3

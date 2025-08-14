@@ -29,6 +29,23 @@ print_status() {
     fi
 }
 
+# Function to create a versioning repo
+create_versioning_repo() {
+    local repo_dir=$1
+    
+    if [ -d "$repo_dir" ]; then
+        rm -rf "$repo_dir"
+    fi
+    
+    mkdir -p "$repo_dir"
+    cd "$repo_dir"
+    
+    # Initialize git repo
+    git init
+    git config user.email "test@example.com"
+    git config user.name "Test User"
+}
+
 # Function to create a test project
 create_test_project() {
     local project_name=$1

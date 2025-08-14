@@ -26,12 +26,33 @@ jobs:
       run: dotnet build --no-restore --configuration Release
 
     - name: Run Unit Tests
-      run: dotnet test --no-build --configuration Release --verbosity normal
+      run: |
+        echo "Running all unit tests including VersionResolutionTests..."
+        dotnet test --no-build --configuration Release --verbosity normal
+        if [ $? -ne 0 ]; then
+          echo "❌ Unit tests failed! Build will not proceed."
+          exit 1
+        fi
+        echo "✅ All unit tests passed!"
+
+    - name: Run Version Resolution Regression Tests
+      run: |
+        echo "Running specific version resolution tests..."
+        dotnet test --no-build --configuration Release --filter "FullyQualifiedName~VersionResolutionTests" --verbosity normal
+        if [ $? -ne 0 ]; then
+          echo "❌ Version resolution tests failed! Build will not proceed."
+          exit 1
+        fi
+        echo "✅ Version resolution tests passed!"
 
     - name: Run Integration Tests
       uses: ./.github/actions/test-versioning-linux
       with:
         dotnet-version: '8.0.x'
+    
+    - name: Verify All Tests Passed
+      run: |
+        echo "✅ All tests passed successfully! Proceeding with packaging..."
 
     - name: Pack
       run: dotnet pack --no-restore --configuration Release --output ./nupkg

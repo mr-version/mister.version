@@ -1,0 +1,114 @@
+name: Smoke Tests
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+  workflow_dispatch:
+
+jobs:
+  quick-validation:
+    name: Quick Validation Tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    
+    steps:
+    - name: Checkout Code
+      uses: actions/checkout@v4
+      with:
+        fetch-depth: 0
+
+    - name: Setup .NET
+      uses: actions/setup-dotnet@v4
+      with:
+        dotnet-version: '8.0.x'
+
+    - name: Restore Dependencies
+      run: dotnet restore
+
+    - name: Build
+      run: dotnet build --no-restore --configuration Release
+
+    - name: Run Critical Unit Tests
+      run: |
+        echo "Running critical unit tests..."
+        
+        # Run VersionResolutionTests (new critical tests)
+        dotnet test --no-build --configuration Release --filter "FullyQualifiedName~VersionResolutionTests" --verbosity minimal
+        if [ $? -ne 0 ]; then
+          echo "❌ CRITICAL: Version resolution tests failed!"
+          exit 1
+        fi
+        
+        # Run VersionCalculatorTests
+        dotnet test --no-build --configuration Release --filter "FullyQualifiedName~VersionCalculatorTests" --verbosity minimal
+        if [ $? -ne 0 ]; then
+          echo "❌ CRITICAL: Version calculator tests failed!"
+          exit 1
+        fi
+        
+        # Run SemVerTests
+        dotnet test --no-build --configuration Release --filter "FullyQualifiedName~SemVerTests" --verbosity minimal
+        if [ $? -ne 0 ]; then
+          echo "❌ CRITICAL: SemVer tests failed!"
+          exit 1
+        fi
+        
+        echo "✅ All critical tests passed!"
+
+    - name: Quick Integration Test
+      run: |
+        echo "Running quick integration test..."
+        cd mister.version
+        
+        # Create a simple test repo
+        TEST_DIR=$(mktemp -d)
+        cd $TEST_DIR
+        
+        # Initialize git
+        git init
+        git config user.email "test@example.com"
+        git config user.name "Test User"
+        
+        # Create a test project
+        mkdir -p src/TestProject
+        cat > src/TestProject/TestProject.csproj << EOF
+        <Project Sdk="Microsoft.NET.Sdk">
+          <PropertyGroup>
+            <TargetFramework>net8.0</TargetFramework>
+          </PropertyGroup>
+        </Project>
+        EOF
+        
+        echo "namespace TestProject { public class Program { } }" > src/TestProject/Program.cs
+        
+        # Commit
+        git add .
+        git commit -m "Initial commit"
+        
+        # Test version calculation
+        TOOL_PATH="$GITHUB_WORKSPACE/mister.version/Mister.Version.CLI/bin/Release/net8.0/mr-version.dll"
+        VERSION=$(dotnet "$TOOL_PATH" version --repo . --project ./src/TestProject/TestProject.csproj | grep "^Version:" | cut -d' ' -f2)
+        
+        if [ "$VERSION" != "0.1.0" ]; then
+          echo "❌ CRITICAL: Expected version 0.1.0 but got $VERSION"
+          exit 1
+        fi
+        
+        echo "✅ Quick integration test passed!"
+        
+        # Cleanup
+        cd /
+        rm -rf $TEST_DIR
+
+    - name: Summary
+      if: always()
+      run: |
+        echo "## Smoke Test Summary" >> $GITHUB_STEP_SUMMARY
+        echo "" >> $GITHUB_STEP_SUMMARY
+        if [ $? -eq 0 ]; then
+          echo "✅ **All smoke tests passed!**" >> $GITHUB_STEP_SUMMARY
+          echo "The PR is safe to review." >> $GITHUB_STEP_SUMMARY
+        else
+          echo "❌ **Smoke tests failed!**" >> $GITHUB_STEP_SUMMARY
+          echo "Please fix the failing tests before merging." >> $GITHUB_STEP_SUMMARY
+        fi
