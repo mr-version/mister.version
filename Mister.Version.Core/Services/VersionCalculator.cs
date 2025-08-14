@@ -164,8 +164,26 @@ namespace Mister.Version.Core.Services
 
         private VersionTag DetermineBaseVersion(VersionTag globalTag, VersionTag projectTag, BranchType branchType)
         {
-            // If we have a project-specific tag, use it as the base
-            // Project-specific tags always take precedence over global tags
+            // If we have both tags, compare them and use the higher version
+            if (projectTag != null && globalTag != null)
+            {
+                // Compare major and minor versions to determine if global is a newer release cycle
+                var projectVersion = projectTag.SemVer;
+                var globalVersion = globalTag.SemVer;
+                
+                // If global version is higher in major or minor version, use it (new release cycle)
+                if (globalVersion.Major > projectVersion.Major || 
+                    (globalVersion.Major == projectVersion.Major && globalVersion.Minor > projectVersion.Minor))
+                {
+                    _logger("Debug", $"Using global version {globalVersion.ToVersionString()} over project version {projectVersion.ToVersionString()} (new release cycle)");
+                    return globalTag;
+                }
+                
+                // Otherwise, use project tag (normal incremental versioning)
+                return projectTag;
+            }
+            
+            // If we only have a project-specific tag, use it
             if (projectTag != null)
             {
                 return projectTag;
