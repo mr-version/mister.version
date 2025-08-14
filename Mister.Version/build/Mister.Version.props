@@ -5,7 +5,9 @@
   <PropertyGroup>
     <AppSettingStronglyTyped_TFM Condition=" '$(MSBuildRuntimeType)' != 'Core' ">net472</AppSettingStronglyTyped_TFM>
     <AppSettingStronglyTyped_TFM Condition=" '$(MSBuildRuntimeType)' == 'Core' ">net8.0</AppSettingStronglyTyped_TFM>
-    <MonoRepoVersioningEnabled Condition="'$(IsTestProject)' == 'true' or '$(IsPackable)'=='false'">false</MonoRepoVersioningEnabled>
+    <!-- CRITICAL: Disable for test projects immediately -->
+    <MonoRepoVersioningEnabled Condition="'$(IsTestProject)' == 'true'">false</MonoRepoVersioningEnabled>
+    <MonoRepoVersioningEnabled Condition="'$(IsPackable)'=='false'">false</MonoRepoVersioningEnabled>
     <MonoRepoVersioningEnabled Condition="'$(MonoRepoVersioningEnabled)' == ''">true</MonoRepoVersioningEnabled>
     <MonoRepoRoot Condition="'$(MonoRepoRoot)' == ''">$(ProjectDir)</MonoRepoRoot>
     <MonoRepoTagPrefix Condition="'$(MonoRepoTagPrefix)' == ''">v</MonoRepoTagPrefix>
@@ -28,5 +30,9 @@
   <PropertyGroup>
     <SanitizedProjectName>$(MSBuildProjectName.Replace(".", "_"))</SanitizedProjectName>
   </PropertyGroup>
+
+  <!-- Import early version calculation props if available -->
+  <Import Project="$(IntermediateOutputPath)$(MSBuildProjectName).version.props" 
+          Condition="'$(MonoRepoVersioningEnabled)'=='true' and '$(IsPackable)' == 'true' and Exists('$(IntermediateOutputPath)$(MSBuildProjectName).version.props')" />
 
 </Project>
