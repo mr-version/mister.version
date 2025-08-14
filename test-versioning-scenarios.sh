@@ -18,8 +18,12 @@ if [ -z "$TEST_DIR" ]; then
     }
 fi
 
-# Ensure TOOL_PATH is absolute
-export TOOL_PATH="${TOOL_PATH:-$ORIGINAL_DIR/Mister.Version.CLI/bin/Debug/net8.0/mr-version}"
+# Ensure TOOL_PATH is absolute and set correct extension based on environment
+if [ "$USE_DOTNET" = "true" ]; then
+    export TOOL_PATH="${TOOL_PATH:-$ORIGINAL_DIR/Mister.Version.CLI/bin/Debug/net8.0/mr-version.dll}"
+else
+    export TOOL_PATH="${TOOL_PATH:-$ORIGINAL_DIR/Mister.Version.CLI/bin/Debug/net8.0/mr-version}"
+fi
 export RUNNER_TEMP="${RUNNER_TEMP:-/tmp}"
 export GITHUB_STEP_SUMMARY="${GITHUB_STEP_SUMMARY:-/dev/null}"
 
@@ -87,6 +91,9 @@ main() {
     test_force_version
     test_tag_prefix
     test_dependency_tracking
+    test_global_vs_project_tags
+    test_new_release_cycle_detection
+    test_config_baseversion_scenarios
     
     # Export summary
     export_test_summary

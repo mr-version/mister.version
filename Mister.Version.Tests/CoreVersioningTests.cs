@@ -174,6 +174,7 @@ namespace Mister.Version.Tests
         public VersionTag ProjectVersionTagOverride { get; set; }
         public bool HasChangesOverride { get; set; } = true;
         public int CommitHeightOverride { get; set; } = 1;
+        public System.Func<BranchType, VersionOptions, VersionTag> GetGlobalVersionTagOverride { get; set; }
 
         public virtual BranchType GetBranchType(string branchName)
         {
@@ -241,7 +242,8 @@ namespace Mister.Version.Tests
         }
 
         // Implement other interface members as needed for testing
-        public virtual VersionTag GetGlobalVersionTag(BranchType branchType, VersionOptions options) => GlobalVersionTagOverride;
+        public virtual VersionTag GetGlobalVersionTag(BranchType branchType, VersionOptions options) => 
+            GetGlobalVersionTagOverride?.Invoke(branchType, options) ?? GlobalVersionTagOverride;
         public virtual VersionTag GetProjectVersionTag(string projectName, BranchType branchType, string tagPrefix) => ProjectVersionTagOverride;
         public virtual bool ProjectHasChangedSinceTag(LibGit2Sharp.Commit tagCommit, string projectPath, System.Collections.Generic.List<string> dependencies, string repoRoot, bool debug = false) => HasChangesOverride;
         public virtual int GetCommitHeight(LibGit2Sharp.Commit fromCommit, LibGit2Sharp.Commit toCommit = null) => CommitHeightOverride;

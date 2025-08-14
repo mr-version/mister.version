@@ -905,3 +905,190 @@ export_test_summary() {
         exit 1
     fi
 }
+
+# Test global vs project tag priority scenarios
+test_global_vs_project_tags() {
+    local test_name="Global vs Project Tag Priority"
+    local repo_dir="$TEST_DIR/global-vs-project-test"
+    
+    print_status "$CYAN" "=== Testing $test_name ==="
+    
+    # Create a fresh repo
+    create_versioning_repo "$repo_dir"
+    cd "$repo_dir"
+    
+    # Create test project
+    create_test_project "TestProject" "src/TestProject"
+    
+    # Create global version tag (v2.0.0)
+    git add .
+    git commit -m "Initial commit"
+    git tag v2.0.0
+    
+    # Create project-specific tag that is higher
+    git tag v2.5.0-testproject
+    
+    # Add changes to test project
+    echo "// Updated" >> src/TestProject/Program.cs
+    git add .
+    git commit -m "Update TestProject"
+    
+    # Should use project tag (higher version) -> 2.5.1
+    run_versioning_tool "$repo_dir" "2.5.1" "Project tag takes precedence when higher"
+    
+    # Create a global tag that is higher than project tag
+    git tag v3.0.0
+    
+    # Make another change
+    echo "// Another update" >> src/TestProject/Program.cs
+    git add .
+    git commit -m "Another update"
+    
+    # Should use global tag (higher version) -> 3.0.1
+    run_versioning_tool "$repo_dir" "3.0.1" "Global tag takes precedence when higher"
+}
+
+# Test new release cycle detection
+test_new_release_cycle_detection() {
+    local test_name="New Release Cycle Detection"
+    local repo_dir="$TEST_DIR/new-release-cycle-test"
+    
+    print_status "$CYAN" "=== Testing $test_name ==="
+    
+    # Create a fresh repo
+    create_versioning_repo "$repo_dir"
+    cd "$repo_dir"
+    
+    # Create test project
+    create_test_project "TestProject" "src/TestProject"
+    
+    # Simulate existing project tags (older release cycle)
+    git add .
+    git commit -m "Initial commit"
+    git tag v1.5.3-testproject
+    
+    # Create global tag for new release cycle (major version bump)
+    git tag v2.0.0
+    
+    # Add changes to test project
+    echo "// Updated for v2" >> src/TestProject/Program.cs
+    git add .
+    git commit -m "Update for v2.0.0"
+    
+    # Should detect new release cycle and use global tag -> 2.0.1
+    run_versioning_tool "$repo_dir" "2.0.1" "New major release cycle detected"
+    
+    # Test minor version new release cycle
+    git tag v2.1.0  # New minor version
+    
+    echo "// Updated for v2.1" >> src/TestProject/Program.cs
+    git add .
+    git commit -m "Update for v2.1.0"
+    
+    # Should use new minor release cycle -> 2.1.1
+    run_versioning_tool "$repo_dir" "2.1.1" "New minor release cycle detected"
+}
+
+# Test mr-version.yml baseVersion scenarios
+test_config_baseversion_scenarios() {
+    local test_name="Config BaseVersion Scenarios"
+    local repo_dir="$TEST_DIR/config-baseversion-test"
+    
+    print_status "$CYAN" "=== Testing $test_name ==="
+    
+    # Create a fresh repo
+    create_versioning_repo "$repo_dir"
+    cd "$repo_dir"
+    
+    # Create test project
+    create_test_project "TestProject" "src/TestProject"
+    
+    # Create project tag
+    git add .
+    git commit -m "Initial commit"
+    git tag v1.2.3-testproject
+    
+    # Create mr-version.yml with higher baseVersion
+    cat > mr-version.yml << EOF
+baseVersion: "2.0.0"
+prereleaseType: none
+defaultIncrement: patch
+EOF
+    
+    # Add changes
+    echo "// Updated" >> src/TestProject/Program.cs
+    git add .
+    git commit -m "Update project"
+    
+    # Should use config baseVersion (new release cycle) -> 2.0.1
+    run_versioning_tool "$repo_dir" "2.0.1" "Config baseVersion creates new release cycle"
+    
+    # Test with prerelease
+    cat > mr-version.yml << EOF
+baseVersion: "3.0.0"
+prereleaseType: alpha
+defaultIncrement: patch
+EOF
+    
+    echo "// Alpha update" >> src/TestProject/Program.cs
+    git add .
+    git commit -m "Alpha update"
+    
+    # Should use config baseVersion with alpha -> 3.0.1-alpha.1
+    run_versioning_tool_with_config "$repo_dir" "alpha" "3.0.1-alpha.1" "Config baseVersion with prerelease"
+}
+
+# Helper function for config-based tests
+run_versioning_tool_with_config() {
+    local repo_dir=$1
+    local prerelease_type=$2
+    local expected_version=$3
+    local test_name=$4
+    
+    echo ""
+    print_status "$CYAN" "Running test: $test_name"
+    print_status "$BLUE" "Expected version: $expected_version"
+    print_status "$PURPLE" "Prerelease type: $prerelease_type"
+    
+    if [ "$USE_DOTNET" = "true" ]; then
+        local cmd="dotnet \"$TOOL_PATH\" version --repo \"$repo_dir\" --project \"./src/TestProject/TestProject.csproj\" --prerelease-type \"$prerelease_type\" --debug"
+    else
+        local cmd="\"$TOOL_PATH\" version --repo \"$repo_dir\" --project \"./src/TestProject/TestProject.csproj\" --prerelease-type \"$prerelease_type\" --debug"
+    fi
+    
+    print_status "$YELLOW" "Running command: $cmd"
+    
+    local output
+    local stderr_file=$(mktemp)
+    output=$(eval $cmd 2>"$stderr_file")
+    local exit_code=$?
+    
+    if [ $exit_code -ne 0 ]; then
+        print_status "$RED" "✗ FAILED: Command failed with exit code $exit_code"
+        echo "Standard output:"
+        echo "$output"
+        echo ""
+        echo "Standard error:"
+        cat "$stderr_file"
+        rm -f "$stderr_file"
+        ((TOTAL_TESTS++))
+        return 1
+    fi
+    rm -f "$stderr_file"
+    
+    # Extract version from output
+    local actual_version=$(echo "$output" | grep "^Version:" | cut -d' ' -f2- | tr -d '\r\n' | xargs)
+    
+    ((TOTAL_TESTS++))
+    
+    if [ "$actual_version" = "$expected_version" ]; then
+        print_status "$GREEN" "✓ PASSED: Got version $actual_version"
+        ((PASSED_TESTS++))
+        echo "✅ **$test_name**: $actual_version" >> $GITHUB_STEP_SUMMARY
+    else
+        print_status "$RED" "✗ FAILED: Expected $expected_version but got $actual_version"
+        echo "Full output:"
+        echo "$output"
+        echo "❌ **$test_name**: Expected $expected_version but got $actual_version" >> $GITHUB_STEP_SUMMARY
+    fi
+}

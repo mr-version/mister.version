@@ -438,7 +438,7 @@ namespace Mister.Version.Core.Services
             
             if (projectTag != null)
             {
-                _logger("Debug", $"Project version tag: {projectTag.Tag.FriendlyName} -> {projectTag.SemVer.ToVersionString()}");
+                _logger("Debug", $"Project version tag: {projectTag.Tag?.FriendlyName ?? "Default"} -> {projectTag.SemVer.ToVersionString()}");
             }
             
             _logger("Debug", $"Base version: {baseTag.SemVer.ToVersionString()} (from {(baseTag.IsGlobal ? "global" : "project")} tag)");
