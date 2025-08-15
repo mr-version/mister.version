@@ -75,7 +75,7 @@ jobs:
       if: always()
       with:
         name: integration-test-results
-        path: "/tmp/test-results.txt"
+        path: "${{ runner.temp }}/test-results.txt"
 
   regression-tests:
     name: Regression Tests
