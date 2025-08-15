@@ -3,7 +3,7 @@
 		<TargetFrameworks>net472;net8.0</TargetFrameworks>
 		<LangVersion>latest</LangVersion>
 		<IsPackable>true</IsPackable>
-		<Version>2.0.0</Version>
+		<Version>2.1.0</Version>
 		<Title>Mister.Version</Title>
 		<Description>Generates versions independently for C# projects in a mono-repo with enhanced dev and feature branch support.</Description>
 		<PackageTags>versioning;git;monorepo;csharp;msbuild</PackageTags>
