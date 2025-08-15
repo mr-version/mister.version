@@ -94,8 +94,9 @@ namespace Mister.Version.Core.Services
             var isTestProject = IsTestProject(projectContent);
             var isPackable = IsPackable(projectContent);
 
-            // Get dependencies
+            // Get dependencies (including transitive)
             var dependencies = GetProjectDependencies(projectPath, repositoryPath);
+            var transitiveDependencies = GetTransitiveDependencies(projectPath, repositoryPath, dependencies);
 
             // Calculate version using the version calculator
             var versionOptions = new VersionOptions
@@ -103,7 +104,7 @@ namespace Mister.Version.Core.Services
                 RepoRoot = repositoryPath,
                 ProjectPath = projectPath,
                 ProjectName = projectName,
-                Dependencies = dependencies,
+                Dependencies = transitiveDependencies,
                 IsTestProject = isTestProject,
                 IsPackable = isPackable,
                 BaseVersion = additionalOptions.BaseVersion
@@ -186,6 +187,76 @@ namespace Mister.Version.Core.Services
             }
 
             return dependencies;
+        }
+
+        private List<string> GetTransitiveDependencies(string projectPath, string repositoryPath, List<string> directDependencies)
+        {
+            try
+            {
+                // For performance, we'll do a lightweight discovery of all projects in the repo
+                var allProjects = DiscoverAllProjects(repositoryPath);
+                // Build a lookup of project name -> project info
+                var projectLookup = new Dictionary<string, (string Path, List<string> Dependencies)>(StringComparer.OrdinalIgnoreCase);
+                
+                foreach (var proj in allProjects)
+                {
+                    var projName = Path.GetFileNameWithoutExtension(proj);
+                    var projDeps = GetProjectDependencies(proj, repositoryPath);
+                    projectLookup[projName] = (proj, projDeps);
+                }
+                
+                // Build transitive dependencies for our target project
+                var targetProjectName = Path.GetFileNameWithoutExtension(projectPath);
+                var transitiveDeps = new List<string>();
+                var visited = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+                
+                BuildTransitiveDependencyList(targetProjectName, projectLookup, transitiveDeps, visited);
+                
+                return transitiveDeps;
+            }
+            catch (Exception ex)
+            {
+                _logger("Warning", $"Failed to calculate transitive dependencies for {projectPath}: {ex.Message}");
+                // Fallback to direct dependencies only
+                return directDependencies;
+            }
+        }
+
+        private void BuildTransitiveDependencyList(string projectName, Dictionary<string, (string Path, List<string> Dependencies)> projectLookup, List<string> result, HashSet<string> visited)
+        {
+            if (visited.Contains(projectName))
+                return; // Avoid circular dependencies
+
+            visited.Add(projectName);
+
+            if (projectLookup.TryGetValue(projectName, out var projectInfo))
+            {
+                foreach (var depPath in projectInfo.Dependencies)
+                {
+                    if (!result.Contains(depPath))
+                    {
+                        result.Add(depPath);
+                    }
+                    
+                    // Recursively add transitive dependencies
+                    var depName = Path.GetFileNameWithoutExtension(depPath);
+                    BuildTransitiveDependencyList(depName, projectLookup, result, visited);
+                }
+            }
+        }
+
+        private List<string> DiscoverAllProjects(string repositoryPath)
+        {
+            var projects = new List<string>();
+            var projectExtensions = new[] { "*.csproj", "*.fsproj", "*.vbproj" };
+            
+            foreach (var extension in projectExtensions)
+            {
+                var foundProjects = Directory.GetFiles(repositoryPath, extension, SearchOption.AllDirectories);
+                projects.AddRange(foundProjects);
+            }
+            
+            return projects;
         }
 
         public void BuildDependencyGraph(List<ProjectInfo> projects)

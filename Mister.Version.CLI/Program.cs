@@ -597,7 +597,8 @@ namespace Mister.Version.CLI
                 {
                     try
                     {
-                        dependencies = projectAnalyzer.GetProjectDependencies(_options.ProjectPath, gitRepoRoot);
+                        var directDependencies = projectAnalyzer.GetProjectDependencies(_options.ProjectPath, gitRepoRoot);
+                        dependencies = GetTransitiveDependencies(_options.ProjectPath, gitRepoRoot, directDependencies, projectAnalyzer, logger);
                         
                         if (dependencies.Count > 0)
                         {
@@ -767,6 +768,76 @@ namespace Mister.Version.CLI
 
             return testFrameworks.Any(framework => 
                 Regex.IsMatch(projectContent, $@"<PackageReference[^>]+Include\s*=\s*""{Regex.Escape(framework)}""", RegexOptions.IgnoreCase));
+        }
+
+        private List<string> GetTransitiveDependencies(string projectPath, string repositoryPath, List<string> directDependencies, IProjectAnalyzer projectAnalyzer, Action<string, string> logger)
+        {
+            try
+            {
+                // Discover all projects in the repository
+                var allProjects = DiscoverAllProjects(repositoryPath);
+                // Build a lookup of project name -> project info
+                var projectLookup = new Dictionary<string, (string Path, List<string> Dependencies)>(StringComparer.OrdinalIgnoreCase);
+                
+                foreach (var proj in allProjects)
+                {
+                    var projName = Path.GetFileNameWithoutExtension(proj);
+                    var projDeps = projectAnalyzer.GetProjectDependencies(proj, repositoryPath);
+                    projectLookup[projName] = (proj, projDeps);
+                }
+                
+                // Build transitive dependencies for our target project
+                var targetProjectName = Path.GetFileNameWithoutExtension(projectPath);
+                var transitiveDeps = new List<string>();
+                var visited = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+                
+                BuildTransitiveDependencyList(targetProjectName, projectLookup, transitiveDeps, visited);
+                
+                return transitiveDeps;
+            }
+            catch (Exception ex)
+            {
+                logger("Warning", $"Failed to calculate transitive dependencies for {projectPath}: {ex.Message}");
+                // Fallback to direct dependencies only
+                return directDependencies;
+            }
+        }
+
+        private void BuildTransitiveDependencyList(string projectName, Dictionary<string, (string Path, List<string> Dependencies)> projectLookup, List<string> result, HashSet<string> visited)
+        {
+            if (visited.Contains(projectName))
+                return; // Avoid circular dependencies
+
+            visited.Add(projectName);
+
+            if (projectLookup.TryGetValue(projectName, out var projectInfo))
+            {
+                foreach (var depPath in projectInfo.Dependencies)
+                {
+                    if (!result.Contains(depPath))
+                    {
+                        result.Add(depPath);
+                    }
+                    
+                    // Recursively add transitive dependencies
+                    var depName = Path.GetFileNameWithoutExtension(depPath);
+                    BuildTransitiveDependencyList(depName, projectLookup, result, visited);
+                }
+            }
+        }
+
+        private List<string> DiscoverAllProjects(string repositoryPath)
+        {
+            var projects = new List<string>();
+            var projectExtensions = new[] { "*.csproj", "*.fsproj", "*.vbproj" };
+            
+            foreach (var extension in projectExtensions)
+            {
+                var foundProjects = Directory.GetFiles(repositoryPath, extension, SearchOption.AllDirectories);
+                projects.AddRange(foundProjects);
+            }
+            
+            return projects;
         }
 
         private bool IsPackable(string projectContent)
