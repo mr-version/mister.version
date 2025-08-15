@@ -289,39 +289,63 @@ namespace Mister.Version.Core.Services
                 }
                 else
                 {
-                    // First use of this base version - but should we increment?
-                    // If there are commits in the project path, we should increment
-                    // This handles the case where config is added to an existing project with changes
-                    hasChanges = true;
+                    // First use of this base version - check if the project itself has changes
+                    // We need to find the last commit that had a tag (any tag) to use as a baseline
+                    LibGit2Sharp.Commit lastTaggedCommit = null;
                     
-                    // Check if there are any commits that touched the project
-                    var projectHasCommits = false;
-                    try
+                    // Try to find the most recent tag commit (global or project-specific)
+                    foreach (var tag in _gitService.Repository.Tags.OrderByDescending(t => (t.Target as LibGit2Sharp.Commit)?.Author.When))
                     {
-                        var filter = new LibGit2Sharp.CommitFilter
+                        var tagCommit = tag.Target as LibGit2Sharp.Commit;
+                        if (tagCommit != null)
                         {
-                            IncludeReachableFrom = _gitService.Repository.Head
-                        };
-                        var commits = _gitService.Repository.Commits.QueryBy(filter);
-                        projectHasCommits = commits.Any();
-                    }
-                    catch
-                    {
-                        projectHasCommits = true; // Assume there are commits if we can't check
+                            lastTaggedCommit = tagCommit;
+                            break;
+                        }
                     }
                     
-                    if (!projectHasCommits)
+                    if (lastTaggedCommit != null)
                     {
-                        // Truly initial repository, use base version as-is
-                        result.VersionChanged = true;
-                        result.ChangeReason = "New base version from configuration (initial repository)";
-                        result.SemVer = baseVersionTag.SemVer.Clone();
-                        result.Version = result.SemVer.ToVersionString();
-                        _logger("Debug", $"Using base version from config (initial): {result.Version}");
-                        return result;
+                        // Check if the project has changes since the last tagged commit
+                        hasChanges = _gitService.ProjectHasChangedSinceTag(lastTaggedCommit, projectPath, 
+                            options.Dependencies, options.RepoRoot, options.Debug);
+                        _logger("Debug", $"Checking changes since last tag for {projectName}: {hasChanges}");
                     }
-                    // Otherwise, let it continue to increment logic
-                    _logger("Debug", $"Base version from config with existing commits, will increment");
+                    else
+                    {
+                        // No tags at all in the repository - check if there are any commits
+                        var projectHasCommits = false;
+                        try
+                        {
+                            var filter = new LibGit2Sharp.CommitFilter
+                            {
+                                IncludeReachableFrom = _gitService.Repository.Head
+                            };
+                            var commits = _gitService.Repository.Commits.QueryBy(filter);
+                            projectHasCommits = commits.Any();
+                        }
+                        catch
+                        {
+                            projectHasCommits = true; // Assume there are commits if we can't check
+                        }
+                        
+                        if (!projectHasCommits)
+                        {
+                            // Truly initial repository, use base version as-is
+                            result.VersionChanged = true;
+                            result.ChangeReason = "New base version from configuration (initial repository)";
+                            result.SemVer = baseVersionTag.SemVer.Clone();
+                            result.Version = result.SemVer.ToVersionString();
+                            _logger("Debug", $"Using base version from config (initial): {result.Version}");
+                            return result;
+                        }
+                        else
+                        {
+                            // Has commits but no tags - consider it as having changes for initial version
+                            hasChanges = true;
+                            _logger("Debug", $"Repository has commits but no tags, treating as having changes");
+                        }
+                    }
                 }
             }
             else
