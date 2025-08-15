@@ -359,6 +359,224 @@ namespace Mister.Version.Tests
             // Should handle invalid prerelease types without crashing
         }
 
+        [Fact]
+        public void HotfixBranch_TreatedAsFeatureBranch()
+        {
+            // Arrange
+            var mockGitService = new MockGitService
+            {
+                CurrentBranchOverride = "hotfix/critical-bug"
+            };
+            
+            var calculator = new VersionCalculator(mockGitService);
+            var options = new VersionOptions
+            {
+                RepoRoot = "/test",
+                ProjectPath = "/test/MyProject/MyProject.csproj",
+                ProjectName = "MyProject"
+            };
+            
+            // Act
+            var result = calculator.CalculateVersion(options);
+            
+            // Assert
+            Assert.Contains("-critical-bug.", result.Version);
+            Assert.True(result.VersionChanged);
+        }
+
+        [Fact]
+        public void BugfixBranch_TreatedAsFeatureBranch()
+        {
+            // Arrange
+            var mockGitService = new MockGitService
+            {
+                CurrentBranchOverride = "bugfix/issue-123"
+            };
+            
+            var calculator = new VersionCalculator(mockGitService);
+            var options = new VersionOptions
+            {
+                RepoRoot = "/test",
+                ProjectPath = "/test/MyProject/MyProject.csproj",
+                ProjectName = "MyProject"
+            };
+            
+            // Act
+            var result = calculator.CalculateVersion(options);
+            
+            // Assert
+            Assert.Contains("-issue-123.", result.Version);
+            Assert.True(result.VersionChanged);
+        }
+
+        [Fact]
+        public void PreReleaseToStable_IncrementsPrereleaseNumber()
+        {
+            // Arrange
+            var mockGitService = new MockGitService
+            {
+                CurrentBranchOverride = "main"
+            };
+            
+            var rcTag = new VersionTag
+            {
+                SemVer = new SemVer { Major = 1, Minor = 0, Patch = 0, PreRelease = "rc.5" },
+                IsGlobal = true,
+                Commit = new MockCommit()
+            };
+            
+            mockGitService.GlobalVersionTagOverride = rcTag;
+            
+            var calculator = new VersionCalculator(mockGitService);
+            var options = new VersionOptions
+            {
+                RepoRoot = "/test",
+                ProjectPath = "/test/MyProject/MyProject.csproj",
+                ProjectName = "MyProject",
+                PrereleaseType = "none" // Even with none, existing prerelease continues
+            };
+            
+            // Act
+            var result = calculator.CalculateVersion(options);
+            
+            // Assert
+            // When base version has prerelease, it continues incrementing
+            Assert.Equal("1.0.0-rc.6", result.Version);
+            Assert.Equal("rc.6", result.SemVer.PreRelease);
+            Assert.True(result.VersionChanged);
+        }
+
+        [Fact]
+        public void MajorVersionBump_ResetsMinorAndPatch()
+        {
+            // Arrange
+            var mockGitService = new MockGitService
+            {
+                CurrentBranchOverride = "main"
+            };
+            
+            var previousTag = new VersionTag
+            {
+                SemVer = new SemVer { Major = 1, Minor = 5, Patch = 3 },
+                IsGlobal = true,
+                Commit = new MockCommit()
+            };
+            
+            mockGitService.GlobalVersionTagOverride = previousTag;
+            
+            var calculator = new VersionCalculator(mockGitService);
+            var options = new VersionOptions
+            {
+                RepoRoot = "/test",
+                ProjectPath = "/test/MyProject/MyProject.csproj",
+                ProjectName = "MyProject",
+                DefaultIncrement = "major"
+            };
+            
+            // Act
+            var result = calculator.CalculateVersion(options);
+            
+            // Assert
+            Assert.Equal("2.0.0", result.Version);
+            Assert.True(result.VersionChanged);
+        }
+
+        [Fact]
+        public void MinorVersionBump_ResetsPatch()
+        {
+            // Arrange
+            var mockGitService = new MockGitService
+            {
+                CurrentBranchOverride = "main"
+            };
+            
+            var previousTag = new VersionTag
+            {
+                SemVer = new SemVer { Major = 1, Minor = 5, Patch = 3 },
+                IsGlobal = true,
+                Commit = new MockCommit()
+            };
+            
+            mockGitService.GlobalVersionTagOverride = previousTag;
+            
+            var calculator = new VersionCalculator(mockGitService);
+            var options = new VersionOptions
+            {
+                RepoRoot = "/test",
+                ProjectPath = "/test/MyProject/MyProject.csproj",
+                ProjectName = "MyProject",
+                DefaultIncrement = "minor"
+            };
+            
+            // Act
+            var result = calculator.CalculateVersion(options);
+            
+            // Assert
+            Assert.Equal("1.6.0", result.Version);
+            Assert.True(result.VersionChanged);
+        }
+
+        [Fact]
+        public void PrereleaseProgression_ContinuesIncrementingExisting()
+        {
+            // Test that existing prerelease continues incrementing
+            var mockGitService = new MockGitService
+            {
+                CurrentBranchOverride = "main"
+            };
+            
+            var calculator = new VersionCalculator(mockGitService);
+            
+            // Test 1: Alpha continues as alpha
+            var alphaTag = new VersionTag
+            {
+                SemVer = new SemVer { Major = 1, Minor = 0, Patch = 0, PreRelease = "alpha.3" },
+                IsGlobal = true,
+                Commit = new MockCommit()
+            };
+            
+            mockGitService.GlobalVersionTagOverride = alphaTag;
+            
+            var options = new VersionOptions
+            {
+                RepoRoot = "/test",
+                ProjectPath = "/test/MyProject/MyProject.csproj",
+                ProjectName = "MyProject",
+                PrereleaseType = "beta" // Ignored when existing prerelease exists
+            };
+            
+            var result = calculator.CalculateVersion(options);
+            Assert.Equal("1.0.0-alpha.4", result.Version); // Continues alpha
+            
+            // Test 2: Beta continues as beta
+            var betaTag = new VersionTag
+            {
+                SemVer = new SemVer { Major = 1, Minor = 0, Patch = 0, PreRelease = "beta.2" },
+                IsGlobal = true,
+                Commit = new MockCommit()
+            };
+            
+            mockGitService.GlobalVersionTagOverride = betaTag;
+            options.PrereleaseType = "rc";
+            
+            result = calculator.CalculateVersion(options);
+            Assert.Equal("1.0.0-beta.3", result.Version); // Continues beta
+            
+            // Test 3: RC continues as RC
+            var rcTag = new VersionTag
+            {
+                SemVer = new SemVer { Major = 1, Minor = 0, Patch = 0, PreRelease = "rc.3" },
+                IsGlobal = true,
+                Commit = new MockCommit()
+            };
+            
+            mockGitService.GlobalVersionTagOverride = rcTag;
+            options.PrereleaseType = "none";
+            
+            result = calculator.CalculateVersion(options);
+            Assert.Equal("1.0.0-rc.4", result.Version); // Continues RC
+        }
+
         // Helper method
         private SemVer ParseSemVer(string version)
         {
