@@ -109,7 +109,6 @@ jobs:
         chmod +x ./test-versioning-scenarios.sh
         export USE_DOTNET=true
         ./test-versioning-scenarios.sh
-      working-directory: mister.version
 
   code-coverage:
     runs-on: ubuntu-latest
