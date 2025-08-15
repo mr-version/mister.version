@@ -279,7 +279,7 @@ namespace Mister.Version.Core.Services
 #else
                         var relativeDependencyPath = NormalizePath(Path.GetRelativePath(repoRoot, dependency));
 #endif
-                        string dependencyDirectory = Path.GetDirectoryName(relativeDependencyPath) ?? relativeDependencyPath;
+                        string dependencyDirectory = NormalizePath(Path.GetDirectoryName(relativeDependencyPath) ?? relativeDependencyPath);
 
                         var dependencyChanges = diff.Where(c => NormalizePath(c.Path).StartsWith(dependencyDirectory)).ToList();
                         if (dependencyChanges.Any())

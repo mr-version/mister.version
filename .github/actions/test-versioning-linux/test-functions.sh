@@ -421,7 +421,7 @@ EOF
     git commit -m "Update ProjectA"
     
     run_monorepo_versioning_tool "$repo_dir" "./src/ProjectA/ProjectA.csproj" "1.0.1" "$test_name - ProjectA"
-    run_monorepo_versioning_tool "$repo_dir" "./src/ProjectB/ProjectB.csproj" "1.0.0" "$test_name - ProjectB (depends on A but unchanged)"
+    run_monorepo_versioning_tool "$repo_dir" "./src/ProjectB/ProjectB.csproj" "1.0.1" "$test_name - ProjectB (depends on A)"
     run_monorepo_versioning_tool "$repo_dir" "./src/ProjectC/ProjectC.csproj" "1.0.0" "$test_name - ProjectC (independent)"
 }
 
