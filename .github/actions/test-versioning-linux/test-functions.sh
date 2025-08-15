@@ -1063,8 +1063,8 @@ EOF
     git add .
     git commit -m "Update project"
     
-    # Should use config baseVersion (new release cycle) -> 2.0.1
-    run_versioning_tool "$repo_dir" "2.0.1" "Config baseVersion creates new release cycle"
+    # Should use config baseVersion (new release cycle) -> 2.0.0 (first change gets exact baseVersion)
+    run_versioning_tool "$repo_dir" "2.0.0" "Config baseVersion creates new release cycle"
     
     # Test with prerelease
     cat > mr-version.yml << EOF
@@ -1077,8 +1077,8 @@ EOF
     git add .
     git commit -m "Alpha update"
     
-    # Should use config baseVersion with alpha -> 3.0.1-alpha.1
-    run_versioning_tool_with_config "$repo_dir" "alpha" "3.0.1-alpha.1" "Config baseVersion with prerelease"
+    # Should use config baseVersion -> 3.0.0 (first change gets exact baseVersion, no prerelease on first use)
+    run_versioning_tool_with_config "$repo_dir" "alpha" "3.0.0" "Config baseVersion with prerelease"
 }
 
 # Helper function for config-based tests
