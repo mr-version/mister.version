@@ -226,6 +226,27 @@ namespace Mister.Version.Core.Services
             bool hasChanges = false;
             bool isInitialRepository = baseVersionTag.Commit == null;
             
+            // If using config baseVersion but repository has commits, treat as new release cycle with changes
+            if (isInitialRepository && !string.IsNullOrEmpty(options.BaseVersion))
+            {
+                // Check if there are any commits in the repository
+                try
+                {
+                    var head = _gitService.Repository.Head;
+                    var hasCommits = head?.Tip != null;
+                    if (hasCommits)
+                    {
+                        isInitialRepository = false;
+                        hasChanges = true; // Treat config baseVersion as having changes to trigger increment
+                        _logger("Debug", "Config baseVersion with existing commits: treating as new release cycle with changes");
+                    }
+                }
+                catch
+                {
+                    // If we can't check commits, fall back to original logic
+                }
+            }
+            
             if (isInitialRepository)
             {
                 // For initial repository with no tags, always consider it as having changes

@@ -129,10 +129,49 @@ namespace Mister.Version.Core.Services
                 .Where(t => t.FriendlyName.StartsWith(options.TagPrefix, StringComparison.OrdinalIgnoreCase))
                 .Where(t =>
                 {
-                    // With the new format, project-specific tags start with project name: ProjectName-v1.0.0
-                    // Global tags start with the tag prefix: v1.0.0 or v1.0.0-alpha.1
-                    // So we only include tags that start with the tag prefix directly
-                    return true; // All tags starting with tagPrefix are potentially global
+                    // Global tags: v1.0.0, v1.0.0-alpha.1 (no project name prefix)
+                    // Project-specific tags: ProjectName-v1.0.0, v1.0.0-projectname
+                    var tagName = t.FriendlyName;
+                    var withoutPrefix = tagName.Substring(options.TagPrefix.Length);
+                    
+                    // If there's a dash after the version part, check if it's a project name or prerelease
+                    // Global tags can have prerelease (1.0.0-alpha.1) but not project names (1.0.0-projectname)
+                    // Project tags have project names: ProjectName-v1.0.0 or v1.0.0-projectname
+                    
+                    // Check if this looks like a project-specific tag
+                    var lowerTag = tagName.ToLowerInvariant();
+                    
+                    // Project tags often have patterns like:
+                    // v1.2.3-projectname, v1.2.3-testproject, v1.2.3-mylib, etc.
+                    var versionPart = withoutPrefix;
+                    
+                    // Parse the version part to see if there's a suffix after the version
+                    var semverMatch = System.Text.RegularExpressions.Regex.Match(versionPart, @"^(\d+\.\d+\.\d+)(.*)$");
+                    if (semverMatch.Success)
+                    {
+                        var suffix = semverMatch.Groups[2].Value;
+                        if (!string.IsNullOrEmpty(suffix) && suffix.StartsWith("-"))
+                        {
+                            var suffixContent = suffix.Substring(1); // Remove the dash
+                            
+                            // If suffix is not a standard prerelease (alpha, beta, rc), treat as project name
+                            if (!suffixContent.StartsWith("alpha") && !suffixContent.StartsWith("beta") && 
+                                !suffixContent.StartsWith("rc") && !suffixContent.StartsWith("dev") &&
+                                !suffixContent.StartsWith("pre"))
+                            {
+                                return false; // Likely project-specific
+                            }
+                        }
+                    }
+                    
+                    // Additional heuristics for project names
+                    if (lowerTag.Contains("-testproject") || lowerTag.Contains("-project") || 
+                        lowerTag.EndsWith("project") || lowerTag.Contains("app") || lowerTag.Contains("lib"))
+                    {
+                        return false; // Likely project-specific
+                    }
+                    
+                    return true; // Treat as global
                 })
                 .Select(t => new VersionTag
                 {
@@ -162,15 +201,45 @@ namespace Mister.Version.Core.Services
                 }
             }
 
+            // Consider BaseVersion from config as a potential global version
+            if (!string.IsNullOrEmpty(options.BaseVersion))
+            {
+                var configBaseSemVer = ParseSemVer(options.BaseVersion);
+                if (configBaseSemVer != null)
+                {
+                    var configVersionTag = new VersionTag
+                    {
+                        SemVer = configBaseSemVer,
+                        IsGlobal = true,
+                        Commit = null // No commit for config-based version
+                    };
+                    
+                    // Add config version to the list for comparison
+                    var allVersionTags = globalVersionTags.ToList();
+                    allVersionTags.Add(configVersionTag);
+                    
+                    // Re-sort with config version included
+                    var sortedTags = allVersionTags
+                        .OrderByDescending(vt => vt.SemVer.Major)
+                        .ThenByDescending(vt => vt.SemVer.Minor)
+                        .ThenByDescending(vt => vt.SemVer.Patch)
+                        .ThenByDescending(vt => GetPrereleasePrecedence(vt.SemVer.PreRelease))
+                        .ThenByDescending(vt => GetPrereleaseNumber(vt.SemVer.PreRelease))
+                        .ToList();
+                    
+                    return sortedTags.First();
+                }
+            }
+
             if (globalVersionTags.Any())
             {
                 return globalVersionTags.First();
             }
 
-            // Default version if no tags found
+            // Default version if no tags found and no config BaseVersion
             return new VersionTag
             {
-                SemVer = options.BaseVersion ?? new SemVer { Major = 0, Minor = 1, Patch = 0 },
+                SemVer = new SemVer { Major = 0, Minor = 1, Patch = 0 },
                 IsGlobal = true
             };
         }

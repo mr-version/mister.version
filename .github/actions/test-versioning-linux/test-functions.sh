@@ -679,9 +679,35 @@ test_dependency_tracking() {
     git config user.email "test@example.com"
     git config user.name "Test User"
     
-    # Create projects with dependencies
+    # Create SharedLib project
     create_test_project "SharedLib" "src/SharedLib"
-    create_test_project "App" "src/App"
+    
+    # Create App project with dependency on SharedLib
+    mkdir -p "src/App"
+    cat > "src/App/App.csproj" << EOF
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>net8.0</TargetFramework>
+    <IsPackable>true</IsPackable>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="../SharedLib/SharedLib.csproj" />
+  </ItemGroup>
+</Project>
+EOF
+    
+    cat > "src/App/Program.cs" << EOF
+namespace App
+{
+    public class Program
+    {
+        public static void Main(string[] args)
+        {
+            Console.WriteLine("Hello from App");
+        }
+    }
+}
+EOF
     
     # Add shared dependency file
     echo "// Shared utility" > src/SharedLib/Utils.cs
@@ -695,7 +721,7 @@ test_dependency_tracking() {
     git add .
     git commit -m "Update shared lib"
     
-    # App should be affected by shared lib changes
+    # App should be affected by shared lib changes via transitive dependency detection
     run_versioning_tool_with_dependencies "$repo_dir" "./src/App/App.csproj" "src/SharedLib" "1.0.1" "$test_name"
 }
 
@@ -868,12 +894,12 @@ run_versioning_tool_with_dependencies() {
     echo ""
     print_status "$CYAN" "Running test: $test_name"
     print_status "$BLUE" "Expected version: $expected_version"
-    print_status "$PURPLE" "Dependencies: $dependencies"
+    print_status "$PURPLE" "Dependencies: $dependencies (auto-detected)"
     
     if [ "$USE_DOTNET" = "true" ]; then
-        local cmd="dotnet \"$TOOL_PATH\" version --repo \"$repo_dir\" --project \"$project_path\" --dependencies \"$dependencies\""
+        local cmd="dotnet \"$TOOL_PATH\" version --repo \"$repo_dir\" --project \"$project_path\""
     else
-        local cmd="\"$TOOL_PATH\" version --repo \"$repo_dir\" --project \"$project_path\" --dependencies \"$dependencies\""
+        local cmd="\"$TOOL_PATH\" version --repo \"$repo_dir\" --project \"$project_path\""
     fi
     print_status "$YELLOW" "Running command: $cmd"
     
