@@ -170,7 +170,7 @@ namespace Mister.Version.CLI
         [Option('p', "project-dir", Required = false, HelpText = "Path to the directory containing projects")]
         public string ProjectDir { get; set; }
 
-        [Option('o', "output", Required = false, HelpText = "Output format: text, json, or csv", Default = "text")]
+        [Option('o', "output", Required = false, HelpText = "Output format: text, json, csv, or graph", Default = "text")]
         public string OutputFormat { get; set; }
 
         [Option('f', "file", Required = false, HelpText = "Output file path (if not specified, outputs to console)")]
@@ -193,6 +193,15 @@ namespace Mister.Version.CLI
 
         [Option("include-non-packable", Required = false, HelpText = "Include non-packable projects in the report", Default = false)]
         public bool IncludeNonPackableProjects { get; set; }
+
+        [Option("graph-format", Required = false, HelpText = "Graph format when output is 'graph': mermaid, dot, or ascii", Default = "mermaid")]
+        public string GraphFormat { get; set; }
+
+        [Option("show-versions", Required = false, HelpText = "Show version numbers in graph nodes", Default = true)]
+        public bool ShowVersions { get; set; }
+
+        [Option("changed-only", Required = false, HelpText = "Show only projects with version changes", Default = false)]
+        public bool ShowChangedOnly { get; set; }
 
         [Option("debug", Required = false, HelpText = "Enable debug output", Default = false)]
         public bool Debug { get; set; }
@@ -380,7 +389,10 @@ namespace Mister.Version.CLI
                 IncludeDependencies = _options.IncludeDependencies,
                 IncludeTestProjects = _options.IncludeTestProjects,
                 IncludeNonPackableProjects = _options.IncludeNonPackableProjects,
-                OutputFormat = _options.OutputFormat
+                OutputFormat = _options.OutputFormat,
+                GraphFormat = _options.GraphFormat,
+                ShowVersions = _options.ShowVersions,
+                ShowChangedOnly = _options.ShowChangedOnly
             };
 
             var reportContent = reportGenerator.GenerateReport(report, reportOptions);

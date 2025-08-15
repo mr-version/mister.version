@@ -15,6 +15,7 @@ namespace Mister.Version.Core.Services
         string GenerateJsonReport(VersionReport report, ReportOptions options);
         string GenerateCsvReport(VersionReport report, ReportOptions options);
         string GenerateReport(VersionReport report, ReportOptions options);
+        string GenerateDependencyGraph(VersionReport report, ReportOptions options);
     }
 
     public class ReportOptions
@@ -23,7 +24,10 @@ namespace Mister.Version.Core.Services
         public bool IncludeDependencies { get; set; } = true;
         public bool IncludeTestProjects { get; set; } = false;
         public bool IncludeNonPackableProjects { get; set; } = false;
-        public string OutputFormat { get; set; } = "text"; // text, json, csv
+        public string OutputFormat { get; set; } = "text"; // text, json, csv, graph
+        public string GraphFormat { get; set; } = "mermaid"; // mermaid, dot, ascii
+        public bool ShowVersions { get; set; } = true;
+        public bool ShowChangedOnly { get; set; } = false;
     }
 
     public class ReportGenerator : IReportGenerator
@@ -34,6 +38,7 @@ namespace Mister.Version.Core.Services
             {
                 "json" => GenerateJsonReport(report, options),
                 "csv" => GenerateCsvReport(report, options),
+                "graph" => GenerateDependencyGraph(report, options),
                 _ => GenerateTextReport(report, options)
             };
         }
@@ -296,6 +301,250 @@ namespace Mister.Version.Core.Services
             }
 
             return value;
+        }
+
+        public string GenerateDependencyGraph(VersionReport report, ReportOptions options)
+        {
+            var filteredProjects = FilterProjects(report.Projects, options);
+            
+            if (options.ShowChangedOnly)
+            {
+                filteredProjects = filteredProjects.Where(p => p.Version?.VersionChanged == true).ToList();
+            }
+
+            return options.GraphFormat.ToLower() switch
+            {
+                "dot" => GenerateDotGraph(filteredProjects, options),
+                "ascii" => GenerateAsciiGraph(filteredProjects, options),
+                _ => GenerateMermaidGraph(filteredProjects, options)
+            };
+        }
+
+        private string GenerateMermaidGraph(List<ProjectInfo> projects, ReportOptions options)
+        {
+            var sb = new StringBuilder();
+            sb.AppendLine("```mermaid");
+            sb.AppendLine("graph TD");
+            sb.AppendLine("    %% MonoRepo Dependency Graph with Versions");
+            sb.AppendLine();
+
+            // Generate node definitions with versions and styling
+            foreach (var project in projects.OrderBy(p => p.Name))
+            {
+                var nodeId = SanitizeNodeId(project.Name);
+                var label = options.ShowVersions && project.Version != null 
+                    ? $"{project.Name}<br/>{project.Version.Version}"
+                    : project.Name;
+
+                // Style nodes based on type and status
+                var style = GetMermaidNodeStyle(project);
+                sb.AppendLine($"    {nodeId}[\"{label}\"]");
+                if (!string.IsNullOrEmpty(style))
+                {
+                    sb.AppendLine($"    class {nodeId} {style};");
+                }
+            }
+
+            sb.AppendLine();
+
+            // Generate dependencies
+            foreach (var project in projects.OrderBy(p => p.Name))
+            {
+                var projectNodeId = SanitizeNodeId(project.Name);
+                
+                foreach (var dependency in project.DirectDependencies)
+                {
+                    var depProject = projects.FirstOrDefault(p => p.Name == dependency);
+                    if (depProject != null)
+                    {
+                        var depNodeId = SanitizeNodeId(dependency);
+                        var edgeLabel = "";
+                        
+                        if (options.ShowVersions && depProject.Version != null)
+                        {
+                            edgeLabel = $"|{depProject.Version.Version}|";
+                        }
+
+                        sb.AppendLine($"    {depNodeId} --> {projectNodeId}{edgeLabel}");
+                    }
+                }
+            }
+
+            sb.AppendLine();
+
+            // Add styling classes
+            sb.AppendLine("    classDef changed fill:#ff9999,stroke:#ff0000,stroke-width:2px,color:#000;");
+            sb.AppendLine("    classDef test fill:#ccccff,stroke:#0000ff,stroke-width:1px,color:#000;");
+            sb.AppendLine("    classDef packable fill:#ccffcc,stroke:#00aa00,stroke-width:1px,color:#000;");
+            sb.AppendLine("    classDef normal fill:#f9f9f9,stroke:#333,stroke-width:1px,color:#000;");
+            
+            sb.AppendLine("```");
+            return sb.ToString();
+        }
+
+        private string GenerateDotGraph(List<ProjectInfo> projects, ReportOptions options)
+        {
+            var sb = new StringBuilder();
+            sb.AppendLine("digraph MonoRepoDependencies {");
+            sb.AppendLine("    rankdir=TD;");
+            sb.AppendLine("    node [shape=box, style=filled];");
+            sb.AppendLine("    edge [color=gray];");
+            sb.AppendLine();
+
+            // Generate node definitions
+            foreach (var project in projects.OrderBy(p => p.Name))
+            {
+                var nodeId = SanitizeNodeId(project.Name);
+                var label = options.ShowVersions && project.Version != null 
+                    ? $"{project.Name}\\n{project.Version.Version}"
+                    : project.Name;
+
+                var style = GetDotNodeStyle(project);
+                sb.AppendLine($"    {nodeId} [label=\"{label}\"{style}];");
+            }
+
+            sb.AppendLine();
+
+            // Generate dependencies
+            foreach (var project in projects.OrderBy(p => p.Name))
+            {
+                var projectNodeId = SanitizeNodeId(project.Name);
+                
+                foreach (var dependency in project.DirectDependencies)
+                {
+                    var depProject = projects.FirstOrDefault(p => p.Name == dependency);
+                    if (depProject != null)
+                    {
+                        var depNodeId = SanitizeNodeId(dependency);
+                        var edgeStyle = "";
+                        
+                        if (options.ShowVersions && depProject.Version != null)
+                        {
+                            edgeStyle = $", label=\"{depProject.Version.Version}\"";
+                        }
+
+                        sb.AppendLine($"    {depNodeId} -> {projectNodeId}[{edgeStyle}];");
+                    }
+                }
+            }
+
+            sb.AppendLine("}");
+            return sb.ToString();
+        }
+
+        private string GenerateAsciiGraph(List<ProjectInfo> projects, ReportOptions options)
+        {
+            var sb = new StringBuilder();
+            sb.AppendLine("=== MonoRepo Dependency Graph ===");
+            sb.AppendLine();
+
+            // Create a tree-like ASCII representation
+            var rootProjects = projects.Where(p => 
+                !projects.Any(other => other.DirectDependencies.Contains(p.Name))).ToList();
+
+            if (!rootProjects.Any())
+            {
+                // If there are circular dependencies, just pick projects without dependencies
+                rootProjects = projects.Where(p => !p.DirectDependencies.Any()).ToList();
+            }
+
+            if (!rootProjects.Any())
+            {
+                // Fallback: show all projects
+                rootProjects = projects.Take(1).ToList();
+            }
+
+            var visited = new HashSet<string>();
+            foreach (var root in rootProjects.OrderBy(p => p.Name))
+            {
+                if (!visited.Contains(root.Name))
+                {
+                    GenerateAsciiNode(sb, root, projects, options, visited, 0);
+                }
+            }
+
+            // Show any remaining projects that weren't visited (isolated or circular)
+            var remaining = projects.Where(p => !visited.Contains(p.Name)).ToList();
+            if (remaining.Any())
+            {
+                sb.AppendLine();
+                sb.AppendLine("=== Isolated/Circular Dependencies ===");
+                foreach (var project in remaining.OrderBy(p => p.Name))
+                {
+                    if (!visited.Contains(project.Name))
+                    {
+                        GenerateAsciiNode(sb, project, projects, options, visited, 0);
+                    }
+                }
+            }
+
+            return sb.ToString();
+        }
+
+        private void GenerateAsciiNode(StringBuilder sb, ProjectInfo project, List<ProjectInfo> allProjects, 
+            ReportOptions options, HashSet<string> visited, int depth)
+        {
+            if (visited.Contains(project.Name) || depth > 10) // Prevent infinite recursion
+            {
+                return;
+            }
+
+            visited.Add(project.Name);
+
+            var indent = new string(' ', depth * 2);
+            var symbol = GetAsciiSymbol(project);
+            var versionInfo = options.ShowVersions && project.Version != null ? $" ({project.Version.Version})" : "";
+            var changeIndicator = project.Version?.VersionChanged == true ? " [CHANGED]" : "";
+
+            sb.AppendLine($"{indent}{symbol} {project.Name}{versionInfo}{changeIndicator}");
+
+            // Show dependencies
+            var dependents = allProjects.Where(p => p.DirectDependencies.Contains(project.Name))
+                .OrderBy(p => p.Name).ToList();
+            
+            foreach (var dependent in dependents)
+            {
+                GenerateAsciiNode(sb, dependent, allProjects, options, visited, depth + 1);
+            }
+        }
+
+        private string SanitizeNodeId(string name)
+        {
+            // Replace invalid characters for node IDs
+            return Regex.Replace(name, @"[^a-zA-Z0-9_]", "_");
+        }
+
+        private string GetMermaidNodeStyle(ProjectInfo project)
+        {
+            if (project.Version?.VersionChanged == true)
+                return "changed";
+            if (project.IsTestProject)
+                return "test";
+            if (project.IsPackable)
+                return "packable";
+            return "normal";
+        }
+
+        private string GetDotNodeStyle(ProjectInfo project)
+        {
+            if (project.Version?.VersionChanged == true)
+                return ", fillcolor=\"#ff9999\", color=\"#ff0000\"";
+            if (project.IsTestProject)
+                return ", fillcolor=\"#ccccff\", color=\"#0000ff\"";
+            if (project.IsPackable)
+                return ", fillcolor=\"#ccffcc\", color=\"#00aa00\"";
+            return ", fillcolor=\"#f9f9f9\", color=\"#333333\"";
+        }
+
+        private string GetAsciiSymbol(ProjectInfo project)
+        {
+            if (project.Version?.VersionChanged == true)
+                return "🔄";
+            if (project.IsTestProject)
+                return "🧪";
+            if (project.IsPackable)
+                return "📦";
+            return "📁";
         }
     }
 }
