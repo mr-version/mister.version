@@ -165,7 +165,8 @@ namespace Mister.Version.Tests
     // Simple mock for basic testing - more comprehensive mocks are in other test files
     public class MockGitService : IGitService
     {
-        public LibGit2Sharp.Repository Repository => null;
+        public LibGit2Sharp.Repository RepositoryOverride { get; set; }
+        public LibGit2Sharp.Repository Repository => RepositoryOverride;
         public string CurrentBranchOverride { get; set; } = "main";
         public string CurrentBranch => CurrentBranchOverride;
         
@@ -175,6 +176,8 @@ namespace Mister.Version.Tests
         public bool HasChangesOverride { get; set; } = true;
         public int CommitHeightOverride { get; set; } = 1;
         public System.Func<BranchType, VersionOptions, VersionTag> GetGlobalVersionTagOverride { get; set; }
+        public System.Func<string, bool> TagExistsOverride { get; set; }
+        public bool RepositoryHasCommitsOverride { get; set; } = true;
 
         public virtual BranchType GetBranchType(string branchName)
         {
@@ -257,8 +260,8 @@ namespace Mister.Version.Tests
         
         public bool TagExists(string tagName)
         {
-            // Mock implementation - no tags exist by default
-            return false;
+            // Use override if provided, otherwise no tags exist by default
+            return TagExistsOverride?.Invoke(tagName) ?? false;
         }
         
         public void Dispose() { }

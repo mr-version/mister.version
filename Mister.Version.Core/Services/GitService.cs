@@ -138,38 +138,9 @@ namespace Mister.Version.Core.Services
                     // Global tags can have prerelease (1.0.0-alpha.1) but not project names (1.0.0-projectname)
                     // Project tags have project names: ProjectName-v1.0.0 or v1.0.0-projectname
                     
-                    // Check if this looks like a project-specific tag
-                    var lowerTag = tagName.ToLowerInvariant();
-                    
-                    // Project tags often have patterns like:
-                    // v1.2.3-projectname, v1.2.3-testproject, v1.2.3-mylib, etc.
-                    var versionPart = withoutPrefix;
-                    
-                    // Parse the version part to see if there's a suffix after the version
-                    var semverMatch = System.Text.RegularExpressions.Regex.Match(versionPart, @"^(\d+\.\d+\.\d+)(.*)$");
-                    if (semverMatch.Success)
-                    {
-                        var suffix = semverMatch.Groups[2].Value;
-                        if (!string.IsNullOrEmpty(suffix) && suffix.StartsWith("-"))
-                        {
-                            var suffixContent = suffix.Substring(1); // Remove the dash
-                            
-                            // If suffix is not a standard prerelease (alpha, beta, rc), treat as project name
-                            if (!suffixContent.StartsWith("alpha") && !suffixContent.StartsWith("beta") && 
-                                !suffixContent.StartsWith("rc") && !suffixContent.StartsWith("dev") &&
-                                !suffixContent.StartsWith("pre"))
-                            {
-                                return false; // Likely project-specific
-                            }
-                        }
-                    }
-                    
-                    // Additional heuristics for project names
-                    if (lowerTag.Contains("-testproject") || lowerTag.Contains("-project") || 
-                        lowerTag.EndsWith("project") || lowerTag.Contains("app") || lowerTag.Contains("lib"))
-                    {
-                        return false; // Likely project-specific
-                    }
+                    // Since we don't support suffix format for project tags anymore,
+                    // all tags starting with the tag prefix are potentially global
+                    // (including v1.2.3-projectname which could be feature branch tags)
                     
                     return true; // Treat as global
                 })
@@ -257,50 +228,25 @@ namespace Mister.Version.Core.Services
                 $"{projectName.ToLowerInvariant().Replace(".", ".")}/{tagPrefix}",
             };
             
-            // Also support suffix format: v1.2.3-projectname
-            var possibleSuffixes = new[]
-            {
-                $"-{projectName.ToLowerInvariant()}",
-                $"-{projectName}",
-            };
+            // Note: We don't support suffix format (v1.2.3-projectname) as it conflicts with feature branch tags
 
             var projectVersionTags = _repository.Tags
                 .Where(t => 
                     // Check prefix formats: ProjectName-v1.0.0, ProjectName/v1.0.0
                     possiblePrefixes.Any(prefix =>
-                        t.FriendlyName.StartsWith(prefix, StringComparison.OrdinalIgnoreCase))
-                    ||
-                    // Check suffix formats: v1.0.0-projectname
-                    (t.FriendlyName.StartsWith(tagPrefix, StringComparison.OrdinalIgnoreCase) &&
-                     possibleSuffixes.Any(suffix =>
-                        t.FriendlyName.EndsWith(suffix, StringComparison.OrdinalIgnoreCase))))
+                        t.FriendlyName.StartsWith(prefix, StringComparison.OrdinalIgnoreCase)))
                 .Select(t =>
                 {
                     var tagName = t.FriendlyName;
                     string versionPart = null;
 
-                    // Try to extract version part from prefix format
+                    // Extract version part from prefix format
                     foreach (var prefix in possiblePrefixes)
                     {
                         if (tagName.StartsWith(prefix, StringComparison.OrdinalIgnoreCase))
                         {
                             versionPart = tagName.Substring(prefix.Length);
                             break;
-                        }
-                    }
-                    
-                    // If not found, try suffix format (v1.2.3-projectname)
-                    if (versionPart == null && tagName.StartsWith(tagPrefix, StringComparison.OrdinalIgnoreCase))
-                    {
-                        foreach (var suffix in possibleSuffixes)
-                        {
-                            if (tagName.EndsWith(suffix, StringComparison.OrdinalIgnoreCase))
-                            {
-                                // Extract version between prefix and suffix
-                                var versionWithSuffix = tagName.Substring(tagPrefix.Length);
-                                versionPart = versionWithSuffix.Substring(0, versionWithSuffix.Length - suffix.Length);
-                                break;
-                            }
                         }
                     }
 

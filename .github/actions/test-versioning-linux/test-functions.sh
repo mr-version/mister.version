@@ -968,8 +968,8 @@ test_global_vs_project_tags() {
     git commit -m "Initial commit"
     git tag v2.0.0
     
-    # Create project-specific tag that is higher
-    git tag v2.5.0-testproject
+    # Create project-specific tag that is higher (using prefix format)
+    git tag TestProject-v2.5.0
     
     # Add changes to test project
     echo "// Updated" >> src/TestProject/Program.cs
