@@ -1109,3 +1109,109 @@ run_versioning_tool_with_config() {
         echo "❌ **$test_name**: Expected $expected_version but got $actual_version" >> $GITHUB_STEP_SUMMARY
     fi
 }
+# Test NuGet package generation with correct dependency versions
+test_nuget_package_dependencies() {
+    local test_name="NuGet Package Dependency Versions"
+    local repo_dir="$TEST_DIR/nuget-package-test"
+    
+    print_status "$CYAN" "=== Testing $test_name ==="
+    
+    # Create a fresh repo
+    create_versioning_repo "$repo_dir"
+    cd "$repo_dir"
+    
+    # Create Core library project
+    mkdir -p src/Core
+    cat > src/Core/Core.csproj << EOCSPROJ
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>net8.0</TargetFramework>
+    <IsPackable>true</IsPackable>
+    <Version>2.5.0</Version>
+    <AssemblyVersion>2.5.0.0</AssemblyVersion>
+  </PropertyGroup>
+</Project>
+EOCSPROJ
+    echo "namespace Core { public class CoreClass { } }" > src/Core/CoreClass.cs
+    
+    # Create Service project that references Core
+    mkdir -p src/Service
+    cat > src/Service/Service.csproj << EOCSPROJ
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>net8.0</TargetFramework>
+    <IsPackable>true</IsPackable>
+    <Version>3.1.0</Version>
+    <AssemblyVersion>3.1.0.0</AssemblyVersion>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="../Core/Core.csproj" />
+  </ItemGroup>
+</Project>
+EOCSPROJ
+    echo "namespace Service { public class ServiceClass { } }" > src/Service/ServiceClass.cs
+    
+    # Commit
+    git add .
+    git commit -m "Add Core and Service projects"
+    
+    # Build Core first
+    print_status "$YELLOW" "Building Core project..."
+    dotnet build src/Core/Core.csproj --configuration Release
+    if [ $? -ne 0 ]; then
+        print_status "$RED" "✗ FAILED: Core project build failed"
+        ((TOTAL_TESTS++))
+        return 1
+    fi
+    
+    # Build and pack Service
+    print_status "$YELLOW" "Building and packing Service project..."
+    dotnet build src/Service/Service.csproj --configuration Release
+    dotnet pack src/Service/Service.csproj --configuration Release --no-build --output ./nupkg
+    
+    if [ $? -ne 0 ]; then
+        print_status "$RED" "✗ FAILED: Service project pack failed"
+        ((TOTAL_TESTS++))
+        return 1
+    fi
+    
+    # Extract and verify the nuspec file
+    print_status "$YELLOW" "Verifying package dependencies..."
+    
+    # Find the generated package
+    local package_file=$(find ./nupkg -name "Service.*.nupkg" | head -1)
+    if [ -z "$package_file" ]; then
+        print_status "$RED" "✗ FAILED: No package file found"
+        ((TOTAL_TESTS++))
+        return 1
+    fi
+    
+    # Extract nuspec and check dependency version
+    local temp_extract="/tmp/nuget-extract-$$"
+    mkdir -p "$temp_extract"
+    unzip -q "$package_file" -d "$temp_extract"
+    
+    local nuspec_file=$(find "$temp_extract" -name "*.nuspec" | head -1)
+    if [ -z "$nuspec_file" ]; then
+        print_status "$RED" "✗ FAILED: No nuspec file found in package"
+        rm -rf "$temp_extract"
+        ((TOTAL_TESTS++))
+        return 1
+    fi
+    
+    # Check if Core dependency has version 2.5.0 (not 1.0.0)
+    local core_version=$(grep -o 'id="Core" version="[^"]*"' "$nuspec_file" | grep -o 'version="[^"]*"' | cut -d'"' -f2)
+    
+    rm -rf "$temp_extract"
+    
+    ((TOTAL_TESTS++))
+    
+    if [ "$core_version" = "2.5.0" ]; then
+        print_status "$GREEN" "✓ PASSED: Core dependency has correct version $core_version"
+        ((PASSED_TESTS++))
+        echo "✅ **$test_name**: Core dependency version correct ($core_version)" >> $GITHUB_STEP_SUMMARY
+    else
+        print_status "$RED" "✗ FAILED: Expected Core dependency version 2.5.0 but got $core_version"
+        echo "❌ **$test_name**: Expected Core version 2.5.0 but got $core_version" >> $GITHUB_STEP_SUMMARY
+    fi
+}

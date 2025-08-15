@@ -94,6 +94,7 @@ main() {
     test_global_vs_project_tags
     test_new_release_cycle_detection
     test_config_baseversion_scenarios
+    test_nuget_package_dependencies
     
     # Export summary
     export_test_summary
