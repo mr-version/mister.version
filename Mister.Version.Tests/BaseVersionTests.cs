@@ -158,7 +158,9 @@ namespace Mister.Version.Tests
             var result = calculator.CalculateVersion(options);
             
             // Assert
-            Assert.Contains("-alpha", result.Version);
+            // First change with baseVersion uses it directly, without prerelease
+            Assert.Equal("2.0.0", result.Version);
+            Assert.DoesNotContain("-alpha", result.Version);
             Assert.True(result.VersionChanged);
         }
         

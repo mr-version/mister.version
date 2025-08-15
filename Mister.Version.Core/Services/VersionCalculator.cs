@@ -141,8 +141,8 @@ namespace Mister.Version.Core.Services
             }
 
             // Calculate the new version based on changes
-            var result = CalculateNewVersion(baseVersionTag, relativeProjectPath, options.ProjectName, 
-                branchType, currentBranch, options);
+            var result = CalculateNewVersion(baseVersionTag, projectVersionTag, globalVersionTag, 
+                relativeProjectPath, options.ProjectName, branchType, currentBranch, options);
 
             // Store the previous version from the base tag
             result.PreviousVersion = baseVersionTag.SemVer.ToVersionString();
@@ -193,8 +193,9 @@ namespace Mister.Version.Core.Services
             return globalTag;
         }
 
-        private VersionResult CalculateNewVersion(VersionTag baseVersionTag, string projectPath, 
-            string projectName, BranchType branchType, string branchName, VersionOptions options)
+        private VersionResult CalculateNewVersion(VersionTag baseVersionTag, VersionTag projectTag, 
+            VersionTag globalTag, string projectPath, string projectName, BranchType branchType, 
+            string branchName, VersionOptions options)
         {
             var newVersion = baseVersionTag.SemVer.Clone();
             var result = new VersionResult
@@ -365,6 +366,27 @@ namespace Mister.Version.Core.Services
             if (hasChanges)
             {
                 result.VersionChanged = true;
+                
+                // If baseVersion from config is higher than existing project version,
+                // and this is the first change after setting the new baseVersion,
+                // use the baseVersion directly without incrementing
+                if (baseVersionTag.Commit == null && !string.IsNullOrEmpty(options.BaseVersion))
+                {
+                    // Check if the baseVersion tag already exists
+                    var baseVersionString = baseVersionTag.SemVer.ToVersionString();
+                    var tagName = $"{options.TagPrefix}{baseVersionString}";
+                    
+                    if (!_gitService.TagExists(tagName))
+                    {
+                        // First use of this baseVersion - use it directly for projects with changes
+                        result.SemVer = baseVersionTag.SemVer.Clone();
+                        result.Version = result.SemVer.ToVersionString();
+                        result.ChangeReason = "First change with new base version from configuration";
+                        _logger("Debug", $"Using base version from config for first change: {result.Version}");
+                        return result;
+                    }
+                    // If tag exists, continue to normal increment logic
+                }
 
                 switch (branchType)
                 {
@@ -522,23 +544,49 @@ namespace Mister.Version.Core.Services
                         _logger("Debug", $"Feature branch: Using version {newVersion.ToVersionString()}");
                         break;
                 }
+                
+                // Set the final version string and SemVer after all modifications
+                result.Version = newVersion.ToVersionString();
+                result.SemVer = newVersion;
             }
             else
             {
-                // No changes detected
-                if (branchType == BranchType.Feature)
+                // No changes detected - use the existing project version if available
+                // Only use baseVersion for projects that actually have changes
+                if (projectTag != null && projectTag.Commit != null)
                 {
-                    result.ChangeReason = "Feature branch but no changes detected, using base version";
+                    // Project has an existing version and no changes - keep the existing version
+                    result.SemVer = projectTag.SemVer.Clone();
+                    result.Version = result.SemVer.ToVersionString();
+                    result.ChangeReason = "No changes detected, using existing project version";
+                    _logger("Debug", $"No changes, keeping existing version: {result.Version}");
+                }
+                else if (globalTag != null && globalTag.Commit != null && 
+                         (baseVersionTag == null || baseVersionTag.Commit != null))
+                {
+                    // No project tag, but there's a global tag with actual commits
+                    // Use the global tag version (not the baseVersion from config)
+                    result.SemVer = globalTag.SemVer.Clone();
+                    result.Version = result.SemVer.ToVersionString();
+                    result.ChangeReason = "No changes detected, using existing global version";
+                    _logger("Debug", $"No changes, using global version: {result.Version}");
                 }
                 else
                 {
-                    result.ChangeReason = "No changes detected, using base version";
+                    // No existing tags or only config baseVersion - use the base version
+                    result.Version = newVersion.ToVersionString();
+                    result.SemVer = newVersion;
+                    if (branchType == BranchType.Feature)
+                    {
+                        result.ChangeReason = "Feature branch but no changes detected, using base version";
+                    }
+                    else
+                    {
+                        result.ChangeReason = "No changes detected, using base version";
+                    }
+                    _logger("Debug", result.ChangeReason);
                 }
-                _logger("Debug", result.ChangeReason);
             }
-
-            result.Version = newVersion.ToVersionString();
-            result.SemVer = newVersion;
             
             return result;
         }

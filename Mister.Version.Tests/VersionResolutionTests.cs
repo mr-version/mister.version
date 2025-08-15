@@ -54,7 +54,7 @@ namespace Mister.Version.Tests
             // Assert
             Assert.Equal("2.0.0", result.Version);
             Assert.True(result.VersionChanged);
-            Assert.Contains("Initial repository", result.ChangeReason);
+            Assert.Contains("First change with new base version from configuration", result.ChangeReason);
         }
 
         [Fact]
