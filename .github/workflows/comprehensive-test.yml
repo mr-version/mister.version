@@ -62,6 +62,9 @@ jobs:
     - name: Build
       run: dotnet build --no-restore
       
+    - name: Make scripts executable
+      run: chmod +x ./test-versioning-scenarios.sh
+      
     - name: Run Integration Tests
       run: |
         export USE_DOTNET=true
@@ -136,14 +139,33 @@ jobs:
   security-scan:
     name: Security Scan
     runs-on: ubuntu-latest
+    permissions:
+      security-events: write
+      contents: read
     
     steps:
     - uses: actions/checkout@v4
     
-    - name: Run security scan
-      uses: securecodewarrior/github-action-add-sarif@v1
+    - name: Initialize CodeQL
+      uses: github/codeql-action/init@v3
       with:
-        sarif-file: security-scan-results.sarif
+        languages: csharp
+        
+    - name: Setup .NET
+      uses: actions/setup-dotnet@v4
+      with:
+        dotnet-version: 8.0.x
+    
+    - name: Restore dependencies
+      run: dotnet restore
+      
+    - name: Build for analysis
+      run: dotnet build --no-restore
+    
+    - name: Perform CodeQL Analysis
+      uses: github/codeql-action/analyze@v3
+      with:
+        category: "/language:csharp"
 
   performance-test:
     name: Performance Test
@@ -196,7 +218,11 @@ jobs:
         
         # Test version calculation performance
         echo "Testing performance with 50 projects..."
-        time dotnet "$GITHUB_WORKSPACE/Mister.Version.CLI/bin/Debug/net8.0/mr-version.dll" report --repo . --include-dependencies
+        time dotnet "$GITHUB_WORKSPACE/Mister.Version.CLI/bin/Release/net8.0/mr-version.dll" report --repo . --include-dependencies
+        
+        # Also test dependency graph generation performance
+        echo "Testing dependency graph generation..."
+        time dotnet "$GITHUB_WORKSPACE/Mister.Version.CLI/bin/Release/net8.0/mr-version.dll" report --repo . -o graph --graph-format mermaid > /dev/null
 
   comprehensive-report:
     name: Generate Comprehensive Report
