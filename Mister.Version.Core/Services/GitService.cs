@@ -256,22 +256,51 @@ namespace Mister.Version.Core.Services
                 // Additional formats for compatibility
                 $"{projectName.ToLowerInvariant().Replace(".", ".")}/{tagPrefix}",
             };
+            
+            // Also support suffix format: v1.2.3-projectname
+            var possibleSuffixes = new[]
+            {
+                $"-{projectName.ToLowerInvariant()}",
+                $"-{projectName}",
+            };
 
             var projectVersionTags = _repository.Tags
-                .Where(t => possiblePrefixes.Any(prefix =>
-                    t.FriendlyName.StartsWith(prefix, StringComparison.OrdinalIgnoreCase)))
+                .Where(t => 
+                    // Check prefix formats: ProjectName-v1.0.0, ProjectName/v1.0.0
+                    possiblePrefixes.Any(prefix =>
+                        t.FriendlyName.StartsWith(prefix, StringComparison.OrdinalIgnoreCase))
+                    ||
+                    // Check suffix formats: v1.0.0-projectname
+                    (t.FriendlyName.StartsWith(tagPrefix, StringComparison.OrdinalIgnoreCase) &&
+                     possibleSuffixes.Any(suffix =>
+                        t.FriendlyName.EndsWith(suffix, StringComparison.OrdinalIgnoreCase))))
                 .Select(t =>
                 {
                     var tagName = t.FriendlyName;
                     string versionPart = null;
 
-                    // Extract version part based on which prefix matched
+                    // Try to extract version part from prefix format
                     foreach (var prefix in possiblePrefixes)
                     {
                         if (tagName.StartsWith(prefix, StringComparison.OrdinalIgnoreCase))
                         {
                             versionPart = tagName.Substring(prefix.Length);
                             break;
+                        }
+                    }
+                    
+                    // If not found, try suffix format (v1.2.3-projectname)
+                    if (versionPart == null && tagName.StartsWith(tagPrefix, StringComparison.OrdinalIgnoreCase))
+                    {
+                        foreach (var suffix in possibleSuffixes)
+                        {
+                            if (tagName.EndsWith(suffix, StringComparison.OrdinalIgnoreCase))
+                            {
+                                // Extract version between prefix and suffix
+                                var versionWithSuffix = tagName.Substring(tagPrefix.Length);
+                                versionPart = versionWithSuffix.Substring(0, versionWithSuffix.Length - suffix.Length);
+                                break;
+                            }
                         }
                     }
 
