@@ -9,8 +9,9 @@ A powerful command-line tool for analyzing, reporting, and managing versions acr
 ## Features
 
 - **Version Reporting**: Generate detailed reports about versions across your monorepo
-- **Multiple Output Formats**: Export as text, JSON, or CSV
+- **Multiple Output Formats**: Export as text, JSON, CSV, or dependency graphs
 - **Dependency Analysis**: View complete dependency trees and detect version mismatches
+- **Visual Dependency Graphs**: Generate Mermaid, DOT, and ASCII dependency graphs
 - **Branch-Aware**: Analyze different branches with specific versioning strategies
 - **Commit Tracking**: See which commits triggered version changes
 - **Project Type Filtering**: Automatically filters test and non-packable projects
@@ -63,12 +64,15 @@ This command analyzes all projects in your monorepo and generates a comprehensiv
 |--------|-------------|---------|
 | `-r, --repo <path>` | Repository root path | Current directory |
 | `-p, --project-dir <path>` | Projects directory | `src` |
-| `-o, --output <format>` | Output format (text, json, csv) | `text` |
+| `-o, --output <format>` | Output format (text, json, csv, graph) | `text` |
 | `-f, --file <path>` | Output file path | Console output |
 | `-b, --branch <name>` | Branch to analyze | Current branch |
 | `-t, --tag-prefix <prefix>` | Tag prefix | `v` |
 | `--include-commits` | Include commit information | `true` |
 | `--include-dependencies` | Include dependency information | `true` |
+| `--graph-format <format>` | Graph format (mermaid, dot, ascii) | `mermaid` |
+| `--show-versions` | Show version numbers in graph nodes | `true` |
+| `--changed-only` | Show only projects with changes | `false` |
 
 #### Example
 
@@ -81,6 +85,15 @@ mr-version report -b release/v8.2 -o csv -f release-versions.csv
 
 # Generate a basic report without dependencies or commits
 mr-version report --include-dependencies=false --include-commits=false
+
+# Generate a dependency graph in Mermaid format
+mr-version report -o graph --graph-format mermaid
+
+# Generate DOT graph and save to file
+mr-version report -o graph --graph-format dot -f dependencies.dot
+
+# Generate ASCII tree showing only changed projects
+mr-version report -o graph --graph-format ascii --changed-only
 ```
 
 ### 2. Calculate Project Version
@@ -121,7 +134,7 @@ mr-version version -p src/Core/Core.csproj --create-tag --tag-message "Release C
 
 ## Report Formats
 
-The tool can generate reports in three formats:
+The tool can generate reports in four formats:
 
 ### Text Format (Default)
 
@@ -186,6 +199,76 @@ Core,src/Core/Core.csproj,8.2.1,a1b2c3d,2023-05-15,Update Core services,false,tr
 Data,src/Data/Data.csproj,8.2.1,e5f6g7h,2023-05-14,Fix data models,false,true,Core
 ...
 ```
+
+### Dependency Graph Format
+
+Generate visual dependency graphs to understand project relationships:
+
+#### Mermaid Format (GitHub Compatible)
+
+```bash
+mr-version report -o graph --graph-format mermaid
+```
+
+Perfect for GitHub markdown and documentation:
+
+```mermaid
+graph TD
+    Core["Core<br/>1.2.3"]
+    class Core changed;
+    
+    ProjectA["ProjectA<br/>1.2.4"]
+    class ProjectA packable;
+    
+    Core --> ProjectA
+
+    classDef changed fill:#ff9999,stroke:#ff0000,stroke-width:2px,color:#000;
+    classDef packable fill:#ccffcc,stroke:#00aa00,stroke-width:1px,color:#000;
+```
+
+#### DOT Format (Graphviz)
+
+```bash
+mr-version report -o graph --graph-format dot -f deps.dot
+```
+
+Professional diagram format that can be rendered with Graphviz:
+
+```dot
+digraph MonoRepoDependencies {
+    rankdir=TD;
+    Core [label="Core\n1.2.3", fillcolor="#ff9999"];
+    ProjectA [label="ProjectA\n1.2.4", fillcolor="#ccffcc"];
+    Core -> ProjectA [label="1.2.3"];
+}
+```
+
+#### ASCII Format (Console)
+
+```bash
+mr-version report -o graph --graph-format ascii
+```
+
+Quick text-based visualization for console viewing:
+
+```
+=== MonoRepo Dependency Graph ===
+
+🔄 Core (1.2.3) [CHANGED]
+  📦 ProjectA (1.2.4)
+```
+
+**Graph Features:**
+- 🔄 Changed projects (red styling)
+- 📦 Packable projects (green styling)
+- 🧪 Test projects (blue styling)
+- 📁 Other projects (gray styling)
+
+**Options:**
+- `--show-versions`: Include version numbers in nodes
+- `--changed-only`: Show only projects with changes
+- `--include-test-projects`: Include test projects in graph
+- `--include-non-packable`: Include non-packable projects
 
 ## Advanced Usage
 

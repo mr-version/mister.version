@@ -14,6 +14,7 @@ A sophisticated automatic versioning system for .NET monorepos built on MSBuild 
 - **📄 JSON Reporting**: Full JSON report generation capability
 - **🎯 Improved Change Detection**: Better detection of dependency changes and package updates
 - **🧪 Enhanced Testing**: Comprehensive test coverage for core functionality
+- **📊 Dependency Graph Visualization**: Generate visual dependency graphs in Mermaid, DOT, and ASCII formats
 
 ## Architecture
 
@@ -42,7 +43,7 @@ Mister.Version.CLI/           # Command-line tool
 - **Feature Branch Commit Height**: Feature branches include commit count for better traceability
 - **Package Lock Detection**: Detects changes in dependencies via packages.lock.json
 - **Project Type Filtering**: Skip versioning for test projects and non-packable projects
-- **Multiple Output Formats**: Text, JSON, and CSV reporting
+- **Multiple Output Formats**: Text, JSON, CSV, and dependency graph reporting
 - **MSBuild Integration**: Seamlessly integrates with your build process
 - **Zero-Commit Approach**: No need to commit version changes to your repo
 - **Customizable**: Extensive configuration options
@@ -141,6 +142,21 @@ mr-version report --include-test-projects --include-commits
 
 # Generate CSV for analysis
 mr-version report -o csv -f report.csv
+
+# Generate dependency graph
+mr-version report -o graph
+
+# Generate Mermaid graph for GitHub
+mr-version report -o graph --graph-format mermaid
+
+# Generate DOT graph for Graphviz
+mr-version report -o graph --graph-format dot -f dependencies.dot
+
+# Generate ASCII tree in console
+mr-version report -o graph --graph-format ascii
+
+# Show only changed projects in graph
+mr-version report -o graph --changed-only
 ```
 
 #### CLI Options
@@ -149,13 +165,16 @@ mr-version report -o csv -f report.csv
 |--------|-------------|---------|
 | `-r, --repo` | Repository root path | Current directory |
 | `-p, --project-dir` | Projects directory | Repository root |
-| `-o, --output` | Output format (text, json, csv) | `text` |
+| `-o, --output` | Output format (text, json, csv, graph) | `text` |
 | `-f, --file` | Output file path | Console |
 | `-b, --branch` | Branch to analyze | Current branch |
 | `--include-commits` | Include commit information | `true` |
 | `--include-dependencies` | Include dependency information | `true` |
 | `--include-test-projects` | Include test projects | `false` |
 | `--include-non-packable` | Include non-packable projects | `false` |
+| `--graph-format` | Graph format (mermaid, dot, ascii) | `mermaid` |
+| `--show-versions` | Show version numbers in graph nodes | `true` |
+| `--changed-only` | Show only projects with changes | `false` |
 
 ### Calculate Single Project Version
 
@@ -171,6 +190,91 @@ mr-version version -p src/MyProject/MyProject.csproj -j
 ```
 
 ## Report Formats
+
+### Dependency Graph Visualization
+
+MonoRepo Versioning can generate visual dependency graphs in multiple formats to help understand project relationships and dependencies:
+
+#### Mermaid Format (GitHub Compatible)
+
+Perfect for GitHub markdown files and documentation:
+
+```bash
+mr-version report -o graph --graph-format mermaid
+```
+
+```mermaid
+graph TD
+    %% MonoRepo Dependency Graph with Versions
+
+    Core["Core<br/>1.2.3"]
+    class Core changed;
+    
+    ProjectA["ProjectA<br/>1.2.4"]
+    class ProjectA packable;
+    
+    ProjectB_Tests["ProjectB.Tests<br/>1.0.0"]
+    class ProjectB_Tests test;
+
+    Core --> ProjectA
+    ProjectA --> ProjectB_Tests
+
+    classDef changed fill:#ff9999,stroke:#ff0000,stroke-width:2px,color:#000;
+    classDef test fill:#ccccff,stroke:#0000ff,stroke-width:1px,color:#000;
+    classDef packable fill:#ccffcc,stroke:#00aa00,stroke-width:1px,color:#000;
+    classDef normal fill:#f9f9f9,stroke:#333,stroke-width:1px,color:#000;
+```
+
+#### DOT Format (Graphviz)
+
+For professional diagrams and complex visualizations:
+
+```bash
+mr-version report -o graph --graph-format dot -f dependencies.dot
+```
+
+```dot
+digraph MonoRepoDependencies {
+    rankdir=TD;
+    node [shape=box, style=filled];
+    edge [color=gray];
+
+    Core [label="Core\n1.2.3", fillcolor="#ff9999"];
+    ProjectA [label="ProjectA\n1.2.4", fillcolor="#ccffcc"];
+    ProjectB_Tests [label="ProjectB.Tests\n1.0.0", fillcolor="#ccccff"];
+
+    Core -> ProjectA [label="1.2.3"];
+    ProjectA -> ProjectB_Tests [label="1.2.4"];
+}
+```
+
+#### ASCII Format (Console)
+
+For quick terminal viewing:
+
+```bash
+mr-version report -o graph --graph-format ascii
+```
+
+```
+=== MonoRepo Dependency Graph ===
+
+🔄 Core (1.2.3) [CHANGED]
+  📦 ProjectA (1.2.4)
+    🧪 ProjectB.Tests (1.0.0)
+```
+
+#### Graph Features
+
+- **Visual Project Status**: 
+  - 🔄 Changed projects (red in Mermaid/DOT)
+  - 📦 Packable projects (green in Mermaid/DOT)
+  - 🧪 Test projects (blue in Mermaid/DOT)
+  - 📁 Other projects (gray in Mermaid/DOT)
+
+- **Version Information**: Show calculated versions on nodes (`--show-versions`)
+- **Dependency Edges**: Visual connections showing project dependencies
+- **Filtering Options**: Show only changed projects (`--changed-only`)
 
 ### JSON Report Example
 
