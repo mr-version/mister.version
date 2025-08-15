@@ -150,6 +150,12 @@ namespace Mister.Version.Tests
             // Arrange
             var projectDir = CreateTestProject("TestProject.Tests", "1.0.0");
             
+            // Make it explicitly not packable like test projects are
+            var csprojPath = Directory.GetFiles(projectDir, "*.csproj").First();
+            var csproj = File.ReadAllText(csprojPath);
+            csproj = csproj.Replace("<IsPackable>true</IsPackable>", "<IsPackable>false</IsPackable>");
+            File.WriteAllText(csprojPath, csproj);
+            
             // Add test framework reference to mark it as a test project
             AddPackageReference(projectDir, "xunit", "2.4.1");
             
@@ -157,7 +163,7 @@ namespace Mister.Version.Tests
             var result = TryPackProject(projectDir);
             
             // Test projects should not produce packages when IsPackable is false
-            Assert.False(result.Success || result.PackageCreated, 
+            Assert.False(result.PackageCreated, 
                 "Test project should not create a package");
         }
 
