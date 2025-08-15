@@ -209,8 +209,6 @@ namespace Mister.Version.CLI
         [Option("config-file", Required = false, HelpText = "Path to mr-version.yml configuration file (auto-detected if not specified)")]
         public string ConfigFile { get; set; }
 
-        [Option("dry-run", Required = false, HelpText = "Show what would be done without making changes", Default = false)]
-        public bool DryRun { get; set; }
     }
 
     [Verb("version", HelpText = "Calculate the version for a specific project")]
@@ -240,20 +238,8 @@ namespace Mister.Version.CLI
         [Option("force-version", Required = false, HelpText = "Force a specific version (overrides calculated version)")]
         public string ForceVersion { get; set; }
 
-        [Option("dependencies", Required = false, HelpText = "Comma-separated list of dependency paths to track")]
-        public string Dependencies { get; set; }
-        
-        [Option("create-tag", Required = false, HelpText = "Create a git tag for the calculated version", Default = false)]
-        public bool CreateTag { get; set; }
-        
-        [Option("tag-message", Required = false, HelpText = "Message for the git tag (used with --create-tag)")]
-        public string TagMessage { get; set; }
-        
         [Option("config-file", Required = false, HelpText = "Path to mr-version.yml configuration file (auto-detected if not specified)")]
         public string ConfigFile { get; set; }
-        
-        [Option("dry-run", Required = false, HelpText = "Show what would be done without making changes", Default = false)]
-        public bool DryRun { get; set; }
     }
 
     public class VersionReporter
@@ -569,10 +555,8 @@ namespace Mister.Version.CLI
             
             using (versioningService)
             {
-                // Create version request with automatic dependency detection
-                var dependencies = !string.IsNullOrEmpty(_options.Dependencies) 
-                    ? _options.Dependencies.Split(',').Select(d => d.Trim()).ToList() 
-                    : null; // Will be auto-detected if null
+                // Dependencies are automatically detected via transitive dependency analysis
+                List<string> dependencies = null;
 
                 // Auto-detect dependencies and project properties from project file
                 var projectAnalyzer = new ProjectAnalyzer(null, null, logger);
@@ -724,17 +708,6 @@ namespace Mister.Version.CLI
                 }
             }
             
-            // Handle tag creation if requested
-            if (_options.CreateTag && projectInfo.Version != null && !string.IsNullOrEmpty(projectInfo.Version.Version))
-            {
-                var tagSuccess = versioningService.CreateTag(versionResult, _options.TagPrefix, _options.TagMessage, _options.DryRun);
-                
-                if (!tagSuccess && !_options.DryRun)
-                {
-                    Console.Error.WriteLine("Failed to create tag");
-                    return 1;
-                }
-            }
 
                 return 0;
             } // end using gitService
