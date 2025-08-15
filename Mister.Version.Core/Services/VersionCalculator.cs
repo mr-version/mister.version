@@ -1,5 +1,6 @@
 using System;
 using System.IO;
+using System.Linq;
 using Mister.Version.Core.Models;
 using Mister.Version.Core.Services;
 
@@ -226,7 +227,8 @@ namespace Mister.Version.Core.Services
             bool hasChanges = false;
             bool isInitialRepository = baseVersionTag.Commit == null;
             
-            // If using config baseVersion but repository has commits, treat as new release cycle with changes
+            // If using config baseVersion but repository has commits, it's not truly an initial repository
+            // but we should NOT auto-increment - the first change should use the base version directly
             if (isInitialRepository && !string.IsNullOrEmpty(options.BaseVersion))
             {
                 // Check if there are any commits in the repository
@@ -237,8 +239,9 @@ namespace Mister.Version.Core.Services
                     if (hasCommits)
                     {
                         isInitialRepository = false;
-                        hasChanges = true; // Treat config baseVersion as having changes to trigger increment
-                        _logger("Debug", "Config baseVersion with existing commits: treating as new release cycle with changes");
+                        // Don't set hasChanges = true here! 
+                        // Let the normal change detection determine if there are changes
+                        _logger("Debug", "Config baseVersion with existing commits: treating as new release cycle");
                     }
                 }
                 catch
@@ -252,6 +255,74 @@ namespace Mister.Version.Core.Services
                 // For initial repository with no tags, always consider it as having changes
                 hasChanges = true;
                 _logger("Debug", "Initial repository detected (no tags), treating as having changes");
+            }
+            else if (baseVersionTag.Commit == null && !string.IsNullOrEmpty(options.BaseVersion))
+            {
+                // Using config baseVersion - check if this version already exists as a tag
+                var baseVersionString = baseVersionTag.SemVer.ToVersionString();
+                var tagName = $"{options.TagPrefix}{baseVersionString}";
+                
+                if (_gitService.TagExists(tagName))
+                {
+                    // The base version has already been used (tagged)
+                    // Find the actual tag and use it as the base for increments
+                    var existingTag = _gitService.Repository.Tags[tagName];
+                    if (existingTag != null)
+                    {
+                        baseVersionTag = new VersionTag
+                        {
+                            Tag = existingTag,
+                            SemVer = baseVersionTag.SemVer,
+                            Commit = existingTag.Target as LibGit2Sharp.Commit,
+                            IsGlobal = true
+                        };
+                        _logger("Debug", $"Found existing tag for base version {baseVersionString}, using it for change detection");
+                        // Now let normal change detection work with the actual tag commit
+                        hasChanges = _gitService.ProjectHasChangedSinceTag(baseVersionTag.Commit, projectPath, 
+                            options.Dependencies, options.RepoRoot, options.Debug);
+                    }
+                    else
+                    {
+                        hasChanges = true;
+                        _logger("Debug", $"Base version {baseVersionString} tag name exists but couldn't find tag object");
+                    }
+                }
+                else
+                {
+                    // First use of this base version - but should we increment?
+                    // If there are commits in the project path, we should increment
+                    // This handles the case where config is added to an existing project with changes
+                    hasChanges = true;
+                    
+                    // Check if there are any commits that touched the project
+                    var projectHasCommits = false;
+                    try
+                    {
+                        var filter = new LibGit2Sharp.CommitFilter
+                        {
+                            IncludeReachableFrom = _gitService.Repository.Head
+                        };
+                        var commits = _gitService.Repository.Commits.QueryBy(filter);
+                        projectHasCommits = commits.Any();
+                    }
+                    catch
+                    {
+                        projectHasCommits = true; // Assume there are commits if we can't check
+                    }
+                    
+                    if (!projectHasCommits)
+                    {
+                        // Truly initial repository, use base version as-is
+                        result.VersionChanged = true;
+                        result.ChangeReason = "New base version from configuration (initial repository)";
+                        result.SemVer = baseVersionTag.SemVer.Clone();
+                        result.Version = result.SemVer.ToVersionString();
+                        _logger("Debug", $"Using base version from config (initial): {result.Version}");
+                        return result;
+                    }
+                    // Otherwise, let it continue to increment logic
+                    _logger("Debug", $"Base version from config with existing commits, will increment");
+                }
             }
             else
             {
