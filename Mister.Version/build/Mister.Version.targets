@@ -154,9 +154,9 @@
             <!-- Force the package version to use our calculated version -->
             <PackageVersion>$(FullVersion)</PackageVersion>
             <Version>$(FullVersion)</Version>
-            <AssemblyVersion>$(FullVersion)</AssemblyVersion>
-            <FileVersion>$(FullVersion)</FileVersion>
-            <InformationalVersion>$(FullVersion)</InformationalVersion>
+            <AssemblyVersion>$(MainVersion)</AssemblyVersion>
+            <FileVersion>$(MainVersion)</FileVersion>
+            <InformationalVersion>$(MainVersion)</InformationalVersion>
         </PropertyGroup>
         <Message Importance="High" Text="[Pack] FORCING package version: $(PackageId) = $(PackageVersion)" />
     </Target>

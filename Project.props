@@ -1,0 +1,11 @@
+<Project>
+
+	<PropertyGroup>
+		<LangVersion>latest</LangVersion>
+		<Version>2.1.1</Version>
+		<License>MIT</License>
+		<PackageReadmeFile>README.md</PackageReadmeFile>
+		<PackageIcon>icon.png</PackageIcon>
+		<LangVersion>latest</LangVersion>
+	</PropertyGroup>
+</Project>

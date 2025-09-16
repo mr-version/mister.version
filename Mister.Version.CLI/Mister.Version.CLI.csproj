@@ -5,17 +5,15 @@
 		<TargetFramework>net8.0</TargetFramework>
 		<RootNamespace>Mister.Version.CLI</RootNamespace>
 		<AssemblyName>mr-version</AssemblyName>
-		<Version>2.1.0</Version>
 		<PackAsTool>true</PackAsTool>
 		<ToolCommandName>mr-version</ToolCommandName>
 		<PackageId>Mister.Version.CLI</PackageId>
 		<Title>Mister.Version CLI Tool</Title>
 		<Description>Command-line tool for reporting and calculating versions in a monorepo with enhanced dev and feature branch support</Description>
 		<PackageTags>versioning;monorepo;git;cli</PackageTags>
-		<PackageReadmeFile>README.md</PackageReadmeFile>
-		<PackageIcon>icon.png</PackageIcon>
-		<License>MIT</License>
 	</PropertyGroup>
+
+	<Import Project="$(ProjectDir)../Project.props" />
 
 	<PropertyGroup Condition="'$(GITHUB_ACTIONS)' == 'true'">
 		<ContinuousIntegrationBuild>true</ContinuousIntegrationBuild>

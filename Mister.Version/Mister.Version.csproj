@@ -1,13 +1,10 @@
 <Project Sdk="Microsoft.NET.Sdk">
 	<PropertyGroup>
 		<TargetFrameworks>net472;net8.0</TargetFrameworks>
-		<LangVersion>latest</LangVersion>
 		<IsPackable>true</IsPackable>
-		<Version>2.1.0</Version>
 		<Title>Mister.Version</Title>
 		<Description>Generates versions independently for C# projects in a mono-repo with enhanced dev and feature branch support.</Description>
 		<PackageTags>versioning;git;monorepo;csharp;msbuild</PackageTags>
-		<License>MIT</License>
 		<CopyLocalLockFileAssemblies>true</CopyLocalLockFileAssemblies>
 		<RepositoryUrl>https://github.com/discrete-sharp/Mister.Version</RepositoryUrl>
 		<!-- This target will run when MSBuild is collecting the files to be packaged, and we'll implement it below. This property controls the dependency list for this packaging process, so by adding our custom property we hook ourselves into the process in a supported way. -->
@@ -22,10 +19,9 @@
 		<SuppressDependenciesWhenPacking>true</SuppressDependenciesWhenPacking>
 		<!-- Tell the SDK to generate a deps.json file -->
 		<GenerateDependencyFile>true</GenerateDependencyFile>
-		<PackageReadmeFile>README.md</PackageReadmeFile>
-		<PackageIcon>icon.png</PackageIcon>
-		<LangVersion>latest</LangVersion>
 	</PropertyGroup>
+
+	<Import Project="$(ProjectDir)../Project.props" />
 
 	<ItemGroup>
 		<None Include="README.md" Pack="true" PackagePath="\" />
