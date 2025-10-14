@@ -161,9 +161,9 @@ namespace Mister.Version.Tests
         }
 
         [Theory]
-        [InlineData("release/2.0.0", "2.0.0-rc.1")]
-        [InlineData("release-3.1.0", "3.1.0-rc.1")]
-        [InlineData("v4.5.2", "4.5.2-rc.1")] // Release branches can have patch versions
+        [InlineData("release/2.0.0", "2.0.0")]
+        [InlineData("release-3.1.0", "3.1.0")]
+        [InlineData("v4.5.2", "4.5.2")] // Release branches can have patch versions
         public void CalculateVersion_ReleaseBranch_ExtractsVersionFromBranchName(string branchName, string expectedVersion)
         {
             // Arrange

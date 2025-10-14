@@ -477,21 +477,28 @@ namespace Mister.Version.Core.Services
                         {
                             newVersion.Major = releaseVersion.Major;
                             newVersion.Minor = releaseVersion.Minor;
-                            newVersion.Patch = releaseVersion.Patch; // Keep patch from release branch name
-                            
-                            // Calculate RC number based on commits since base tag
-                            var rcNumber = 1; // Default to rc.1
-                            if (!isInitialRepository)
+
+                            // Check if baseVersionTag is already in the same release series (same major.minor)
+                            // If so, increment patch from the existing tag; otherwise use patch from branch name
+                            if (baseVersionTag != null &&
+                                baseVersionTag.SemVer.Major == releaseVersion.Major &&
+                                baseVersionTag.SemVer.Minor == releaseVersion.Minor)
                             {
-                                var rcCommitHeight = _gitService.GetCommitHeight(baseVersionTag.Commit);
-                                if (rcCommitHeight > 0)
-                                {
-                                    rcNumber = rcCommitHeight;
-                                }
+                                // We're building on an existing release in this series - increment patch
+                                newVersion.Patch = baseVersionTag.SemVer.Patch + 1;
+                                _logger("Debug", $"Release branch: Found existing tag in release series, incrementing patch to {newVersion.Patch}");
                             }
-                            
-                            newVersion.PreRelease = $"rc.{rcNumber}";
-                            result.ChangeReason = $"Release branch: Using version {newVersion.Major}.{newVersion.Minor}.{newVersion.Patch}-rc.{rcNumber}";
+                            else
+                            {
+                                // No existing tag in this release series, use patch from branch name
+                                newVersion.Patch = releaseVersion.Patch;
+                                _logger("Debug", $"Release branch: No existing tag in release series, using patch {newVersion.Patch} from branch name");
+                            }
+
+                            // Release branches produce final versions (no prerelease suffix)
+                            // These are for support patches, not release candidates
+                            newVersion.PreRelease = null;
+                            result.ChangeReason = $"Release branch: Using version {newVersion.Major}.{newVersion.Minor}.{newVersion.Patch}";
                             _logger("Debug", $"Release branch: Using version {newVersion.ToVersionString()}");
                         }
                         break;

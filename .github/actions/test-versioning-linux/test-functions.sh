@@ -302,27 +302,27 @@ test_feature_branch() {
 test_release_branch() {
     local test_name="Release Branch Versioning"
     local repo_dir="$TEST_DIR/test4-release-branch"
-    
+
     mkdir -p "$repo_dir"
     cd "$repo_dir"
     git init
     git config user.email "test@example.com"
     git config user.name "Test User"
-    
+
     create_test_project "TestProject" "src/TestProject"
-    
+
     git add .
     git commit -m "Initial commit"
     git tag v1.0.0
-    
+
     # Create and switch to release branch
     git checkout -b release/1.1
-    
+
     echo "// Release prep" >> src/TestProject/Program.cs
     git add .
     git commit -m "Prepare release"
-    
-    run_versioning_tool "$repo_dir" "1.1.0-rc.1" "$test_name"
+
+    run_versioning_tool "$repo_dir" "1.1.0" "$test_name"
 }
 
 # Test 5: Multiple projects in monorepo

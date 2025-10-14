@@ -275,11 +275,11 @@ namespace Mister.Version.Tests
         }
 
         [Theory]
-        [InlineData("release/2.0.0", 1, "2.0.0-rc.1")]
-        [InlineData("release/2.0.0", 5, "2.0.0-rc.5")]
-        [InlineData("release-3.1.0", 1, "3.1.0-rc.1")]
-        [InlineData("v4.2.0", 10, "4.2.0-rc.10")]
-        public void VersionCalculator_ReleaseBranch_IncrementsRcBasedOnCommitHeight(
+        [InlineData("release/2.0.0", 1, "2.0.0")]
+        [InlineData("release/2.0.0", 5, "2.0.0")]
+        [InlineData("release-3.1.0", 1, "3.1.0")]
+        [InlineData("v4.2.0", 10, "4.2.0")]
+        public void VersionCalculator_ReleaseBranch_ProducesFinalVersions(
             string branchName, int commitHeight, string expectedVersion)
         {
             // Arrange
@@ -309,7 +309,7 @@ namespace Mister.Version.Tests
             // Assert
             Assert.Equal(expectedVersion, result.Version);
             Assert.True(result.VersionChanged);
-            Assert.Contains($"rc.{commitHeight}", result.ChangeReason);
+            Assert.DoesNotContain("rc", result.Version);
         }
 
         // Helper method to parse semantic version for testing
