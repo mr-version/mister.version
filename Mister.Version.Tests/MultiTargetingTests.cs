@@ -4,6 +4,7 @@ using System.IO;
 using System.Linq;
 using Microsoft.Build.Framework;
 using Xunit;
+using Mister.Version.Core;
 using Mister.Version.Core.Models;
 using Mister.Version.Core.Services;
 
@@ -62,7 +63,7 @@ namespace Mister.Version.Tests
 
             // Commit and tag initial state
             CommitAllChanges("Initial commit");
-            _gitService.CreateTag("v1.0.0", "Initial version", true);
+            _gitService.CreateTag("v0.3.0-alpha", "Initial version", true);
 
             // Get all dependencies including transitive ones
             var allDependencies = GetTransitiveDependenciesHelper(appProjectPath);
