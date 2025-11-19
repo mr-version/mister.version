@@ -13,6 +13,9 @@ namespace Mister.Version.Core.Services
 
     public class VersionCalculator : IVersionCalculator
     {
+        // Constants for version formatting
+        private const int MAX_FEATURE_NAME_LENGTH = 50;
+
         private readonly IGitService _gitService;
         private readonly Action<string, string> _logger;
 
@@ -26,42 +29,24 @@ namespace Mister.Version.Core.Services
         {
             if (options == null)
                 throw new ArgumentNullException(nameof(options));
-                
+
             _logger("Info", $"Starting version calculation for {options.ProjectName}");
 
             // Check if we should skip versioning but still provide base global version
             if (options.SkipTestProjects && options.IsTestProject)
             {
-                var skipVersion = !string.IsNullOrEmpty(options.BaseVersion) ? options.BaseVersion : "1.0.0";
-                var skipSemVer = !string.IsNullOrEmpty(options.BaseVersion) 
-                    ? _gitService.ParseSemVer(options.BaseVersion) ?? new SemVer { Major = 1, Minor = 0, Patch = 0 }
-                    : new SemVer { Major = 1, Minor = 0, Patch = 0 };
-                
-                _logger("Info", $"Using base global version for test project: {options.ProjectName} -> {skipVersion}");
-                return new VersionResult
-                {
-                    Version = skipVersion,
-                    SemVer = skipSemVer,
-                    VersionChanged = false,
-                    ChangeReason = "Test project - using base global version"
-                };
+                return CreateSkipVersionResult(
+                    options.BaseVersion,
+                    options.ProjectName,
+                    "Test project - using base global version");
             }
 
             if (options.SkipNonPackableProjects && !options.IsPackable)
             {
-                var skipVersion = !string.IsNullOrEmpty(options.BaseVersion) ? options.BaseVersion : "1.0.0";
-                var skipSemVer = !string.IsNullOrEmpty(options.BaseVersion) 
-                    ? _gitService.ParseSemVer(options.BaseVersion) ?? new SemVer { Major = 1, Minor = 0, Patch = 0 }
-                    : new SemVer { Major = 1, Minor = 0, Patch = 0 };
-                
-                _logger("Info", $"Using base global version for non-packable project: {options.ProjectName} -> {skipVersion}");
-                return new VersionResult
-                {
-                    Version = skipVersion,
-                    SemVer = skipSemVer,
-                    VersionChanged = false,
-                    ChangeReason = "Non-packable project - using base global version"
-                };
+                return CreateSkipVersionResult(
+                    options.BaseVersion,
+                    options.ProjectName,
+                    "Non-packable project - using base global version");
             }
 
             // If a version is forced, use it directly
@@ -391,164 +376,19 @@ namespace Mister.Version.Core.Services
                 switch (branchType)
                 {
                     case BranchType.Main:
-                        // Check if the base version already has a prerelease
-                        if (!string.IsNullOrEmpty(baseVersionTag.SemVer.PreRelease))
-                        {
-                            // Handle prerelease progression (alpha.1 -> alpha.2, etc.)
-                            var prereleaseMatch = System.Text.RegularExpressions.Regex.Match(
-                                baseVersionTag.SemVer.PreRelease, 
-                                @"^(alpha|beta|rc)\.(\d+)$");
-                            
-                            if (prereleaseMatch.Success)
-                            {
-                                var prereleaseType = prereleaseMatch.Groups[1].Value;
-                                var prereleaseNumber = int.Parse(prereleaseMatch.Groups[2].Value);
-                                newVersion.PreRelease = $"{prereleaseType}.{prereleaseNumber + 1}";
-                                result.ChangeReason = $"Main branch: Incrementing {prereleaseType} version";
-                            }
-                            else
-                            {
-                                // Unknown/malformed prerelease format, increment using defaultIncrement and remove prerelease
-                                ApplyVersionIncrement(newVersion, options.DefaultIncrement);
-                                newVersion.PreRelease = null; // Remove malformed prerelease
-                                var normalizedPrereleaseType = NormalizePrereleaseType(options.PrereleaseType);
-                                var incrementType = options.DefaultIncrement?.ToLowerInvariant() ?? "patch";
-                                
-                                if (normalizedPrereleaseType != "none")
-                                {
-                                    newVersion.PreRelease = $"{normalizedPrereleaseType}.1";
-                                    result.ChangeReason = $"Main branch: Incrementing {incrementType} version with {normalizedPrereleaseType} prerelease";
-                                }
-                                else
-                                {
-                                    result.ChangeReason = $"Main branch: Incrementing {incrementType} version";
-                                }
-                            }
-                        }
-                        else
-                        {
-                            // No prerelease, increment using defaultIncrement and add configured prerelease if not "none"
-                            if (!isInitialRepository)
-                            {
-                                ApplyVersionIncrement(newVersion, options.DefaultIncrement);
-                            }
-                            
-                            var normalizedPrereleaseType = NormalizePrereleaseType(options.PrereleaseType);
-                            var incrementType = options.DefaultIncrement?.ToLowerInvariant() ?? "patch";
-                            
-                            if (normalizedPrereleaseType != "none")
-                            {
-                                newVersion.PreRelease = $"{normalizedPrereleaseType}.1";
-                                result.ChangeReason = isInitialRepository 
-                                    ? $"Initial repository: Adding {normalizedPrereleaseType} prerelease" 
-                                    : $"Main branch: Incrementing {incrementType} version with {normalizedPrereleaseType} prerelease";
-                            }
-                            else
-                            {
-                                result.ChangeReason = isInitialRepository 
-                                    ? "Initial repository: Base version" 
-                                    : $"Main branch: Incrementing {incrementType} version";
-                            }
-                        }
-                        _logger("Debug", $"Main branch: Version {newVersion.ToVersionString()}");
+                        ApplyMainBranchVersioning(newVersion, baseVersionTag, options, result, isInitialRepository);
                         break;
 
                     case BranchType.Dev:
-                        // Dev branches use defaultIncrement and add dev prerelease
-                        ApplyVersionIncrement(newVersion, options.DefaultIncrement);
-                        
-                        // Calculate commit height from base tag
-                        var devCommitHeight = _gitService.GetCommitHeight(baseVersionTag.Commit);
-                        // Ensure commit height is non-negative
-                        if (devCommitHeight < 0) devCommitHeight = 0;
-                        result.CommitHeight = devCommitHeight;
-                        
-                        var devIncrementType = options.DefaultIncrement?.ToLowerInvariant() ?? "patch";
-                        
-                        // Format: 1.1.0-dev.1 where 1 is commit height
-                        newVersion.PreRelease = $"dev.{devCommitHeight}";
-                        result.ChangeReason = $"Dev branch: Incrementing {devIncrementType} version with dev.{devCommitHeight}";
-                        _logger("Debug", $"Dev branch: Using version {newVersion.ToVersionString()}");
+                        ApplyDevBranchVersioning(newVersion, baseVersionTag, options, result);
                         break;
 
                     case BranchType.Release:
-                        var releaseVersion = _gitService.ExtractReleaseVersion(branchName, options.TagPrefix);
-                        if (releaseVersion != null)
-                        {
-                            newVersion.Major = releaseVersion.Major;
-                            newVersion.Minor = releaseVersion.Minor;
-
-                            // Check if baseVersionTag is already in the same release series (same major.minor)
-                            // If so, increment patch from the existing tag; otherwise use patch from branch name
-                            if (baseVersionTag != null &&
-                                baseVersionTag.SemVer.Major == releaseVersion.Major &&
-                                baseVersionTag.SemVer.Minor == releaseVersion.Minor)
-                            {
-                                // We're building on an existing release in this series - increment patch
-                                newVersion.Patch = baseVersionTag.SemVer.Patch + 1;
-                                _logger("Debug", $"Release branch: Found existing tag in release series, incrementing patch to {newVersion.Patch}");
-                            }
-                            else
-                            {
-                                // No existing tag in this release series, use patch from branch name
-                                newVersion.Patch = releaseVersion.Patch;
-                                _logger("Debug", $"Release branch: No existing tag in release series, using patch {newVersion.Patch} from branch name");
-                            }
-
-                            // Release branches produce final versions (no prerelease suffix)
-                            // These are for support patches, not release candidates
-                            newVersion.PreRelease = null;
-                            result.ChangeReason = $"Release branch: Using version {newVersion.Major}.{newVersion.Minor}.{newVersion.Patch}";
-                            _logger("Debug", $"Release branch: Using version {newVersion.ToVersionString()}");
-                        }
+                        ApplyReleaseBranchVersioning(newVersion, baseVersionTag, branchName, options, result);
                         break;
 
                     case BranchType.Feature:
-                        // Feature branches use defaultIncrement
-                        ApplyVersionIncrement(newVersion, options.DefaultIncrement);
-                        
-                        // Extract feature name from branch (remove common prefixes)
-                        var featureName = branchName;
-                        var prefixes = new[] { "feature/", "bugfix/", "hotfix/" };
-                        foreach (var prefix in prefixes)
-                        {
-                            if (featureName.StartsWith(prefix, StringComparison.OrdinalIgnoreCase))
-                            {
-                                featureName = featureName.Substring(prefix.Length);
-                                break;
-                            }
-                        }
-                        
-                        // Normalize the feature name - remove special characters and ensure valid prerelease format
-                        featureName = System.Text.RegularExpressions.Regex.Replace(featureName, @"[^a-zA-Z0-9\-]", "-")
-                            .Replace("_", "-")
-                            .Trim('-')
-                            .ToLowerInvariant();
-                            
-                        // Ensure it doesn't exceed reasonable length
-                        if (featureName.Length > 50)
-                        {
-                            featureName = featureName.Substring(0, 50).Trim('-');
-                        }
-                        
-                        // If the feature name becomes empty after normalization, use a default
-                        if (string.IsNullOrEmpty(featureName))
-                        {
-                            featureName = "feature";
-                        }
-
-                        // Calculate commit height from base tag
-                        var commitHeight = _gitService.GetCommitHeight(baseVersionTag.Commit);
-                        // Ensure commit height is non-negative
-                        if (commitHeight < 0) commitHeight = 0;
-                        result.CommitHeight = commitHeight;
-
-                        var featureIncrementType = options.DefaultIncrement?.ToLowerInvariant() ?? "patch";
-                        
-                        // Format: 1.1.0-new-feature.1 where 1 is commit height
-                        newVersion.PreRelease = $"{featureName}.{commitHeight}";
-                        result.ChangeReason = $"Feature branch: Incrementing {featureIncrementType} version with pre-release {featureName}.{commitHeight}";
-                        _logger("Debug", $"Feature branch: Using version {newVersion.ToVersionString()}");
+                        ApplyFeatureBranchVersioning(newVersion, baseVersionTag, branchName, options, result);
                         break;
                 }
                 
@@ -668,6 +508,204 @@ namespace Mister.Version.Core.Services
                     version.Patch++;
                     break;
             }
+        }
+
+        /// <summary>
+        /// Calculates version for main branch
+        /// </summary>
+        private void ApplyMainBranchVersioning(SemVer newVersion, VersionTag baseVersionTag, VersionOptions options, VersionResult result, bool isInitialRepository)
+        {
+            // Check if the base version already has a prerelease
+            if (!string.IsNullOrEmpty(baseVersionTag.SemVer.PreRelease))
+            {
+                // Handle prerelease progression (alpha.1 -> alpha.2, etc.)
+                var prereleaseMatch = System.Text.RegularExpressions.Regex.Match(
+                    baseVersionTag.SemVer.PreRelease,
+                    @"^(alpha|beta|rc)\.(\d+)$");
+
+                if (prereleaseMatch.Success)
+                {
+                    var prereleaseType = prereleaseMatch.Groups[1].Value;
+                    var prereleaseNumber = int.Parse(prereleaseMatch.Groups[2].Value);
+                    newVersion.PreRelease = $"{prereleaseType}.{prereleaseNumber + 1}";
+                    result.ChangeReason = $"Main branch: Incrementing {prereleaseType} version";
+                }
+                else
+                {
+                    // Unknown/malformed prerelease format, increment using defaultIncrement and remove prerelease
+                    ApplyVersionIncrement(newVersion, options.DefaultIncrement);
+                    newVersion.PreRelease = null; // Remove malformed prerelease
+                    var normalizedPrereleaseType = NormalizePrereleaseType(options.PrereleaseType);
+                    var incrementType = options.DefaultIncrement?.ToLowerInvariant() ?? "patch";
+
+                    if (normalizedPrereleaseType != "none")
+                    {
+                        newVersion.PreRelease = $"{normalizedPrereleaseType}.1";
+                        result.ChangeReason = $"Main branch: Incrementing {incrementType} version with {normalizedPrereleaseType} prerelease";
+                    }
+                    else
+                    {
+                        result.ChangeReason = $"Main branch: Incrementing {incrementType} version";
+                    }
+                }
+            }
+            else
+            {
+                // No prerelease, increment using defaultIncrement and add configured prerelease if not "none"
+                if (!isInitialRepository)
+                {
+                    ApplyVersionIncrement(newVersion, options.DefaultIncrement);
+                }
+
+                var normalizedPrereleaseType = NormalizePrereleaseType(options.PrereleaseType);
+                var incrementType = options.DefaultIncrement?.ToLowerInvariant() ?? "patch";
+
+                if (normalizedPrereleaseType != "none")
+                {
+                    newVersion.PreRelease = $"{normalizedPrereleaseType}.1";
+                    result.ChangeReason = isInitialRepository
+                        ? $"Initial repository: Adding {normalizedPrereleaseType} prerelease"
+                        : $"Main branch: Incrementing {incrementType} version with {normalizedPrereleaseType} prerelease";
+                }
+                else
+                {
+                    result.ChangeReason = isInitialRepository
+                        ? "Initial repository: Base version"
+                        : $"Main branch: Incrementing {incrementType} version";
+                }
+            }
+            _logger("Debug", $"Main branch: Version {newVersion.ToVersionString()}");
+        }
+
+        /// <summary>
+        /// Calculates version for dev branch
+        /// </summary>
+        private void ApplyDevBranchVersioning(SemVer newVersion, VersionTag baseVersionTag, VersionOptions options, VersionResult result)
+        {
+            // Dev branches use defaultIncrement and add dev prerelease
+            ApplyVersionIncrement(newVersion, options.DefaultIncrement);
+
+            // Calculate commit height from base tag
+            var devCommitHeight = _gitService.GetCommitHeight(baseVersionTag.Commit);
+            // Ensure commit height is non-negative
+            if (devCommitHeight < 0) devCommitHeight = 0;
+            result.CommitHeight = devCommitHeight;
+
+            var devIncrementType = options.DefaultIncrement?.ToLowerInvariant() ?? "patch";
+
+            // Format: 1.1.0-dev.1 where 1 is commit height
+            newVersion.PreRelease = $"dev.{devCommitHeight}";
+            result.ChangeReason = $"Dev branch: Incrementing {devIncrementType} version with dev.{devCommitHeight}";
+            _logger("Debug", $"Dev branch: Using version {newVersion.ToVersionString()}");
+        }
+
+        /// <summary>
+        /// Calculates version for release branch
+        /// </summary>
+        private void ApplyReleaseBranchVersioning(SemVer newVersion, VersionTag baseVersionTag, string branchName, VersionOptions options, VersionResult result)
+        {
+            var releaseVersion = _gitService.ExtractReleaseVersion(branchName, options.TagPrefix);
+            if (releaseVersion != null)
+            {
+                newVersion.Major = releaseVersion.Major;
+                newVersion.Minor = releaseVersion.Minor;
+
+                // Check if baseVersionTag is already in the same release series (same major.minor)
+                // If so, increment patch from the existing tag; otherwise use patch from branch name
+                if (baseVersionTag != null &&
+                    baseVersionTag.SemVer.Major == releaseVersion.Major &&
+                    baseVersionTag.SemVer.Minor == releaseVersion.Minor)
+                {
+                    // We're building on an existing release in this series - increment patch
+                    newVersion.Patch = baseVersionTag.SemVer.Patch + 1;
+                    _logger("Debug", $"Release branch: Found existing tag in release series, incrementing patch to {newVersion.Patch}");
+                }
+                else
+                {
+                    // No existing tag in this release series, use patch from branch name
+                    newVersion.Patch = releaseVersion.Patch;
+                    _logger("Debug", $"Release branch: No existing tag in release series, using patch {newVersion.Patch} from branch name");
+                }
+
+                // Release branches produce final versions (no prerelease suffix)
+                // These are for support patches, not release candidates
+                newVersion.PreRelease = null;
+                result.ChangeReason = $"Release branch: Using version {newVersion.Major}.{newVersion.Minor}.{newVersion.Patch}";
+                _logger("Debug", $"Release branch: Using version {newVersion.ToVersionString()}");
+            }
+        }
+
+        /// <summary>
+        /// Calculates version for feature branch
+        /// </summary>
+        private void ApplyFeatureBranchVersioning(SemVer newVersion, VersionTag baseVersionTag, string branchName, VersionOptions options, VersionResult result)
+        {
+            // Feature branches use defaultIncrement
+            ApplyVersionIncrement(newVersion, options.DefaultIncrement);
+
+            // Extract feature name from branch (remove common prefixes)
+            var featureName = branchName;
+            var prefixes = new[] { "feature/", "bugfix/", "hotfix/" };
+            foreach (var prefix in prefixes)
+            {
+                if (featureName.StartsWith(prefix, StringComparison.OrdinalIgnoreCase))
+                {
+                    featureName = featureName.Substring(prefix.Length);
+                    break;
+                }
+            }
+
+            // Normalize the feature name - remove special characters and ensure valid prerelease format
+            featureName = System.Text.RegularExpressions.Regex.Replace(featureName, @"[^a-zA-Z0-9\-]", "-")
+                .Replace("_", "-")
+                .Trim('-')
+                .ToLowerInvariant();
+
+            // Ensure it doesn't exceed reasonable length
+            if (featureName.Length > MAX_FEATURE_NAME_LENGTH)
+            {
+                featureName = featureName.Substring(0, MAX_FEATURE_NAME_LENGTH).Trim('-');
+            }
+
+            // If the feature name becomes empty after normalization, use a default
+            if (string.IsNullOrEmpty(featureName))
+            {
+                featureName = "feature";
+            }
+
+            // Calculate commit height from base tag
+            var commitHeight = _gitService.GetCommitHeight(baseVersionTag.Commit);
+            // Ensure commit height is non-negative
+            if (commitHeight < 0) commitHeight = 0;
+            result.CommitHeight = commitHeight;
+
+            var featureIncrementType = options.DefaultIncrement?.ToLowerInvariant() ?? "patch";
+
+            // Format: 1.1.0-new-feature.1 where 1 is commit height
+            newVersion.PreRelease = $"{featureName}.{commitHeight}";
+            result.ChangeReason = $"Feature branch: Incrementing {featureIncrementType} version with pre-release {featureName}.{commitHeight}";
+            _logger("Debug", $"Feature branch: Using version {newVersion.ToVersionString()}");
+        }
+
+        /// <summary>
+        /// Creates a version result for skipped projects (test projects or non-packable projects)
+        /// </summary>
+        private VersionResult CreateSkipVersionResult(string baseVersion, string projectName, string reason)
+        {
+            var skipVersion = !string.IsNullOrEmpty(baseVersion) ? baseVersion : "1.0.0";
+            var skipSemVer = !string.IsNullOrEmpty(baseVersion)
+                ? _gitService.ParseSemVer(baseVersion) ?? new SemVer { Major = 1, Minor = 0, Patch = 0 }
+                : new SemVer { Major = 1, Minor = 0, Patch = 0 };
+
+            _logger("Info", $"Using base global version for {projectName}: {skipVersion} ({reason})");
+
+            return new VersionResult
+            {
+                Version = skipVersion,
+                SemVer = skipSemVer,
+                VersionChanged = false,
+                ChangeReason = reason
+            };
         }
     }
 }

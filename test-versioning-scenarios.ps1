@@ -65,7 +65,7 @@ function Main {
     Test-ConfigAlpha
     Test-ConfigBeta
     Test-ConfigRC
-    # Test-YamlConfig  # TODO: YAML config not implemented yet
+    # Test-YamlConfig  # TODO: Write tests for YAML configuration (ConfigurationService.cs)
     Test-ForceVersion
     Test-TagPrefix
     Test-DependencyTracking

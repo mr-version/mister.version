@@ -205,19 +205,7 @@ public class MonoRepoVersionTask : Task
             }
 
             // Get current HEAD SHA for cache validation
-            string currentHeadSha = null;
-            try
-            {
-                using (var tempRepo = new LibGit2Sharp.Repository(gitRepoRoot))
-                {
-                    currentHeadSha = tempRepo.Head?.Tip?.Sha;
-                }
-            }
-            catch
-            {
-                // If we can't get HEAD SHA, caching will be disabled
-                currentHeadSha = null;
-            }
+            var currentHeadSha = GetRepositoryHeadSha(gitRepoRoot);
 
             // Get or create cache
             var cache = GetOrCreateCache(gitRepoRoot, currentHeadSha);
@@ -363,9 +351,30 @@ public class MonoRepoVersionTask : Task
     /// </summary>
     internal SemVer ParseSemVer(string version)
     {
-        return RepositoryService.ExecuteGitOperation(RepoRoot, 
-            gitService => gitService.ParseSemVer(version), 
+        return RepositoryService.ExecuteGitOperation(RepoRoot,
+            gitService => gitService.ParseSemVer(version),
             null);
+    }
+
+    /// <summary>
+    /// Gets the current HEAD SHA from a repository efficiently
+    /// </summary>
+    /// <param name="repoRoot">Repository root path</param>
+    /// <returns>HEAD SHA or null if unavailable</returns>
+    private static string GetRepositoryHeadSha(string repoRoot)
+    {
+        try
+        {
+            using (var repo = new LibGit2Sharp.Repository(repoRoot))
+            {
+                return repo.Head?.Tip?.Sha;
+            }
+        }
+        catch
+        {
+            // If we can't get HEAD SHA, caching will be disabled
+            return null;
+        }
     }
 
 }
