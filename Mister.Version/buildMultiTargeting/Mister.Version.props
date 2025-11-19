@@ -1,0 +1,45 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Project xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+	<!-- This file is imported during outer builds (multi-targeting scenarios) -->
+	<!-- It runs when $(IsCrossTargetingBuild) == true -->
+
+	<!-- DIAGNOSTIC: Log props file import -->
+	<Target Name="_DiagnosticOuterBuildPropsImported" BeforeTargets="BeforeBuild;Build;Pack">
+		<Message Importance="High" Text="[DIAGNOSTIC-PROPS] buildMultiTargeting/Mister.Version.props IMPORTED for $(MSBuildProjectName)" />
+	</Target>
+
+	<!-- Default properties for MonoRepo versioning in outer build -->
+	<!-- NOTE: Do NOT use $(IsPackable) conditions here - it's not set at import time! -->
+	<PropertyGroup>
+		<MonoRepoVersioningEnabled Condition="'$(MonoRepoVersioningEnabled)'==''">true</MonoRepoVersioningEnabled>
+		<MonoRepoRoot Condition="'$(MonoRepoRoot)'==''">$(MSBuildProjectDirectory)</MonoRepoRoot>
+		<MonoRepoTagPrefix Condition="'$(MonoRepoTagPrefix)'==''"></MonoRepoTagPrefix>
+		<MonoRepoUpdateProjectFile Condition="'$(MonoRepoUpdateProjectFile)'==''">false</MonoRepoUpdateProjectFile>
+		<MonoRepoDebug Condition="'$(MonoRepoDebug)'==''">false</MonoRepoDebug>
+		<MonoRepoExtraDebug Condition="'$(MonoRepoExtraDebug)'==''">false</MonoRepoExtraDebug>
+		<MonoRepoSkipTestProjects Condition="'$(MonoRepoSkipTestProjects)'==''">true</MonoRepoSkipTestProjects>
+		<MonoRepoSkipNonPackableProjects Condition="'$(MonoRepoSkipNonPackableProjects)'==''">true</MonoRepoSkipNonPackableProjects>
+		<MonoRepoPrereleaseType Condition="'$(MonoRepoPrereleaseType)'==''">alpha</MonoRepoPrereleaseType>
+		<MonoRepoConfigFile Condition="'$(MonoRepoConfigFile)'==''">$(MSBuildProjectDirectory)/mister-version.yml</MonoRepoConfigFile>
+	</PropertyGroup>
+
+	<!-- Inject versioning into GenerateNuspec dependency chain -->
+	<!-- This PropertyGroup sets the dependency directly (no conditions on IsPackable) -->
+	<!-- The target itself has the IsPackable condition, so it won't run for non-packable projects -->
+	<PropertyGroup>
+		<GenerateNuspecDependsOn>_MonoRepoOuterBuildVersioning;$(GenerateNuspecDependsOn)</GenerateNuspecDependsOn>
+	</PropertyGroup>
+
+	<!-- CRITICAL: Hook into NuGet's GetPackageVersion extension point -->
+	<!-- This ensures our version calculation runs before NuGet queries project versions -->
+	<PropertyGroup>
+		<GetPackageVersionDependsOn>_MonoRepoCalculateVersionForDependencyResolution;$(GetPackageVersionDependsOn)</GetPackageVersionDependsOn>
+	</PropertyGroup>
+
+	<!-- DIAGNOSTIC: Log GenerateNuspecDependsOn value -->
+	<Target Name="_DiagnosticGenerateNuspecDependsOn" BeforeTargets="GenerateNuspec">
+		<Message Importance="High" Text="[DIAGNOSTIC-PROPS] GenerateNuspecDependsOn: $(GenerateNuspecDependsOn)" />
+		<Message Importance="High" Text="[DIAGNOSTIC-PROPS] GetPackageVersionDependsOn: $(GetPackageVersionDependsOn)" />
+		<Message Importance="High" Text="[DIAGNOSTIC-PROPS] MonoRepoVersioningEnabled: $(MonoRepoVersioningEnabled)" />
+	</Target>
+</Project>
