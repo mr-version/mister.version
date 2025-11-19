@@ -15,6 +15,12 @@ namespace Mister.Version;
 /// </summary>
 public class MonoRepoVersionTask : Task
 {
+    // Static cache shared across all task instances in the same build
+    // This significantly improves performance in multi-project builds
+    private static readonly object _cacheLock = new object();
+    private static VersionCache _staticCache;
+    private static string _cacheRepoRoot;
+
     /// <summary>
     /// Path to the project file being built
     /// </summary>
@@ -123,6 +129,54 @@ public class MonoRepoVersionTask : Task
     /// </summary>
     public bool DryRun { get; set; } = false;
 
+    /// <summary>
+    /// Whether to enable caching of version calculations across builds (default: true)
+    /// Set to false to disable caching for testing or debugging
+    /// </summary>
+    public bool EnableCache { get; set; } = true;
+
+    /// <summary>
+    /// Gets or creates the static cache for the current repository
+    /// </summary>
+    private VersionCache GetOrCreateCache(string repoRoot, string currentHeadSha)
+    {
+        if (!EnableCache)
+            return null;
+
+        lock (_cacheLock)
+        {
+            // If cache doesn't exist or is for a different repo, create a new one
+            if (_staticCache == null || _cacheRepoRoot != repoRoot)
+            {
+                _staticCache = new VersionCache(repoRoot, currentHeadSha);
+                _cacheRepoRoot = repoRoot;
+                Log.LogMessage(MessageImportance.Low, $"[Mister.Version] Created new cache for repository: {repoRoot}");
+            }
+            else
+            {
+                // Validate cache and invalidate if HEAD changed
+                if (_staticCache.ValidateAndInvalidate(currentHeadSha))
+                {
+                    Log.LogMessage(MessageImportance.Low, "[Mister.Version] Cache invalidated due to HEAD change");
+                }
+            }
+
+            return _staticCache;
+        }
+    }
+
+    /// <summary>
+    /// Clears the static cache (useful for testing)
+    /// </summary>
+    public static void ClearCache()
+    {
+        lock (_cacheLock)
+        {
+            _staticCache = null;
+            _cacheRepoRoot = null;
+        }
+    }
+
     public override bool Execute()
     {
         try
@@ -150,8 +204,33 @@ public class MonoRepoVersionTask : Task
                 return false;
             }
 
-            // Initialize versioning service
-            using var versioningService = new VersioningService(gitRepoRoot, logger);
+            // Get current HEAD SHA for cache validation
+            string currentHeadSha = null;
+            try
+            {
+                using (var tempRepo = new LibGit2Sharp.Repository(gitRepoRoot))
+                {
+                    currentHeadSha = tempRepo.Head?.Tip?.Sha;
+                }
+            }
+            catch
+            {
+                // If we can't get HEAD SHA, caching will be disabled
+                currentHeadSha = null;
+            }
+
+            // Get or create cache
+            var cache = GetOrCreateCache(gitRepoRoot, currentHeadSha);
+
+            // Log cache statistics if in debug mode
+            if (Debug && cache != null)
+            {
+                var stats = cache.GetStatistics();
+                Log.LogMessage(MessageImportance.Low, $"[Mister.Version] Cache Stats: {stats}");
+            }
+
+            // Initialize versioning service with cache
+            using var versioningService = new VersioningService(gitRepoRoot, logger, cache);
 
             // Prepare version request
             var dependencies = Dependencies?.Select(d => d.ItemSpec).ToList() ?? new List<string>();

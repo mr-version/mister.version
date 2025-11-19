@@ -21,12 +21,20 @@ namespace Mister.Version.Core.Services
         private readonly IVersionCalculator _versionCalculator;
         private readonly IGitService _gitService;
         private readonly Action<string, string> _logger;
+        private VersionCache _cache;
 
         public ProjectAnalyzer(IVersionCalculator versionCalculator, IGitService gitService, Action<string, string> logger = null)
         {
             _versionCalculator = versionCalculator;
             _gitService = gitService;
             _logger = logger ?? ((level, message) => { });
+            _cache = null; // Cache is optional
+        }
+
+        public VersionCache Cache
+        {
+            get => _cache;
+            set => _cache = value;
         }
 
         public List<ProjectInfo> AnalyzeProjects(string repositoryPath, string projectDirectory = null)
@@ -143,8 +151,18 @@ namespace Mister.Version.Core.Services
 
         public List<string> GetProjectDependencies(string projectPath, string repositoryPath)
         {
+            // Check cache first
+            if (_cache != null)
+            {
+                var cachedDeps = _cache.GetProjectDependencies(projectPath);
+                if (cachedDeps != null)
+                {
+                    return cachedDeps;
+                }
+            }
+
             var dependencies = new List<string>();
-            
+
             try
             {
                 var projectContent = File.ReadAllText(projectPath);
@@ -184,6 +202,12 @@ namespace Mister.Version.Core.Services
             catch (Exception ex)
             {
                 _logger("Error", $"Failed to get dependencies for {projectPath}: {ex.Message}");
+            }
+
+            // Cache the result
+            if (_cache != null)
+            {
+                _cache.SetProjectDependencies(projectPath, dependencies);
             }
 
             return dependencies;
@@ -247,15 +271,31 @@ namespace Mister.Version.Core.Services
 
         private List<string> DiscoverAllProjects(string repositoryPath)
         {
+            // Check cache first
+            if (_cache != null)
+            {
+                var cachedProjects = _cache.GetAllProjects();
+                if (cachedProjects != null)
+                {
+                    return cachedProjects;
+                }
+            }
+
             var projects = new List<string>();
             var projectExtensions = new[] { "*.csproj", "*.fsproj", "*.vbproj" };
-            
+
             foreach (var extension in projectExtensions)
             {
                 var foundProjects = Directory.GetFiles(repositoryPath, extension, SearchOption.AllDirectories);
                 projects.AddRange(foundProjects);
             }
-            
+
+            // Cache the result
+            if (_cache != null)
+            {
+                _cache.SetAllProjects(projects);
+            }
+
             return projects;
         }
 

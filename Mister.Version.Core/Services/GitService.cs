@@ -68,13 +68,26 @@ namespace Mister.Version.Core.Services
     public class GitService : IGitService
     {
         private Repository _repository;
+        private VersionCache _cache;
 
         public Repository Repository => _repository;
         public string CurrentBranch => _repository.Head.FriendlyName;
+        public VersionCache Cache
+        {
+            get => _cache;
+            set => _cache = value;
+        }
 
         public GitService(string repoPath)
         {
             _repository = new Repository(repoPath);
+            _cache = null; // Cache is optional
+        }
+
+        public GitService(string repoPath, VersionCache cache)
+        {
+            _repository = new Repository(repoPath);
+            _cache = cache;
         }
 
         public BranchType GetBranchType(string branchName)
@@ -217,6 +230,17 @@ namespace Mister.Version.Core.Services
 
         public VersionTag GetProjectVersionTag(string projectName, BranchType branchType, string tagPrefix)
         {
+            // Check cache first
+            var cacheKey = $"{projectName}_{branchType}_{tagPrefix}";
+            if (_cache != null)
+            {
+                var cachedTag = _cache.GetProjectVersionTag(cacheKey);
+                if (cachedTag != null)
+                {
+                    return cachedTag;
+                }
+            }
+
             // Try multiple tag formats to support existing tags
             var possiblePrefixes = new[]
             {
@@ -227,7 +251,7 @@ namespace Mister.Version.Core.Services
                 // Additional formats for compatibility
                 $"{projectName.ToLowerInvariant().Replace(".", ".")}/{tagPrefix}",
             };
-            
+
             // Note: We don't support suffix format (v1.2.3-projectname) as it conflicts with feature branch tags
 
             var projectVersionTags = _repository.Tags
@@ -280,13 +304,38 @@ namespace Mister.Version.Core.Services
                 }
             }
 
-            return projectVersionTags.FirstOrDefault();
+            var result = projectVersionTags.FirstOrDefault();
+
+            // Cache the result (even if null)
+            if (_cache != null)
+            {
+                _cache.SetProjectVersionTag(cacheKey, result);
+            }
+
+            return result;
         }
 
         public bool ProjectHasChangedSinceTag(Commit tagCommit, string projectPath, List<string> dependencies, string repoRoot, bool debug = false)
         {
             if (tagCommit == null)
                 return true;
+
+            // Create cache key from commit SHA, project path, and dependencies
+            var commitSha = tagCommit.Sha;
+            var depKey = dependencies != null && dependencies.Any()
+                ? string.Join("|", dependencies.OrderBy(d => d))
+                : "";
+            var cacheKey = $"{commitSha}_{projectPath}_{depKey}";
+
+            // Check cache first
+            if (_cache != null)
+            {
+                var cachedResult = _cache.GetProjectHasChanges(cacheKey);
+                if (cachedResult.HasValue)
+                {
+                    return cachedResult.Value;
+                }
+            }
 
             try
             {
@@ -351,10 +400,17 @@ namespace Mister.Version.Core.Services
                     }
                 }
 
+                // Cache the result
+                if (_cache != null)
+                {
+                    _cache.SetProjectHasChanges(cacheKey, hasChanges);
+                }
+
                 return hasChanges;
             }
             catch (Exception)
             {
+                // Don't cache exception results as they may be transient
                 return true; // Assume changes if we can't determine
             }
         }
@@ -368,13 +424,32 @@ namespace Mister.Version.Core.Services
 
                 toCommit = toCommit ?? _repository.Head.Tip;
 
+                // Check cache first (use from and to commit SHAs as key)
+                var cacheKey = $"{fromCommit.Sha}_{toCommit?.Sha ?? "HEAD"}";
+                if (_cache != null)
+                {
+                    var cachedHeight = _cache.GetCommitHeight(cacheKey);
+                    if (cachedHeight.HasValue)
+                    {
+                        return cachedHeight.Value;
+                    }
+                }
+
                 var filter = new CommitFilter
                 {
                     ExcludeReachableFrom = fromCommit,
                     IncludeReachableFrom = toCommit
                 };
 
-                return _repository.Commits.QueryBy(filter).Count();
+                var height = _repository.Commits.QueryBy(filter).Count();
+
+                // Cache the result
+                if (_cache != null)
+                {
+                    _cache.SetCommitHeight(cacheKey, height);
+                }
+
+                return height;
             }
             catch
             {
