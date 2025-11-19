@@ -13,6 +13,9 @@ namespace Mister.Version.Core.Services
 
     public class VersionCalculator : IVersionCalculator
     {
+        // Constants for version formatting
+        private const int MAX_FEATURE_NAME_LENGTH = 50;
+
         private readonly IGitService _gitService;
         private readonly Action<string, string> _logger;
 
@@ -26,42 +29,24 @@ namespace Mister.Version.Core.Services
         {
             if (options == null)
                 throw new ArgumentNullException(nameof(options));
-                
+
             _logger("Info", $"Starting version calculation for {options.ProjectName}");
 
             // Check if we should skip versioning but still provide base global version
             if (options.SkipTestProjects && options.IsTestProject)
             {
-                var skipVersion = !string.IsNullOrEmpty(options.BaseVersion) ? options.BaseVersion : "1.0.0";
-                var skipSemVer = !string.IsNullOrEmpty(options.BaseVersion) 
-                    ? _gitService.ParseSemVer(options.BaseVersion) ?? new SemVer { Major = 1, Minor = 0, Patch = 0 }
-                    : new SemVer { Major = 1, Minor = 0, Patch = 0 };
-                
-                _logger("Info", $"Using base global version for test project: {options.ProjectName} -> {skipVersion}");
-                return new VersionResult
-                {
-                    Version = skipVersion,
-                    SemVer = skipSemVer,
-                    VersionChanged = false,
-                    ChangeReason = "Test project - using base global version"
-                };
+                return CreateSkipVersionResult(
+                    options.BaseVersion,
+                    options.ProjectName,
+                    "Test project - using base global version");
             }
 
             if (options.SkipNonPackableProjects && !options.IsPackable)
             {
-                var skipVersion = !string.IsNullOrEmpty(options.BaseVersion) ? options.BaseVersion : "1.0.0";
-                var skipSemVer = !string.IsNullOrEmpty(options.BaseVersion) 
-                    ? _gitService.ParseSemVer(options.BaseVersion) ?? new SemVer { Major = 1, Minor = 0, Patch = 0 }
-                    : new SemVer { Major = 1, Minor = 0, Patch = 0 };
-                
-                _logger("Info", $"Using base global version for non-packable project: {options.ProjectName} -> {skipVersion}");
-                return new VersionResult
-                {
-                    Version = skipVersion,
-                    SemVer = skipSemVer,
-                    VersionChanged = false,
-                    ChangeReason = "Non-packable project - using base global version"
-                };
+                return CreateSkipVersionResult(
+                    options.BaseVersion,
+                    options.ProjectName,
+                    "Non-packable project - using base global version");
             }
 
             // If a version is forced, use it directly
@@ -524,11 +509,11 @@ namespace Mister.Version.Core.Services
                             .Replace("_", "-")
                             .Trim('-')
                             .ToLowerInvariant();
-                            
+
                         // Ensure it doesn't exceed reasonable length
-                        if (featureName.Length > 50)
+                        if (featureName.Length > MAX_FEATURE_NAME_LENGTH)
                         {
-                            featureName = featureName.Substring(0, 50).Trim('-');
+                            featureName = featureName.Substring(0, MAX_FEATURE_NAME_LENGTH).Trim('-');
                         }
                         
                         // If the feature name becomes empty after normalization, use a default
@@ -668,6 +653,27 @@ namespace Mister.Version.Core.Services
                     version.Patch++;
                     break;
             }
+        }
+
+        /// <summary>
+        /// Creates a version result for skipped projects (test projects or non-packable projects)
+        /// </summary>
+        private VersionResult CreateSkipVersionResult(string baseVersion, string projectName, string reason)
+        {
+            var skipVersion = !string.IsNullOrEmpty(baseVersion) ? baseVersion : "1.0.0";
+            var skipSemVer = !string.IsNullOrEmpty(baseVersion)
+                ? _gitService.ParseSemVer(baseVersion) ?? new SemVer { Major = 1, Minor = 0, Patch = 0 }
+                : new SemVer { Major = 1, Minor = 0, Patch = 0 };
+
+            _logger("Info", $"Using base global version for {projectName}: {skipVersion} ({reason})");
+
+            return new VersionResult
+            {
+                Version = skipVersion,
+                SemVer = skipSemVer,
+                VersionChanged = false,
+                ChangeReason = reason
+            };
         }
     }
 }

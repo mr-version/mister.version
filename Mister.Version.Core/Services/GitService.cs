@@ -67,6 +67,14 @@ namespace Mister.Version.Core.Services
 
     public class GitService : IGitService
     {
+        // Constants for version parsing and formatting
+        private const int SHORT_HASH_LENGTH = 7;
+        private const int DEFAULT_PRERELEASE_PRECEDENCE = 999; // No prerelease = highest precedence
+        private const int RC_PRERELEASE_PRECEDENCE = 3;
+        private const int BETA_PRERELEASE_PRECEDENCE = 2;
+        private const int ALPHA_PRERELEASE_PRECEDENCE = 1;
+        private const int UNKNOWN_PRERELEASE_PRECEDENCE = 0;
+
         private Repository _repository;
         private VersionCache _cache;
 
@@ -447,14 +455,16 @@ namespace Mister.Version.Core.Services
             }
             catch
             {
+                // Return 0 if we can't calculate height (e.g., invalid commits, repository issues)
+                // This prevents version calculation failures due to git errors
                 return 0;
             }
         }
 
         public string GetCommitShortHash(Commit commit)
         {
-            if (commit == null) return "0000000";
-            return commit.Sha.Substring(0, 7);
+            if (commit == null) return new string('0', SHORT_HASH_LENGTH);
+            return commit.Sha.Substring(0, SHORT_HASH_LENGTH);
         }
 
         public SemVer ParseSemVer(string version)
@@ -517,7 +527,8 @@ namespace Mister.Version.Core.Services
             }
             catch (Exception)
             {
-                // Return empty list on error
+                // Return empty list on error (e.g., commit not found, repository issues)
+                // This allows the caller to continue with an assumption of no changes
             }
 
             return changes;
@@ -533,23 +544,23 @@ namespace Mister.Version.Core.Services
 
         private int GetPrereleasePrecedence(string prerelease)
         {
-            if (string.IsNullOrEmpty(prerelease)) return 999; // No prerelease = highest precedence
-            if (prerelease.StartsWith("rc.")) return 3;
-            if (prerelease.StartsWith("beta.")) return 2;
-            if (prerelease.StartsWith("alpha.")) return 1;
-            return 0; // Unknown prerelease type
+            if (string.IsNullOrEmpty(prerelease)) return DEFAULT_PRERELEASE_PRECEDENCE;
+            if (prerelease.StartsWith("rc.")) return RC_PRERELEASE_PRECEDENCE;
+            if (prerelease.StartsWith("beta.")) return BETA_PRERELEASE_PRECEDENCE;
+            if (prerelease.StartsWith("alpha.")) return ALPHA_PRERELEASE_PRECEDENCE;
+            return UNKNOWN_PRERELEASE_PRECEDENCE;
         }
 
         private int GetPrereleaseNumber(string prerelease)
         {
-            if (string.IsNullOrEmpty(prerelease)) return 999;
+            if (string.IsNullOrEmpty(prerelease)) return DEFAULT_PRERELEASE_PRECEDENCE;
 
             var match = Regex.Match(prerelease, @"\.(\d+)");
             if (match.Success && int.TryParse(match.Groups[1].Value, out var number))
             {
                 return number;
             }
-            return 0;
+            return UNKNOWN_PRERELEASE_PRECEDENCE;
         }
 
         public bool CreateTag(string tagName, string message, bool isGlobalTag, string projectName = null, bool dryRun = false)
@@ -578,7 +589,7 @@ namespace Mister.Version.Core.Services
                     Console.WriteLine($"[DRY RUN] Would create tag:");
                     Console.WriteLine($"  Tag Name: {tagName}");
                     Console.WriteLine($"  Message: {message}");
-                    Console.WriteLine($"  Commit: {commit.Sha.Substring(0, 7)} - {commit.MessageShort}");
+                    Console.WriteLine($"  Commit: {commit.Sha.Substring(0, SHORT_HASH_LENGTH)} - {commit.MessageShort}");
                     Console.WriteLine($"  Type: {(isGlobalTag ? "Global" : $"Project ({projectName})")}");
                     return true;
                 }
@@ -590,7 +601,8 @@ namespace Mister.Version.Core.Services
             }
             catch (Exception)
             {
-                // Tag creation failed
+                // Tag creation failed (e.g., tag already exists, invalid name, permission issues)
+                // Return false to allow the caller to handle the failure gracefully
                 return false;
             }
         }
