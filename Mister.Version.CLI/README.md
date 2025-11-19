@@ -1,439 +1,103 @@
 # Mister.Version CLI
 
-![version](https://img.shields.io/badge/version-1.0.0-blue.svg)
+![version](https://img.shields.io/badge/version-1.1.0-blue.svg)
 ![.NET](https://img.shields.io/badge/.NET-8.0-purple.svg)
 ![License](https://img.shields.io/badge/license-MIT-green.svg)
 
-A powerful command-line tool for analyzing, reporting, and managing versions across your .NET monorepo. Mister.Version CLI works alongside the Mister.Version MSBuild system to provide comprehensive insights into your project versions and dependencies.
+Command-line tool for analyzing, reporting, and managing versions across your .NET monorepo.
 
 ## Features
 
-- **Version Reporting**: Generate detailed reports about versions across your monorepo
-- **Multiple Output Formats**: Export as text, JSON, CSV, or dependency graphs
-- **Dependency Analysis**: View complete dependency trees and detect version mismatches
-- **Visual Dependency Graphs**: Generate Mermaid, DOT, and ASCII dependency graphs
-- **Branch-Aware**: Analyze different branches with specific versioning strategies
-- **Commit Tracking**: See which commits triggered version changes
-- **Project Type Filtering**: Automatically filters test and non-packable projects
-- **Customizable**: Extensive command-line options
+- Generate version reports in multiple formats (text, JSON, CSV, dependency graphs)
+- Calculate versions for individual projects
+- Visualize dependency graphs (Mermaid, DOT, ASCII)
+- Branch-aware versioning with detailed change tracking
 
 ## Installation
 
-### As a .NET Tool
+### Global Tool
 
 ```bash
-# Build and pack the tool
-dotnet pack -c Release
-
-# Install globally
-dotnet tool install --global --add-source ./bin/Release Mister.Version.CLI
-
-# Or install locally
-dotnet tool install --local --add-source ./bin/Release Mister.Version.CLI
+dotnet tool install --global Mister.Version.CLI --version 1.1.0
 ```
 
-### From Source
+### Local Tool
 
 ```bash
-# Clone the repository
-git clone https://github.com/yourusername/mister-version.git
-
-# Build the CLI tool
-cd mister-version/src/CLI
-dotnet build
-
-# Run directly
-dotnet run -- [command] [options]
+dotnet new tool-manifest  # if you don't have one already
+dotnet tool install --local Mister.Version.CLI --version 1.1.0
 ```
 
-## Commands
+## Quick Reference
 
-The CLI tool provides two main commands:
-
-### 1. Generate Version Report
+### Generate Version Report
 
 ```bash
-mr-version report [options]
-```
+# Text report
+mr-version report
 
-This command analyzes all projects in your monorepo and generates a comprehensive version report.
-
-#### Options
-
-| Option | Description | Default |
-|--------|-------------|---------|
-| `-r, --repo <path>` | Repository root path | Current directory |
-| `-p, --project-dir <path>` | Projects directory | `src` |
-| `-o, --output <format>` | Output format (text, json, csv, graph) | `text` |
-| `-f, --file <path>` | Output file path | Console output |
-| `-b, --branch <name>` | Branch to analyze | Current branch |
-| `-t, --tag-prefix <prefix>` | Tag prefix | `v` |
-| `--include-commits` | Include commit information | `true` |
-| `--include-dependencies` | Include dependency information | `true` |
-| `--graph-format <format>` | Graph format (mermaid, dot, ascii) | `mermaid` |
-| `--show-versions` | Show version numbers in graph nodes | `true` |
-| `--changed-only` | Show only projects with changes | `false` |
-
-#### Example
-
-```bash
-# Generate a JSON report for the current repo
+# JSON report
 mr-version report -o json -f versions.json
 
-# Generate a report for a specific branch
-mr-version report -b release/v8.2 -o csv -f release-versions.csv
+# CSV report
+mr-version report -o csv -f report.csv
 
-# Generate a basic report without dependencies or commits
-mr-version report --include-dependencies=false --include-commits=false
-
-# Generate a dependency graph in Mermaid format
+# Dependency graph (Mermaid)
 mr-version report -o graph --graph-format mermaid
 
-# Generate DOT graph and save to file
+# Dependency graph (DOT for Graphviz)
 mr-version report -o graph --graph-format dot -f dependencies.dot
 
-# Generate ASCII tree showing only changed projects
-mr-version report -o graph --graph-format ascii --changed-only
-```
-
-### 2. Calculate Project Version
-
-```bash
-mr-version version [options]
-```
-
-This command calculates the version for a specific project, showing the exact logic used.
-
-#### Options
-
-| Option | Description | Default |
-|--------|-------------|---------|
-| `-r, --repo <path>` | Repository root path | Current directory |
-| `-p, --project <path>` | Project file path | Required |
-| `-t, --tag-prefix <prefix>` | Tag prefix | `v` |
-| `-d, --detailed` | Show detailed calculation | `false` |
-| `-j, --json` | JSON output | `false` |
-| `--create-tag` | Create a git tag for the calculated version | `false` |
-| `--tag-message <message>` | Custom message for the git tag | Auto-generated |
-
-#### Example
-
-```bash
-# Get detailed version information for a project
-mr-version version -p src/Core/Core.csproj -d
-
-# Get version information in JSON format
-mr-version version -p src/Api/Api.csproj -j
-
-# Calculate version and create a git tag
-mr-version version -p src/Core/Core.csproj --create-tag
-
-# Create a tag with a custom message
-mr-version version -p src/Core/Core.csproj --create-tag --tag-message "Release Core v1.0.0"
-```
-
-## Report Formats
-
-The tool can generate reports in four formats:
-
-### Text Format (Default)
-
-```
-=== MonoRepo Version Report ===
-Repository: /path/to/repo
-Global Version: 8.2.0
-Projects: 5
-
-Project: Core
-  Path: src/Core/Core.csproj
-  Version: 8.2.1
-  Commit: a1b2c3d (2023-05-15)
-  Message: Update Core services
-  Direct Dependencies (0):
-  
-Project: Data
-  Path: src/Data/Data.csproj
-  Version: 8.2.1
-  Commit: e5f6g7h (2023-05-14)
-  Message: Fix data models
-  Direct Dependencies (1):
-    - Core (8.2.1)
-  
-...
-```
-
-### JSON Format
-
-```json
-{
-  "repository": "/path/to/repo",
-  "globalVersion": "8.2.0",
-  "projectCount": 5,
-  "projects": [
-    {
-      "name": "Core",
-      "path": "src/Core/Core.csproj",
-      "version": "8.2.1",
-      "commit": {
-        "sha": "a1b2c3d",
-        "date": "2023-05-15",
-        "message": "Update Core services"
-      },
-      "dependencies": {
-        "direct": [],
-        "all": []
-      },
-      "isTestProject": false,
-      "isPackable": true
-    },
-    ...
-  ]
-}
-```
-
-### CSV Format
-
-```csv
-ProjectName,ProjectPath,Version,CommitSha,CommitDate,CommitMessage,IsTestProject,IsPackable,Dependencies
-Core,src/Core/Core.csproj,8.2.1,a1b2c3d,2023-05-15,Update Core services,false,true,
-Data,src/Data/Data.csproj,8.2.1,e5f6g7h,2023-05-14,Fix data models,false,true,Core
-...
-```
-
-### Dependency Graph Format
-
-Generate visual dependency graphs to understand project relationships:
-
-#### Mermaid Format (GitHub Compatible)
-
-```bash
-mr-version report -o graph --graph-format mermaid
-```
-
-Perfect for GitHub markdown and documentation:
-
-```mermaid
-graph TD
-    Core["Core<br/>1.2.3"]
-    class Core changed;
-    
-    ProjectA["ProjectA<br/>1.2.4"]
-    class ProjectA packable;
-    
-    Core --> ProjectA
-
-    classDef changed fill:#ff9999,stroke:#ff0000,stroke-width:2px,color:#000;
-    classDef packable fill:#ccffcc,stroke:#00aa00,stroke-width:1px,color:#000;
-```
-
-#### DOT Format (Graphviz)
-
-```bash
-mr-version report -o graph --graph-format dot -f deps.dot
-```
-
-Professional diagram format that can be rendered with Graphviz:
-
-```dot
-digraph MonoRepoDependencies {
-    rankdir=TD;
-    Core [label="Core\n1.2.3", fillcolor="#ff9999"];
-    ProjectA [label="ProjectA\n1.2.4", fillcolor="#ccffcc"];
-    Core -> ProjectA [label="1.2.3"];
-}
-```
-
-#### ASCII Format (Console)
-
-```bash
+# ASCII tree
 mr-version report -o graph --graph-format ascii
 ```
 
-Quick text-based visualization for console viewing:
-
-```
-=== MonoRepo Dependency Graph ===
-
-🔄 Core (1.2.3) [CHANGED]
-  📦 ProjectA (1.2.4)
-```
-
-**Graph Features:**
-- 🔄 Changed projects (red styling)
-- 📦 Packable projects (green styling)
-- 🧪 Test projects (blue styling)
-- 📁 Other projects (gray styling)
-
-**Options:**
-- `--show-versions`: Include version numbers in nodes
-- `--changed-only`: Show only projects with changes
-- `--include-test-projects`: Include test projects in graph
-- `--include-non-packable`: Include non-packable projects
-
-## Advanced Usage
-
-### Filtering Projects
-
-The reporter automatically detects and can exclude:
-
-- **Test Projects**: Projects with `<IsTestProject>true</IsTestProject>`
-- **Non-Packable Projects**: Projects with `<IsPackable>false</IsPackable>`
-
-### Custom Repository Structure
-
-If your repository has a non-standard structure, you can specify custom paths:
+### Calculate Single Project Version
 
 ```bash
-mr-version report -p path/to/projects -r /custom/repo/location
+# Get version for a specific project
+mr-version version -p src/MyProject/MyProject.csproj
+
+# Detailed output with reasoning
+mr-version version -p src/MyProject/MyProject.csproj -d
+
+# JSON output
+mr-version version -p src/MyProject/MyProject.csproj -j
 ```
 
-### Analyzing Branches
+### Common Options
 
-Compare version information across different branches:
+| Option | Description |
+|--------|-------------|
+| `-r, --repo` | Repository root path |
+| `-o, --output` | Output format (text, json, csv, graph) |
+| `-f, --file` | Output file path |
+| `--include-test-projects` | Include test projects |
+| `--graph-format` | Graph format (mermaid, dot, ascii) |
+| `--changed-only` | Show only projects with changes |
 
-```bash
-# Analyze the main branch
-mr-version report -b main
+## Documentation
 
-# Analyze a release branch
-mr-version report -b release/v7.3
+For complete documentation, configuration options, and usage examples, see the [main README](../README.md).
 
-# Compare reports
-mr-version report -b main -f main.json -o json
-mr-version report -b release/v7.3 -f release.json -o json
-```
+## CI/CD Integration
 
-### Dependency Analysis
-
-The tool can analyze the full dependency tree of your projects:
-
-```bash
-mr-version report --include-dependencies
-```
-
-This will show both direct dependencies and transitive dependencies, helping you understand the ripple effects of version changes.
-
-## Implementation Details
-
-### Project Analysis
-
-The tool uses LibGit2Sharp to analyze the repository, and combines this with project file parsing to:
-
-1. Detect project structure and dependencies
-2. Find relevant version tags
-3. Analyze commit history
-4. Calculate effective versions
-
-### Dependency Detection
-
-Dependencies are detected by parsing `.csproj` files for `ProjectReference` elements:
-
-```csharp
-var matches = Regex.Matches(projectContent, @"<ProjectReference Include=""([^""]+)""");
-foreach (Match match in matches)
-{
-    var dependencyPath = match.Groups[1].Value;
-    var dependencyName = Path.GetFileNameWithoutExtension(dependencyPath);
-    dependencies.Add(dependencyName);
-}
-```
-
-### Version Tag Analysis
-
-The tool identifies both global and project-specific tags:
-
-```csharp
-// Get all project-specific version tags
-var projectVersionTags = _repo.Tags
-    .Where(t => t.FriendlyName.StartsWith(_options.TagPrefix, StringComparison.OrdinalIgnoreCase))
-    .Where(t => t.FriendlyName.ToLowerInvariant().EndsWith(projectSuffix))
-    .Select(t => { /* parse tag... */ })
-    .OrderByDescending(/* ... */)
-    .ToList();
-```
-
-## Testing
-
-A comprehensive test script is included to help test the tool. It creates a mock monorepo with:
-
-- Multiple projects with dependencies
-- Different branch scenarios
-- Version tags
-- Simulated changes
-
-Run the test script:
-
-```bash
-# PowerShell
-.\monorepo-version-test.ps1
-
-# Bash
-./monorepo-version-test.sh
-```
-
-The script creates a fully functioning test environment with 5 test scenarios:
-1. Simple Core Change
-2. Changes with Dependencies
-3. Release Branch
-4. Complex Dependency Chain
-5. Test Project Changes
-
-## Common Workflows
-
-### CI/CD Integration
-
-Add version reporting to your CI/CD pipeline:
+### GitHub Actions
 
 ```yaml
-# Azure DevOps example
-steps:
-- script: |
-    dotnet tool install --global MonoRepo.Versioning.CLI
-    monorepo-version report -o json -f version-report.json
-  displayName: 'Generate Version Report'
-  
-- task: PublishBuildArtifacts@1
-  inputs:
-    pathToPublish: 'version-report.json'
-    artifactName: 'Versions'
+- name: Install CLI tool
+  run: dotnet tool install --global Mister.Version.CLI
+
+- name: Generate version report
+  run: mr-version report -o json -f version-report.json
+
+- name: Upload version report
+  uses: actions/upload-artifact@v4
+  with:
+    name: version-report
+    path: version-report.json
 ```
-
-### Release Process
-
-Before finalizing a release:
-
-1. Run `monorepo-version report` to verify all components have correct versions
-2. Check dependency relationships with `--include-dependencies`
-3. Create version tags with the main versioning tool
-
-## Troubleshooting
-
-### Common Issues
-
-1. **Tool not finding projects**: Check the `-p/--project-dir` path
-2. **Missing version tags**: Ensure your repository has Git tags with the correct prefix
-3. **Incorrect dependency tree**: Check that project references are correctly configured
-
-### Debugging
-
-Enable verbose console output:
-
-```bash
-mr-version report --debug
-```
-
-## Contributing
-
-Contributions are welcome! Please feel free to submit a Pull Request.
-
-### Development Setup
-
-1. Clone the repository
-2. Install required .NET SDK (8.0+)
-3. Run `dotnet restore`
-4. Run `dotnet build`
-5. Run tests with `dotnet test`
 
 ## License
 
-This project is licensed under the MIT License - see the LICENSE file for details.
+MIT License - see the LICENSE file for details.

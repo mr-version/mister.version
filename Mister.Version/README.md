@@ -1,6 +1,10 @@
 # Mister.Version MSBuild Integration
 
-This package provides MSBuild integration for Mister.Version, enabling automatic version calculation for .NET projects in monorepos.
+![version](https://img.shields.io/badge/version-1.1.0-blue.svg)
+![.NET](https://img.shields.io/badge/.NET-8.0-purple.svg)
+![License](https://img.shields.io/badge/license-MIT-green.svg)
+
+MSBuild integration package for Mister.Version, enabling automatic version calculation for .NET projects in monorepos.
 
 ## Features
 
@@ -8,93 +12,79 @@ This package provides MSBuild integration for Mister.Version, enabling automatic
 - **Monorepo Support**: Independent versioning for multiple projects in a single repository
 - **MSBuild Integration**: Seamless integration with the .NET build process
 - **Cross-Platform**: Works on Windows, macOS, and Linux
-- **Git Tag Support**: Creates and manages git tags for releases
+- **Multi-Targeting Support**: Works with both .NET Framework 4.7.2 and .NET 8.0+
 
 ## Installation
 
-Install the package via NuGet Package Manager:
+Install via NuGet Package Manager:
 
 ```bash
 dotnet add package Mister.Version
 ```
 
-Or add it to your project file:
+Or add to your project file:
 
 ```xml
-<PackageReference Include="Mister.Version" Version="1.1.0-rc.1" />
-```
-
-## Configuration
-
-Create a `mr-version.yml` configuration file in your repository root:
-
-```yaml
-projects:
-  - name: "MyProject"
-    path: "src/MyProject"
-    dependencies: []
+<PackageReference Include="Mister.Version" Version="1.1.0" />
 ```
 
 ## Usage
 
-Once installed, Mister.Version will automatically calculate and inject version information during the build process. The version will be available in:
+Once installed, Mister.Version automatically calculates and injects version information during the build process. The version will be available in:
 
 - Assembly version attributes
 - Package version (for packable projects)
-- MSBuild properties
+- MSBuild properties (`$(Version)`, `$(AssemblyVersion)`, `$(FileVersion)`, `$(InformationalVersion)`)
 
-### MSBuild Properties
+### Quick Start
 
-The following MSBuild properties are available:
+1. Install the package in your project
+2. Create an initial version tag:
+   ```bash
+   git tag v1.0.0
+   ```
+3. Build your project:
+   ```bash
+   dotnet build
+   ```
 
-- `$(Version)`: The calculated semantic version
-- `$(AssemblyVersion)`: Assembly version (major.minor.0.0)
-- `$(FileVersion)`: File version (major.minor.patch.0)
-- `$(InformationalVersion)`: Full version with metadata
+The tool will automatically calculate versions based on your git history and changes.
 
-### Creating Tags
+## Configuration
 
-To create git tags during build, set the `CreateTag` property:
-
-```xml
-<PropertyGroup>
-  <CreateTag>true</CreateTag>
-  <TagMessage>Release $(Version)</TagMessage>
-</PropertyGroup>
-```
-
-## Advanced Configuration
-
-### Custom Version Calculation
-
-You can customize version calculation by configuring the MSBuild task properties:
+Configure behavior using MSBuild properties:
 
 ```xml
 <PropertyGroup>
-  <MisterVersionConfigPath>custom-config.yaml</MisterVersionConfigPath>
-  <MisterVersionTagPrefix>v</MisterVersionTagPrefix>
-  <MisterVersionCreateGlobalTags>true</MisterVersionCreateGlobalTags>
+  <MonoRepoDebug>true</MonoRepoDebug>
+  <MonoRepoTagPrefix>v</MonoRepoTagPrefix>
+  <MonoRepoPrereleaseType>beta</MonoRepoPrereleaseType>
 </PropertyGroup>
 ```
 
-### Branch-Specific Versioning
+Common properties:
 
-Mister.Version supports different versioning strategies based on branch types:
+- `MonoRepoDebug` - Enable debug logging
+- `MonoRepoTagPrefix` - Version tag prefix (default: `v`)
+- `MonoRepoPrereleaseType` - Prerelease type (none, alpha, beta, rc)
+- `MonoRepoConfigFile` - Path to YAML configuration file
 
-- **Feature branches**: `1.0.0-feature-branch-name.1`
-- **Release branches**: `1.0.0-rc.1`
-- **Development branches**: `1.0.0-dev.1`
-- **Main/master branches**: `1.0.0`
+## Documentation
+
+For complete documentation, including:
+- Configuration options
+- Versioning rules and strategies
+- Feature branch support
+- YAML configuration
+- Advanced features
+
+See the [main README](../README.md).
 
 ## Requirements
 
 - .NET Framework 4.7.2 or .NET 8.0+
 - Git repository
 - MSBuild 15.0+
-
-## Documentation
-
-For complete documentation and advanced usage scenarios, visit the [Mister.Version repository](https://github.com/discrete-sharp/Mister.Version).
 
 ## License
 
