@@ -317,39 +317,100 @@ mr-version report -o graph --graph-format ascii
 
 ## Configuration
 
+Mister.Version can be configured using MSBuild properties or a YAML configuration file.
+
 ### MSBuild Properties
 
 | Property | Description | Default |
 |----------|-------------|---------|
-| `MonoRepoVersionEnabled` | Enable/disable automatic versioning | `true` |
-| `MonoRepoVersionRepoRoot` | Path to the Git repository root | Auto-detected |
-| `MonoRepoVersionTagPrefix` | Prefix for version tags | `v` |
-| `MonoRepoVersionUpdateProjectFile` | Update project files with versions | `false` |
-| `MonoRepoVersionDebug` | Enable debug logging | `false` |
-| `MonoRepoVersionExtraDebug` | Enable extra debug logging | `false` |
-| `MonoRepoVersionSkipTestProjects` | Skip versioning for test projects | `true` |
-| `MonoRepoVersionSkipNonPackableProjects` | Skip versioning for non-packable projects | `true` |
-| `MonoRepoVersionForce` | Force a specific version | Empty |
-| `MonoRepoVersionCreateTag` | Create a git tag for the calculated version | `false` |
-| `MonoRepoVersionTagMessage` | Custom message for the git tag | Auto-generated |
+| `MonoRepoVersioningEnabled` | Enable/disable automatic versioning | `true` |
+| `MonoRepoRoot` | Starting directory for Git repository discovery | `$(ProjectDir)` |
+| `MonoRepoTagPrefix` | Prefix for version tags | `v` |
+| `MonoRepoUpdateProjectFile` | Update project files with versions | `false` |
+| `MonoRepoDebug` | Enable debug logging | `false` |
+| `MonoRepoExtraDebug` | Enable extra debug logging | `false` |
+| `MonoRepoSkipTestProjects` | Skip versioning for test projects | `true` |
+| `MonoRepoSkipNonPackableProjects` | Skip versioning for non-packable projects | `true` |
+| `MonoRepoPrereleaseType` | Prerelease type for main/dev branches (none, alpha, beta, rc) | `none` |
+| `MonoRepoConfigFile` | Path to YAML configuration file | Empty |
+| `ForceVersion` | Force a specific version | Empty |
 
-Example configuration:
+#### Example MSBuild Configuration
 
 ```xml
 <PropertyGroup>
-  <MonoRepoVersionDebug>true</MonoRepoVersionDebug>
-  <MonoRepoVersionTagPrefix>release-</MonoRepoVersionTagPrefix>
+  <MonoRepoDebug>true</MonoRepoDebug>
+  <MonoRepoTagPrefix>release-</MonoRepoTagPrefix>
+  <MonoRepoPrereleaseType>beta</MonoRepoPrereleaseType>
 </PropertyGroup>
 ```
 
-Example for automated tag creation during CI/CD:
+### YAML Configuration
+
+For more complex scenarios, use a YAML configuration file with project-specific overrides.
+
+#### Example YAML Configuration
+
+Create a `mr-version.yml` file in your repository root:
+
+```yaml
+# Base global version used as fallback when no tags or versions are found
+baseVersion: "8.2.0"
+
+# Global settings
+prereleaseType: none  # Options: none, alpha, beta, rc
+tagPrefix: v
+skipTestProjects: true
+skipNonPackableProjects: true
+
+# Project-specific overrides
+projects:
+  # Force a specific project to use alpha prereleases
+  MyLibrary:
+    prereleaseType: alpha
+
+  # Pin a specific project to a fixed version
+  LegacyProject:
+    forceVersion: 1.0.0
+
+  # Project that should use beta prereleases
+  ExperimentalFeature:
+    prereleaseType: beta
+```
+
+Reference the config file in your project:
 
 ```xml
-<PropertyGroup Condition="'$(CI)' == 'true' and '$(CreateReleaseTags)' == 'true'">
-  <MonoRepoVersionCreateTag>true</MonoRepoVersionCreateTag>
-  <MonoRepoVersionTagMessage>Automated release from CI build $(BUILD_NUMBER)</MonoRepoVersionTagMessage>
+<PropertyGroup>
+  <MonoRepoConfigFile>$(MSBuildProjectDirectory)/../mr-version.yml</MonoRepoConfigFile>
 </PropertyGroup>
 ```
+
+Or set it globally in a Directory.Build.props file:
+
+```xml
+<Project>
+  <PropertyGroup>
+    <MonoRepoConfigFile>$(MSBuildThisFileDirectory)/mr-version.yml</MonoRepoConfigFile>
+  </PropertyGroup>
+</Project>
+```
+
+### Configuration Precedence
+
+Configuration values are applied in this order (later values override earlier ones):
+
+1. Default values in Mister.Version.props
+2. MSBuild properties in project files
+3. Global settings from YAML configuration file
+4. Project-specific settings from YAML configuration file
+
+### Prerelease Types
+
+- `none` - No prerelease suffix (e.g., `1.0.0`)
+- `alpha` - Alpha prerelease (e.g., `1.0.0-alpha.1`)
+- `beta` - Beta prerelease (e.g., `1.0.0-beta.1`)
+- `rc` - Release candidate (e.g., `1.0.0-rc.1`)
 
 ## Advanced Features
 
