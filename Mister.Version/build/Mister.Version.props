@@ -1,6 +1,13 @@
 <?xml version="1.0" encoding="utf-8"?>
 <Project xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
 
+  <!-- Import outer build version if it exists (written by buildMultiTargeting during Pack) -->
+  <!-- This makes the version available during inner builds for dependency resolution -->
+  <PropertyGroup>
+    <_OuterBuildVersionPropsPath>$(MSBuildProjectDirectory)\obj\$(Configuration)\$(MSBuildProjectName).outerbuild.version.props</_OuterBuildVersionPropsPath>
+  </PropertyGroup>
+  <Import Project="$(_OuterBuildVersionPropsPath)" Condition="Exists('$(_OuterBuildVersionPropsPath)')" />
+
   <!-- Define properties -->
   <PropertyGroup>
     <AppSettingStronglyTyped_TFM Condition=" '$(MSBuildRuntimeType)' != 'Core' ">net472</AppSettingStronglyTyped_TFM>
@@ -31,8 +38,14 @@
     <SanitizedProjectName>$(MSBuildProjectName.Replace(".", "_"))</SanitizedProjectName>
   </PropertyGroup>
 
+  <!-- CRITICAL: Hook into NuGet's GetPackageVersion extension point -->
+  <!-- This ensures our version calculation runs before NuGet queries project versions -->
+  <PropertyGroup>
+    <GetPackageVersionDependsOn>_MonoRepoSetVersion;$(GetPackageVersionDependsOn)</GetPackageVersionDependsOn>
+  </PropertyGroup>
+
   <!-- Import early version calculation props if available -->
-  <Import Project="$(IntermediateOutputPath)$(MSBuildProjectName).version.props" 
+  <Import Project="$(IntermediateOutputPath)$(MSBuildProjectName).version.props"
           Condition="'$(MonoRepoVersioningEnabled)'=='true' and '$(IsPackable)' == 'true' and Exists('$(IntermediateOutputPath)$(MSBuildProjectName).version.props')" />
 
 </Project>

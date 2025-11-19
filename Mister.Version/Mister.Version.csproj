@@ -100,7 +100,13 @@
         for automatic inclusion in the build. -->
 		<Content Include="build\Mister.Version.props" PackagePath="build\" />
 		<Content Include="build\Mister.Version.targets" PackagePath="build\" />
-		
+
+		<!-- Pack buildMultiTargeting files for outer build support (multi-targeting scenarios).
+        by convention, the .NET SDK will look for buildMultiTargeting\<Package Id>.props and buildMultiTargeting\<Package Id>.targets
+        for automatic inclusion during outer builds (when IsCrossTargetingBuild=true). -->
+		<Content Include="buildMultiTargeting\Mister.Version.props" PackagePath="buildMultiTargeting\" />
+		<Content Include="buildMultiTargeting\Mister.Version.targets" PackagePath="buildMultiTargeting\" />
+
 		<!-- Include native libraries for all platforms -->
 		<Content Include="../libs/git2-3f4182d.dll" PackagePath="tasks/net472/" />
 		<Content Include="../libs/libgit2-3f4182d.dylib" PackagePath="tasks/net472/" />
