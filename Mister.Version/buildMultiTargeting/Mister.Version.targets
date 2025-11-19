@@ -4,7 +4,7 @@
 	<!-- It runs when $(IsCrossTargetingBuild) == true and $(TargetFramework) is empty -->
 
 	<!-- DIAGNOSTIC: Log that this file is being imported -->
-	<Target Name="_DiagnosticOuterBuildImported" BeforeTargets="BeforeBuild;Build;Pack">
+	<Target Name="_DiagnosticOuterBuildImported" BeforeTargets="BeforeBuild;Build;Pack" Condition="'$(MonoRepoExtraDebug)' == 'true'">
 		<Message Importance="High" Text="================================================================" />
 		<Message Importance="High" Text="[DIAGNOSTIC] buildMultiTargeting/Mister.Version.targets IMPORTED" />
 		<Message Importance="High" Text="[DIAGNOSTIC] Project: $(MSBuildProjectName)" />
@@ -25,7 +25,7 @@
 	<UsingTask TaskName="Mister.Version.MonoRepoVersionTask" AssemblyFile="$(MSBuildThisFileDirectory)../tasks/$(AppSettingStronglyTyped_TFM)/Mister.Version.dll" />
 
 	<!-- DIAGNOSTIC: Log UsingTask path -->
-	<Target Name="_DiagnosticTaskPath" BeforeTargets="BeforeBuild;Build;Pack">
+	<Target Name="_DiagnosticTaskPath" BeforeTargets="BeforeBuild;Build;Pack" Condition="'$(MonoRepoExtraDebug)' == 'true'">
 		<Message Importance="High" Text="[DIAGNOSTIC-TASK] Task assembly path: $(MSBuildThisFileDirectory)../tasks/$(AppSettingStronglyTyped_TFM)/Mister.Version.dll" />
 	</Target>
 
@@ -33,9 +33,9 @@
 	<!-- It calculates the version and sets PackageVersion property for Pack -->
 	<Target Name="_MonoRepoOuterBuildVersioning"
 	        Condition="'$(IsPackable)' == 'true'">
-		<Message Importance="High" Text="[DIAGNOSTIC] _MonoRepoOuterBuildVersioning target EXECUTING" />
-		<Message Importance="High" Text="[DIAGNOSTIC] IsPackable condition: $(IsPackable)" />
-		<Message Importance="High" Text="[OuterBuild] Starting version calculation for $(MSBuildProjectName)" />
+		<Message Importance="High" Text="[DIAGNOSTIC] _MonoRepoOuterBuildVersioning target EXECUTING" Condition="'$(MonoRepoExtraDebug)' == 'true'" />
+		<Message Importance="High" Text="[DIAGNOSTIC] IsPackable condition: $(IsPackable)" Condition="'$(MonoRepoExtraDebug)' == 'true'" />
+		<Message Importance="High" Text="[OuterBuild] Starting version calculation for $(MSBuildProjectName)" Condition="'$(MonoRepoDebug)' == 'true'" />
 
 		<!-- Automatically detect dependencies based on ProjectReference -->
 		<ItemGroup>
@@ -104,16 +104,16 @@
 		                  Lines="@(_VersionPropsLines)"
 		                  Overwrite="true" />
 
-		<Message Importance="High" Text="[OuterBuild] Calculated version: $(FullVersion)" />
-		<Message Importance="High" Text="[OuterBuild] Set PackageVersion=$(PackageVersion) for NuGet Pack" />
-		<Message Importance="High" Text="[OuterBuild] Wrote version to: $(_OuterBuildVersionPropsPath)" />
+		<Message Importance="High" Text="[OuterBuild] Calculated version: $(FullVersion)" Condition="'$(MonoRepoDebug)' == 'true'" />
+		<Message Importance="High" Text="[OuterBuild] Set PackageVersion=$(PackageVersion) for NuGet Pack" Condition="'$(MonoRepoExtraDebug)' == 'true'" />
+		<Message Importance="High" Text="[OuterBuild] Wrote version to: $(_OuterBuildVersionPropsPath)" Condition="'$(MonoRepoExtraDebug)' == 'true'" />
 	</Target>
 
 	<!-- DIAGNOSTIC: Show what dependencies NuGet Pack will use -->
 	<Target Name="_DiagnosticShowNuGetDependencies"
 	        AfterTargets="_WalkEachTargetPerFramework"
 	        BeforeTargets="GenerateNuspec"
-	        Condition="'$(IsPackable)' == 'true'">
+	        Condition="'$(IsPackable)' == 'true' and '$(MonoRepoExtraDebug)' == 'true'">
 		<Message Importance="High" Text="================================================================" />
 		<Message Importance="High" Text="[NuGetDeps] DIAGNOSTIC - Dependencies that will be in nuspec:" />
 		<Message Importance="High" Text="[NuGetDeps] Project: $(MSBuildProjectName)" />
@@ -137,15 +137,15 @@
 	<!-- This runs without IsPackable condition so dependencies can get our version -->
 	<Target Name="_MonoRepoCalculateVersionForDependencyResolution"
 	        Condition="'$(FullVersion)' == ''">
-		<Message Importance="High" Text="================================================================" />
-		<Message Importance="High" Text="[OuterBuild-DepResolution] START - Calculating version for dependency resolution" />
-		<Message Importance="High" Text="[OuterBuild-DepResolution] Project: $(MSBuildProjectName)" />
-		<Message Importance="High" Text="[OuterBuild-DepResolution] ProjectFullPath: $(MSBuildProjectFullPath)" />
-		<Message Importance="High" Text="[OuterBuild-DepResolution] IsCrossTargetingBuild: $(IsCrossTargetingBuild)" />
-		<Message Importance="High" Text="[OuterBuild-DepResolution] IsPackable: $(IsPackable)" />
-		<Message Importance="High" Text="[OuterBuild-DepResolution] FullVersion before calculation: '$(FullVersion)'" />
-		<Message Importance="High" Text="[OuterBuild-DepResolution] PackageVersion before calculation: '$(PackageVersion)'" />
-		<Message Importance="High" Text="[OuterBuild-DepResolution] Version before calculation: '$(Version)'" />
+		<Message Importance="High" Text="================================================================" Condition="'$(MonoRepoExtraDebug)' == 'true'" />
+		<Message Importance="High" Text="[OuterBuild-DepResolution] START - Calculating version for dependency resolution" Condition="'$(MonoRepoExtraDebug)' == 'true'" />
+		<Message Importance="High" Text="[OuterBuild-DepResolution] Project: $(MSBuildProjectName)" Condition="'$(MonoRepoExtraDebug)' == 'true'" />
+		<Message Importance="High" Text="[OuterBuild-DepResolution] ProjectFullPath: $(MSBuildProjectFullPath)" Condition="'$(MonoRepoExtraDebug)' == 'true'" />
+		<Message Importance="High" Text="[OuterBuild-DepResolution] IsCrossTargetingBuild: $(IsCrossTargetingBuild)" Condition="'$(MonoRepoExtraDebug)' == 'true'" />
+		<Message Importance="High" Text="[OuterBuild-DepResolution] IsPackable: $(IsPackable)" Condition="'$(MonoRepoExtraDebug)' == 'true'" />
+		<Message Importance="High" Text="[OuterBuild-DepResolution] FullVersion before calculation: '$(FullVersion)'" Condition="'$(MonoRepoExtraDebug)' == 'true'" />
+		<Message Importance="High" Text="[OuterBuild-DepResolution] PackageVersion before calculation: '$(PackageVersion)'" Condition="'$(MonoRepoExtraDebug)' == 'true'" />
+		<Message Importance="High" Text="[OuterBuild-DepResolution] Version before calculation: '$(Version)'" Condition="'$(MonoRepoExtraDebug)' == 'true'" />
 
 		<!-- Automatically detect dependencies based on ProjectReference -->
 		<ItemGroup>
@@ -190,12 +190,12 @@
 			<InformationalVersion>$(FullVersion)</InformationalVersion>
 		</PropertyGroup>
 
-		<Message Importance="High" Text="[OuterBuild-DepResolution] AFTER calculation:" />
-		<Message Importance="High" Text="[OuterBuild-DepResolution]   FullVersion: '$(FullVersion)'" />
-		<Message Importance="High" Text="[OuterBuild-DepResolution]   PackageVersion: '$(PackageVersion)'" />
-		<Message Importance="High" Text="[OuterBuild-DepResolution]   Version: '$(Version)'" />
-		<Message Importance="High" Text="[OuterBuild-DepResolution] END" />
-		<Message Importance="High" Text="================================================================" />
+		<Message Importance="High" Text="[OuterBuild-DepResolution] AFTER calculation:" Condition="'$(MonoRepoExtraDebug)' == 'true'" />
+		<Message Importance="High" Text="[OuterBuild-DepResolution]   FullVersion: '$(FullVersion)'" Condition="'$(MonoRepoExtraDebug)' == 'true'" />
+		<Message Importance="High" Text="[OuterBuild-DepResolution]   PackageVersion: '$(PackageVersion)'" Condition="'$(MonoRepoExtraDebug)' == 'true'" />
+		<Message Importance="High" Text="[OuterBuild-DepResolution]   Version: '$(Version)'" Condition="'$(MonoRepoExtraDebug)' == 'true'" />
+		<Message Importance="High" Text="[OuterBuild-DepResolution] END" Condition="'$(MonoRepoExtraDebug)' == 'true'" />
+		<Message Importance="High" Text="================================================================" Condition="'$(MonoRepoExtraDebug)' == 'true'" />
 	</Target>
 
 	<!-- CRITICAL: This target is called by NuGet Pack's _GetProjectReferenceVersions -->
@@ -204,9 +204,9 @@
 	        DependsOnTargets="_MonoRepoCalculateVersionForDependencyResolution"
 	        Returns="@(_ProjectPathWithVersion)">
 
-		<Message Importance="High" Text="[_GetProjectVersion] CALLED by NuGet Pack for $(MSBuildProjectName)" />
-		<Message Importance="High" Text="[_GetProjectVersion] PackageVersion: $(PackageVersion)" />
-		<Message Importance="High" Text="[_GetProjectVersion] FullVersion: $(FullVersion)" />
+		<Message Importance="High" Text="[_GetProjectVersion] CALLED by NuGet Pack for $(MSBuildProjectName)" Condition="'$(MonoRepoExtraDebug)' == 'true'" />
+		<Message Importance="High" Text="[_GetProjectVersion] PackageVersion: $(PackageVersion)" Condition="'$(MonoRepoExtraDebug)' == 'true'" />
+		<Message Importance="High" Text="[_GetProjectVersion] FullVersion: $(FullVersion)" Condition="'$(MonoRepoExtraDebug)' == 'true'" />
 
 		<PropertyGroup>
 			<!-- Determine version to return -->
@@ -222,187 +222,29 @@
 			</_ProjectPathWithVersion>
 		</ItemGroup>
 
-		<Message Importance="High" Text="[_GetProjectVersion] RETURNING version: $(_VersionForPack)" />
+		<Message Importance="High" Text="[_GetProjectVersion] RETURNING version: $(_VersionForPack)" Condition="'$(MonoRepoExtraDebug)' == 'true'" />
 	</Target>
 
-	<!-- Target that returns the package version for this project during outer build -->
-	<!-- This target is called by dependent projects to get our version -->
-	<!-- MUST be available during outer builds to avoid MSB4057 errors -->
-	<Target Name="_MonoRepoGetPackageVersion"
-	        DependsOnTargets="_MonoRepoCalculateVersionForDependencyResolution"
-	        Returns="@(PackageVersionOutput)">
+	<!--
+	EXPERIMENTAL TARGETS - NOT NEEDED
+	These approaches were tried but didn't work. Keeping commented for reference.
+	The actual fix uses GetPackageVersionDependsOn + _GetProjectVersion.
 
-		<Message Importance="High" Text="================================================================" />
-		<Message Importance="High" Text="[GetPackageVersion] CALLED for project: $(MSBuildProjectName)" />
-		<Message Importance="High" Text="[GetPackageVersion] Project path: $(MSBuildProjectFullPath)" />
-		<Message Importance="High" Text="[GetPackageVersion] BEFORE version resolution:" />
-		<Message Importance="High" Text="[GetPackageVersion]   FullVersion: '$(FullVersion)'" />
-		<Message Importance="High" Text="[GetPackageVersion]   PackageVersion: '$(PackageVersion)'" />
-		<Message Importance="High" Text="[GetPackageVersion]   Version: '$(Version)'" />
-
-		<PropertyGroup>
-			<!-- After running dependency resolution, we should have FullVersion -->
-			<_VersionToReturn Condition="'$(FullVersion)' != ''">$(FullVersion)</_VersionToReturn>
-			<_VersionToReturn Condition="'$(_VersionToReturn)' == '' and '$(PackageVersion)' != ''">$(PackageVersion)</_VersionToReturn>
-			<_VersionToReturn Condition="'$(_VersionToReturn)' == '' and '$(Version)' != ''">$(Version)</_VersionToReturn>
-			<_VersionToReturn Condition="'$(_VersionToReturn)' == ''">1.0.0</_VersionToReturn>
-		</PropertyGroup>
-
-		<Message Importance="High" Text="[GetPackageVersion] Version resolution logic:" />
-		<Message Importance="High" Text="[GetPackageVersion]   Used FullVersion: $(FullVersion)" Condition="'$(FullVersion)' != ''" />
-		<Message Importance="High" Text="[GetPackageVersion]   Used PackageVersion: $(PackageVersion)" Condition="'$(FullVersion)' == '' and '$(PackageVersion)' != ''" />
-		<Message Importance="High" Text="[GetPackageVersion]   Used Version: $(Version)" Condition="'$(FullVersion)' == '' and '$(PackageVersion)' == '' and '$(Version)' != ''" />
-		<Message Importance="High" Text="[GetPackageVersion]   Defaulted to 1.0.0 (no version properties set!)" Condition="'$(FullVersion)' == '' and '$(PackageVersion)' == '' and '$(Version)' == ''" />
-
-		<ItemGroup>
-			<PackageVersionOutput Include="$(MSBuildProjectName)">
-				<Version>$(_VersionToReturn)</Version>
-				<ProjectPath>$(MSBuildProjectFullPath)</ProjectPath>
-			</PackageVersionOutput>
-		</ItemGroup>
-
-		<Message Importance="High" Text="[GetPackageVersion] RETURNING version: '$(_VersionToReturn)' for $(MSBuildProjectName)" />
-		<Message Importance="High" Text="================================================================" />
+	<Target Name="_MonoRepoGetPackageVersion">
+		Helper target for experimental approaches
 	</Target>
 
-	<!-- Inline task to match ProjectReferences with their resolved versions -->
-	<UsingTask TaskName="UpdateProjectReferenceVersions" TaskFactory="RoslynCodeTaskFactory" AssemblyFile="$(MSBuildToolsPath)\Microsoft.Build.Tasks.Core.dll">
-		<ParameterGroup>
-			<ProjectReferences ParameterType="Microsoft.Build.Framework.ITaskItem[]" Required="true" />
-			<ResolvedVersions ParameterType="Microsoft.Build.Framework.ITaskItem[]" Required="true" />
-			<UpdatedProjectReferences ParameterType="Microsoft.Build.Framework.ITaskItem[]" Output="true" />
-		</ParameterGroup>
-		<Task>
-			<Using Namespace="System" />
-			<Using Namespace="System.IO" />
-			<Using Namespace="System.Collections.Generic" />
-			<Code Type="Fragment" Language="cs">
-				<![CDATA[
-				// Build a dictionary of project name -> version
-				var versionLookup = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
-				foreach (var item in ResolvedVersions)
-				{
-					var projectName = item.ItemSpec;
-					var version = item.GetMetadata("Version");
-					versionLookup[projectName] = version;
-					Log.LogMessage(MessageImportance.High, $"[UpdateVersions] Lookup: {projectName} -> {version}");
-				}
-
-				// Update ProjectReference items with matching versions
-				var updatedItems = new List<ITaskItem>();
-				foreach (var projRef in ProjectReferences)
-				{
-					var projPath = projRef.ItemSpec;
-					var projName = Path.GetFileNameWithoutExtension(projPath);
-
-					// Copy all metadata
-					var newItem = new Microsoft.Build.Utilities.TaskItem(projRef);
-
-					// Set version if we found a match
-					if (versionLookup.TryGetValue(projName, out var version))
-					{
-						newItem.SetMetadata("Version", version);
-						newItem.SetMetadata("PackageVersion", version);
-						Log.LogMessage(MessageImportance.High, $"[UpdateVersions] Set {projName} -> {version}");
-					}
-					else
-					{
-						Log.LogMessage(MessageImportance.High, $"[UpdateVersions] No version found for {projName}");
-					}
-
-					updatedItems.Add(newItem);
-				}
-
-				UpdatedProjectReferences = updatedItems.ToArray();
-				]]>
-			</Code>
-		</Task>
+	<UsingTask TaskName="UpdateProjectReferenceVersions">
+		Inline task for experimental dependency injection
 	</UsingTask>
 
-	<!-- CRITICAL: Override NuGet's _GetProjectReferenceVersions to provide our custom versioning -->
-	<!-- This target is called by NuGet Pack's GenerateNuspec target -->
-	<Target Name="_GetProjectReferenceVersions"
-	        Condition="'$(IsPackable)' == 'true'"
-	        DependsOnTargets="_MonoRepoOuterBuildVersioning">
-		<Message Importance="High" Text="================================================================" />
-		<Message Importance="High" Text="[_GetProjectReferenceVersions] OVERRIDE - Using Mister.Version custom implementation" />
-		<Message Importance="High" Text="[_GetProjectReferenceVersions] Project: $(MSBuildProjectName)" />
-		<Message Importance="High" Text="[_GetProjectReferenceVersions] ProjectReferences: @(ProjectReference->Count()) items" />
-
-		<!-- For each ProjectReference, call MSBuild to get its package version -->
-		<!-- We use our own _MonoRepoGetPackageVersion target which all projects in the monorepo have -->
-		<MSBuild Projects="@(ProjectReference)"
-		         Targets="_MonoRepoGetPackageVersion"
-		         BuildInParallel="$(BuildInParallel)"
-		         Properties="IsCrossTargetingBuild=true;TargetFramework="
-		         SkipNonexistentTargets="true"
-		         ContinueOnError="WarnAndContinue"
-		         Condition="'@(ProjectReference)' != ''">
-			<Output TaskParameter="TargetOutputs" ItemName="_MonoRepoResolvedVersions" />
-		</MSBuild>
-
-		<Message Importance="High" Text="[_GetProjectReferenceVersions] Resolved versions:" />
-		<Message Importance="High" Text="[_GetProjectReferenceVersions]   %(_MonoRepoResolvedVersions.Identity) = %(_MonoRepoResolvedVersions.Version)" />
-
-		<!-- Convert to the format NuGet Pack expects: items with ReferenceIdentity and ProjectVersion metadata -->
-		<ItemGroup>
-			<_ProjectReferencesWithVersions Include="%(_MonoRepoResolvedVersions.ProjectPath)">
-				<ProjectVersion>%(_MonoRepoResolvedVersions.Version)</ProjectVersion>
-				<ReferenceIdentity>%(_MonoRepoResolvedVersions.Identity)</ReferenceIdentity>
-			</_ProjectReferencesWithVersions>
-		</ItemGroup>
-
-		<Message Importance="High" Text="[_GetProjectReferenceVersions] Created _ProjectReferencesWithVersions items:" />
-		<Message Importance="High" Text="[_GetProjectReferenceVersions]   %(_ProjectReferencesWithVersions.Identity)" />
-		<Message Importance="High" Text="[_GetProjectReferenceVersions]     - ProjectVersion: %(_ProjectReferencesWithVersions.ProjectVersion)" />
-		<Message Importance="High" Text="[_GetProjectReferenceVersions]     - ReferenceIdentity: %(_ProjectReferencesWithVersions.ReferenceIdentity)" />
-		<Message Importance="High" Text="[_GetProjectReferenceVersions] END" />
-		<Message Importance="High" Text="================================================================" />
+	<Target Name="_GetProjectReferenceVersions">
+		Attempted override of NuGet's target - doesn't work because NuGet's targets
+		are imported after ours, so their definition takes precedence
 	</Target>
 
-	<!-- BACKUP: Also inject dependency versions directly into ProjectReference metadata -->
-	<!-- This is a fallback in case _GetProjectReferenceVersions override isn't sufficient -->
-	<Target Name="_MonoRepoInjectDependencyVersions"
-	        Condition="'$(IsPackable)' == 'true'"
-	        AfterTargets="_WalkEachTargetPerFramework"
-	        BeforeTargets="GenerateNuspec"
-	        DependsOnTargets="_MonoRepoOuterBuildVersioning">
-		<Message Importance="High" Text="================================================================" />
-		<Message Importance="High" Text="[InjectDeps] START - Injecting dependency versions into ProjectReference metadata" />
-		<Message Importance="High" Text="[InjectDeps] Project: $(MSBuildProjectName)" />
-		<Message Importance="High" Text="[InjectDeps] ProjectReferences BEFORE: @(ProjectReference->Count()) items" />
-		<Message Importance="High" Text="[InjectDeps]   %(ProjectReference.Identity) - Version=%(ProjectReference.Version)" />
-
-		<!-- For each ProjectReference, call MSBuild to get its package version -->
-		<MSBuild Projects="@(ProjectReference)"
-		         Targets="_MonoRepoGetPackageVersion"
-		         BuildInParallel="$(BuildInParallel)"
-		         Properties="IsCrossTargetingBuild=true;TargetFramework="
-		         Condition="'@(ProjectReference)' != ''">
-			<Output TaskParameter="TargetOutputs" ItemName="_ResolvedDependencyVersions" />
-		</MSBuild>
-
-		<Message Importance="High" Text="[InjectDeps] Resolved versions from dependencies:" />
-		<Message Importance="High" Text="[InjectDeps]   %(_ResolvedDependencyVersions.Identity) = %(_ResolvedDependencyVersions.Version)" />
-
-		<!-- Use inline task to match and update ProjectReference metadata -->
-		<UpdateProjectReferenceVersions
-			ProjectReferences="@(ProjectReference)"
-			ResolvedVersions="@(_ResolvedDependencyVersions)">
-			<Output TaskParameter="UpdatedProjectReferences" ItemName="_UpdatedProjectReferences" />
-		</UpdateProjectReferenceVersions>
-
-		<!-- Replace ProjectReference items with updated versions -->
-		<ItemGroup>
-			<ProjectReference Remove="@(ProjectReference)" />
-			<ProjectReference Include="@(_UpdatedProjectReferences)" />
-		</ItemGroup>
-
-		<Message Importance="High" Text="[InjectDeps] ProjectReferences AFTER metadata update: @(ProjectReference->Count()) items" />
-		<Message Importance="High" Text="[InjectDeps]   %(ProjectReference.Identity)" />
-		<Message Importance="High" Text="[InjectDeps]     - Version: %(ProjectReference.Version)" />
-		<Message Importance="High" Text="[InjectDeps]     - PackageVersion: %(ProjectReference.PackageVersion)" />
-		<Message Importance="High" Text="[InjectDeps] END" />
-		<Message Importance="High" Text="================================================================" />
+	<Target Name="_MonoRepoInjectDependencyVersions">
+		Experimental backup approach to inject versions directly into metadata
 	</Target>
+	-->
 </Project>

@@ -402,9 +402,9 @@
             DependsOnTargets="_MonoRepoSetVersion"
             Returns="@(_ProjectPathWithVersion)">
 
-		<Message Importance="High" Text="[_GetProjectVersion] CALLED by NuGet Pack for $(MSBuildProjectName)" />
-		<Message Importance="High" Text="[_GetProjectVersion] PackageVersion: $(PackageVersion)" />
-		<Message Importance="High" Text="[_GetProjectVersion] FullVersion: $(FullVersion)" />
+		<Message Importance="High" Text="[_GetProjectVersion] CALLED by NuGet Pack for $(MSBuildProjectName)" Condition="'$(MonoRepoExtraDebug)' == 'true'" />
+		<Message Importance="High" Text="[_GetProjectVersion] PackageVersion: $(PackageVersion)" Condition="'$(MonoRepoExtraDebug)' == 'true'" />
+		<Message Importance="High" Text="[_GetProjectVersion] FullVersion: $(FullVersion)" Condition="'$(MonoRepoExtraDebug)' == 'true'" />
 
 		<PropertyGroup>
 			<!-- Determine version to return -->
@@ -420,237 +420,44 @@
 			</_ProjectPathWithVersion>
 		</ItemGroup>
 
-		<Message Importance="High" Text="[_GetProjectVersion] RETURNING version: $(_VersionForPack)" />
+		<Message Importance="High" Text="[_GetProjectVersion] RETURNING version: $(_VersionForPack)" Condition="'$(MonoRepoExtraDebug)' == 'true'" />
 	</Target>
 
-	<!-- Hook to provide version during project reference resolution -->
-	<Target Name="GetTargetFrameworksWithPlatformFromInnerBuilds"
-            Returns="@(TargetFrameworksWithPlatformFromInnerBuilds)"
-            DependsOnTargets="_MonoRepoSetVersion">
-		<ItemGroup>
-			<TargetFrameworksWithPlatformFromInnerBuilds Include="$(TargetFramework)">
-				<PackageVersion>$(PackageVersion)</PackageVersion>
-				<Version>$(Version)</Version>
-			</TargetFrameworksWithPlatformFromInnerBuilds>
-		</ItemGroup>
+	<!--
+	EXPERIMENTAL TARGETS - NOT NEEDED FOR INNER BUILD
+	These approaches were tried but the actual fix uses GetPackageVersionDependsOn + _GetProjectVersion.
+	Keeping commented for reference.
+
+	<Target Name="GetTargetFrameworksWithPlatformFromInnerBuilds">
+		Hook to provide version during project reference resolution
 	</Target>
 
-	<!-- Inline task to match ProjectReferences with their resolved versions (inner build) -->
-	<UsingTask TaskName="UpdateProjectReferenceVersionsInnerBuild" TaskFactory="RoslynCodeTaskFactory" AssemblyFile="$(MSBuildToolsPath)\Microsoft.Build.Tasks.Core.dll">
-		<ParameterGroup>
-			<ProjectReferences ParameterType="Microsoft.Build.Framework.ITaskItem[]" Required="true" />
-			<ResolvedVersions ParameterType="Microsoft.Build.Framework.ITaskItem[]" Required="true" />
-			<UpdatedProjectReferences ParameterType="Microsoft.Build.Framework.ITaskItem[]" Output="true" />
-		</ParameterGroup>
-		<Task>
-			<Using Namespace="System" />
-			<Using Namespace="System.IO" />
-			<Using Namespace="System.Collections.Generic" />
-			<Code Type="Fragment" Language="cs">
-				<![CDATA[
-				// Build a dictionary of project name -> version
-				var versionLookup = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
-				foreach (var item in ResolvedVersions)
-				{
-					var projectName = item.ItemSpec;
-					var version = item.GetMetadata("Version");
-					versionLookup[projectName] = version;
-					Log.LogMessage(MessageImportance.High, $"[InnerBuild-UpdateVersions] Lookup: {projectName} -> {version}");
-				}
-
-				// Update ProjectReference items with matching versions
-				var updatedItems = new List<ITaskItem>();
-				foreach (var projRef in ProjectReferences)
-				{
-					var projPath = projRef.ItemSpec;
-					var projName = Path.GetFileNameWithoutExtension(projPath);
-
-					// Copy all metadata
-					var newItem = new Microsoft.Build.Utilities.TaskItem(projRef);
-
-					// Set version if we found a match
-					if (versionLookup.TryGetValue(projName, out var version))
-					{
-						newItem.SetMetadata("Version", version);
-						newItem.SetMetadata("PackageVersion", version);
-						Log.LogMessage(MessageImportance.High, $"[InnerBuild-UpdateVersions] Set {projName} -> {version}");
-					}
-					else
-					{
-						Log.LogMessage(MessageImportance.High, $"[InnerBuild-UpdateVersions] No version found for {projName}");
-					}
-
-					updatedItems.Add(newItem);
-				}
-
-				UpdatedProjectReferences = updatedItems.ToArray();
-				]]>
-			</Code>
-		</Task>
+		Inline task for experimental dependency injection
 	</UsingTask>
 
-	<!-- REAL FIX: Override ProjectReference metadata for NuGet dependency resolution -->
-	<!-- This target modifies ProjectReference items to include the correct version metadata -->
-	<Target Name="_SetProjectReferenceVersions"
-            DependsOnTargets="_MonoRepoSetVersion"
-            BeforeTargets="_GetBuildOutputFilesWithTfm;_GetTargetFrameworksOutput;GenerateNuspec"
-            Condition="'$(MonoRepoVersioningEnabled)'=='true' and '$(IsTestProject)' != 'true'">
-
-		<Message Text="[InnerBuild-SetProjectRefVersions] START - Updating ProjectReference metadata for NuGet Pack" Importance="High" />
-		<Message Text="[InnerBuild-SetProjectRefVersions] ProjectReferences BEFORE: @(ProjectReference->Count()) items" Importance="High" />
-
-		<!-- Get each ProjectReference and ensure it has the correct version metadata -->
-		<MSBuild Projects="@(ProjectReference)"
-                 Targets="_MonoRepoGetPackageVersion"
-                 BuildInParallel="$(BuildInParallel)"
-                 Properties="$(MSBuildGlobalProperties)"
-                 Condition="'$(MonoRepoVersioningEnabled)'=='true'"
-                 ContinueOnError="WarnAndContinue">
-			<Output TaskParameter="TargetOutputs" ItemName="_ProjectReferenceVersions" />
-		</MSBuild>
-
-		<Message Text="[InnerBuild-SetProjectRefVersions] Resolved versions: %(_ProjectReferenceVersions.Identity) = %(_ProjectReferenceVersions.Version)" Importance="High" />
-
-		<!-- Use inline task to match and update ProjectReference metadata -->
-		<UpdateProjectReferenceVersionsInnerBuild
-			ProjectReferences="@(ProjectReference)"
-			ResolvedVersions="@(_ProjectReferenceVersions)">
-			<Output TaskParameter="UpdatedProjectReferences" ItemName="_UpdatedProjectReferencesInner" />
-		</UpdateProjectReferenceVersionsInnerBuild>
-
-		<!-- Replace ProjectReference items with updated versions -->
-		<ItemGroup>
-			<ProjectReference Remove="@(ProjectReference)" />
-			<ProjectReference Include="@(_UpdatedProjectReferencesInner)" />
-		</ItemGroup>
-
-		<Message Text="[InnerBuild-SetProjectRefVersions] ProjectReferences AFTER: @(ProjectReference->Count()) items" Importance="High" />
-		<Message Text="[InnerBuild-SetProjectRefVersions]   %(ProjectReference.Identity) - Version=%(ProjectReference.Version)" Importance="High" />
-		<Message Text="[InnerBuild-SetProjectRefVersions] END" Importance="High" />
+	<Target Name="_SetProjectReferenceVersions">
+		Experimental: Override ProjectReference metadata for NuGet dependency resolution
 	</Target>
 
-	<!-- CRITICAL: Update _ResolvedProjectReferencePaths for NuGet Pack -->
-	<!-- NuGet Pack reads from _ResolvedProjectReferencePaths, not ProjectReference -->
-	<Target Name="_SetResolvedProjectReferenceVersions"
-            AfterTargets="ResolveProjectReferences"
-            BeforeTargets="_GetBuildOutputFilesWithTfm;_GetTargetFrameworksOutput;GenerateNuspec"
-            Condition="'$(MonoRepoVersioningEnabled)'=='true' and '$(IsTestProject)' != 'true'">
-
-		<Message Text="[InnerBuild-SetResolvedRefVersions] START - Updating _ResolvedProjectReferencePaths for NuGet Pack" Importance="High" />
-		<Message Text="[InnerBuild-SetResolvedRefVersions] _ResolvedProjectReferencePaths BEFORE: @(_ResolvedProjectReferencePaths->Count()) items" Importance="High" />
-		<Message Text="[InnerBuild-SetResolvedRefVersions]   %(_ResolvedProjectReferencePaths.Identity) - NuGetPackageId=%(_ResolvedProjectReferencePaths.NuGetPackageId), NuGetPackageVersion=%(_ResolvedProjectReferencePaths.NuGetPackageVersion)" Importance="High" />
-
-		<!-- Get versions from all ProjectReference targets -->
-		<MSBuild Projects="@(ProjectReference)"
-                 Targets="_MonoRepoGetPackageVersion"
-                 BuildInParallel="$(BuildInParallel)"
-                 Properties="$(MSBuildGlobalProperties)"
-                 Condition="'$(MonoRepoVersioningEnabled)'=='true'"
-                 ContinueOnError="WarnAndContinue">
-			<Output TaskParameter="TargetOutputs" ItemName="_ProjectReferenceVersionsForResolved" />
-		</MSBuild>
-
-		<Message Text="[InnerBuild-SetResolvedRefVersions] Resolved versions: %(_ProjectReferenceVersionsForResolved.Identity) = %(_ProjectReferenceVersionsForResolved.Version)" Importance="High" />
-
-		<!-- Update _ResolvedProjectReferencePaths items with correct NuGetPackageVersion -->
-		<!-- Match by NuGetPackageId which already exists on these items -->
-		<ItemGroup>
-			<_ResolvedProjectReferencePaths>
-				<NuGetPackageVersion>%(_ProjectReferenceVersionsForResolved->WithMetadataValue('Identity', '%(_ResolvedProjectReferencePaths.NuGetPackageId)')->'%(Version)')</NuGetPackageVersion>
-			</_ResolvedProjectReferencePaths>
-		</ItemGroup>
-
-		<Message Text="[InnerBuild-SetResolvedRefVersions] _ResolvedProjectReferencePaths AFTER: @(_ResolvedProjectReferencePaths->Count()) items" Importance="High" />
-		<Message Text="[InnerBuild-SetResolvedRefVersions]   %(_ResolvedProjectReferencePaths.Identity) - NuGetPackageId=%(_ResolvedProjectReferencePaths.NuGetPackageId), NuGetPackageVersion=%(_ResolvedProjectReferencePaths.NuGetPackageVersion)" Importance="High" />
-		<Message Text="[InnerBuild-SetResolvedRefVersions] END" Importance="High" />
+	<Target Name="_SetResolvedProjectReferenceVersions">
+		Experimental: Update _ResolvedProjectReferencePaths for NuGet Pack
 	</Target>
 
-	<!-- Target that returns the package version for this project -->
-	<!-- This target is called by dependent projects to get our version -->
-	<!-- MUST be available even when MonoRepoVersioningEnabled is false to avoid errors -->
-	<Target Name="_MonoRepoGetPackageVersion"
-            DependsOnTargets="_MonoRepoSetVersion"
-            Returns="@(PackageVersionOutput)">
-
-		<PropertyGroup>
-			<!-- Ensure we have a version to return, even if versioning is disabled -->
-			<_VersionToReturn Condition="'$(FullVersion)' != ''">$(FullVersion)</_VersionToReturn>
-			<_VersionToReturn Condition="'$(FullVersion)' == '' and '$(Version)' != ''">$(Version)</_VersionToReturn>
-			<_VersionToReturn Condition="'$(_VersionToReturn)' == ''">1.0.0</_VersionToReturn>
-		</PropertyGroup>
-
-		<ItemGroup>
-			<PackageVersionOutput Include="$(MSBuildProjectName)">
-				<Version>$(_VersionToReturn)</Version>
-				<ProjectPath>$(MSBuildProjectFullPath)</ProjectPath>
-			</PackageVersionOutput>
-		</ItemGroup>
-
-		<Message Text="[MRV-GetPackageVersion] Returning version $(_VersionToReturn) for $(MSBuildProjectName) (MonoRepoVersioningEnabled=$(MonoRepoVersioningEnabled))" Importance="High" Condition="'$(MonoRepoDebug)'=='true'" />
+	<Target Name="_MonoRepoGetPackageVersion">
+		Experimental: Helper target that returns package version
 	</Target>
 
-	<!-- CRITICAL FIX: Hook into deps.json generation to ensure ProjectReference dependencies get correct versions -->
-	<Target Name="_SetProjectReferenceVersionsForDepsJson"
-            BeforeTargets="GenerateBuildDependencyFile;_ComputeUserRuntimeAssemblies;ResolvePackageAssets"
-            DependsOnTargets="_MonoRepoSetVersion"
-            Condition="'$(MonoRepoVersioningEnabled)'=='true' and '$(IsTestProject)' != 'true'">
-
-		<Message Text="[DepsJsonFix] Starting ProjectReference version resolution for deps.json generation" Importance="High" Condition="'$(MonoRepoDebug)'=='true'" />
-
-		<!-- Get versions from all ProjectReference targets -->
-		<MSBuild Projects="@(ProjectReference)"
-                 Targets="_MonoRepoGetPackageVersion"
-                 BuildInParallel="$(BuildInParallel)"
-                 Properties="$(MSBuildGlobalProperties)"
-                 Condition="'$(MonoRepoVersioningEnabled)'=='true'"
-                 ContinueOnError="WarnAndContinue">
-			<Output TaskParameter="TargetOutputs" ItemName="_ProjectRefVersionsForDeps" />
-		</MSBuild>
-
-		<!-- Update ProjectReference items with version metadata that deps.json generation can use -->
-		<ItemGroup>
-			<ProjectReference Update="%(Identity)">
-				<!-- Set Version metadata that deps.json generation reads -->
-				<Version Condition="'%(_ProjectRefVersionsForDeps.Version)' != ''">%(_ProjectRefVersionsForDeps.Version)</Version>
-				<PackageVersion Condition="'%(_ProjectRefVersionsForDeps.Version)' != ''">%(_ProjectRefVersionsForDeps.Version)</PackageVersion>
-				<ProjectVersion Condition="'%(_ProjectRefVersionsForDeps.Version)' != ''">%(_ProjectRefVersionsForDeps.Version)</ProjectVersion>
-				<NuGetVersion Condition="'%(_ProjectRefVersionsForDeps.Version)' != ''">%(_ProjectRefVersionsForDeps.Version)</NuGetVersion>
-			</ProjectReference>
-		</ItemGroup>
-
-		<Message Text="[DepsJsonFix] Updated ProjectReference versions for deps.json generation: @(_ProjectRefVersionsForDeps)" Importance="High" Condition="'$(MonoRepoDebug)'=='true'" />
+	<Target Name="_SetProjectReferenceVersionsForDepsJson">
+		Experimental: Hook into deps.json generation
 	</Target>
 
-	<!-- Enhanced GetTargetPath to provide version metadata for deps.json generation -->
-	<Target Name="_EnhancedGetTargetPathForDeps"
-            BeforeTargets="GenerateBuildDependencyFile"
-            DependsOnTargets="_MonoRepoSetVersion"
-            Condition="'$(MonoRepoVersioningEnabled)'=='true' and '$(IsTestProject)' != 'true'">
-
-		<!-- Ensure properties are available for deps.json generation - override only if we have a calculated version -->
-		<PropertyGroup Condition="'$(FullVersion)' != ''">
-			<PackageVersion>$(FullVersion)</PackageVersion>
-			<Version>$(FullVersion)</Version>
-			<AssemblyVersion>$(MainVersion)</AssemblyVersion>
-			<FileVersion>$(MainVersion)</FileVersion>
-			<InformationalVersion>$(FullVersion)</InformationalVersion>
-		</PropertyGroup>
-
-		<Message Text="[DepsJsonFix] Enhanced GetTargetPath providing version $(FullVersion) for deps.json" Importance="High" Condition="'$(MonoRepoDebug)'=='true'" />
+	<Target Name="_EnhancedGetTargetPathForDeps">
+		Experimental: Enhanced GetTargetPath for deps.json generation
 	</Target>
 
-	<!-- CRITICAL: Fallback to ensure AssemblyVersion is always set for GenerateDepsFile -->
-	<Target Name="_EnsureAssemblyVersionForDepsFile"
-            BeforeTargets="GenerateBuildDependencyFile">
-
-		<!-- Ensure AssemblyVersion has a value for GenerateDepsFile task -->
-		<PropertyGroup>
-			<AssemblyVersion Condition="'$(AssemblyVersion)' == ''">1.0.0.0</AssemblyVersion>
-			<FileVersion Condition="'$(FileVersion)' == ''">1.0.0.0</FileVersion>
-			<Version Condition="'$(Version)' == ''">1.0.0</Version>
-		</PropertyGroup>
-
-		<Message Text="[DepsFileFallback] Ensured AssemblyVersion=$(AssemblyVersion) for GenerateDepsFile" Importance="Low" />
+	<Target Name="_EnsureAssemblyVersionForDepsFile">
+		Experimental: Fallback to ensure AssemblyVersion is set
 	</Target>
+	-->
 
 </Project>

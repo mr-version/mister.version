@@ -4,7 +4,7 @@
 	<!-- It runs when $(IsCrossTargetingBuild) == true -->
 
 	<!-- DIAGNOSTIC: Log props file import -->
-	<Target Name="_DiagnosticOuterBuildPropsImported" BeforeTargets="BeforeBuild;Build;Pack">
+	<Target Name="_DiagnosticOuterBuildPropsImported" BeforeTargets="BeforeBuild;Build;Pack" Condition="'$(MonoRepoExtraDebug)' == 'true'">
 		<Message Importance="High" Text="[DIAGNOSTIC-PROPS] buildMultiTargeting/Mister.Version.props IMPORTED for $(MSBuildProjectName)" />
 	</Target>
 
@@ -37,7 +37,7 @@
 	</PropertyGroup>
 
 	<!-- DIAGNOSTIC: Log GenerateNuspecDependsOn value -->
-	<Target Name="_DiagnosticGenerateNuspecDependsOn" BeforeTargets="GenerateNuspec">
+	<Target Name="_DiagnosticGenerateNuspecDependsOn" BeforeTargets="GenerateNuspec" Condition="'$(MonoRepoExtraDebug)' == 'true'">
 		<Message Importance="High" Text="[DIAGNOSTIC-PROPS] GenerateNuspecDependsOn: $(GenerateNuspecDependsOn)" />
 		<Message Importance="High" Text="[DIAGNOSTIC-PROPS] GetPackageVersionDependsOn: $(GetPackageVersionDependsOn)" />
 		<Message Importance="High" Text="[DIAGNOSTIC-PROPS] MonoRepoVersioningEnabled: $(MonoRepoVersioningEnabled)" />
