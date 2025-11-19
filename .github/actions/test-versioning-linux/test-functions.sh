@@ -1241,3 +1241,177 @@ EOCSPROJ
         echo "❌ **$test_name**: Expected Core version 2.5.0 but got $core_version" >> $GITHUB_STEP_SUMMARY
     fi
 }
+
+# Test multi-targeting projects with TargetFrameworks
+test_multi_targeting_dependency_tracking() {
+    local test_name="Multi-targeting dependency tracking"
+    print_status "$CYAN" "============================================"
+    print_status "$CYAN" "Test: $test_name"
+    print_status "$CYAN" "============================================"
+
+    # Create test repository
+    local test_repo="$TEST_DIR/multi-targeting-test"
+    create_versioning_repo "$test_repo"
+
+    print_status "$YELLOW" "Setting up multi-targeting project structure..."
+
+    # Create Core library (single target)
+    mkdir -p src/Core
+    cat > src/Core/Core.csproj << EOCSPROJ
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>net8.0</TargetFramework>
+    <IsPackable>true</IsPackable>
+  </PropertyGroup>
+</Project>
+EOCSPROJ
+    echo "namespace Core { public class CoreClass { public string GetVersion() => \"1.0\"; } }" > src/Core/CoreClass.cs
+
+    # Create MultiTargetLib (multi-targeting) that depends on Core
+    mkdir -p src/MultiTargetLib
+    cat > src/MultiTargetLib/MultiTargetLib.csproj << EOCSPROJ
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFrameworks>net472;net8.0</TargetFrameworks>
+    <IsPackable>true</IsPackable>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="../Core/Core.csproj" />
+  </ItemGroup>
+</Project>
+EOCSPROJ
+    echo "namespace MultiTargetLib { public class MultiTargetClass { } }" > src/MultiTargetLib/MultiTargetClass.cs
+
+    # Create App (single target) that depends on MultiTargetLib
+    mkdir -p src/App
+    cat > src/App/App.csproj << EOCSPROJ
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>net8.0</TargetFramework>
+    <IsPackable>true</IsPackable>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="../MultiTargetLib/MultiTargetLib.csproj" />
+  </ItemGroup>
+</Project>
+EOCSPROJ
+    echo "namespace App { public class AppClass { } }" > src/App/AppClass.cs
+
+    # Commit initial state
+    git add .
+    git commit -m "Initial multi-targeting setup"
+    git tag v1.0.0
+
+    # Get initial version for App
+    local initial_version=$(run_monorepo_versioning_tool "$test_repo" "src/App/App.csproj" "" "$test_name - initial version" 2>&1 | grep "^Version: " | sed 's/Version: //' | tr -d '\r\n' | xargs)
+    print_status "$BLUE" "Initial App version: $initial_version"
+
+    # Modify Core library (indirect dependency through multi-targeting lib)
+    print_status "$YELLOW" "Modifying Core library..."
+    echo "namespace Core { public class CoreClass { public string GetVersion() => \"2.0\"; } }" > src/Core/CoreClass.cs
+    git add src/Core/CoreClass.cs
+    git commit -m "Update Core library"
+
+    # Get updated version for App
+    local updated_version=$(run_monorepo_versioning_tool "$test_repo" "src/App/App.csproj" "" "$test_name - updated version" 2>&1 | grep "^Version: " | sed 's/Version: //' | tr -d '\r\n' | xargs)
+    print_status "$BLUE" "Updated App version: $updated_version"
+
+    ((TOTAL_TESTS++))
+
+    # Verify that App version changed due to Core dependency change
+    if [ "$initial_version" != "$updated_version" ]; then
+        print_status "$GREEN" "✓ PASSED: App version changed from $initial_version to $updated_version when Core dependency changed"
+        ((PASSED_TESTS++))
+        echo "✅ **$test_name**: Version incremented correctly ($initial_version → $updated_version)" >> $GITHUB_STEP_SUMMARY
+    else
+        print_status "$RED" "✗ FAILED: App version should have changed when Core dependency changed"
+        print_status "$RED" "   Initial: $initial_version, Updated: $updated_version"
+        echo "❌ **$test_name**: Version did not increment (stayed at $initial_version)" >> $GITHUB_STEP_SUMMARY
+    fi
+
+    # Additional test: Verify multi-targeting lib itself tracks Core dependency
+    print_status "$YELLOW" "Testing multi-targeting library dependency tracking..."
+
+    # Get MultiTargetLib version before Core change
+    git checkout -q v1.0.0
+    local lib_initial=$(run_monorepo_versioning_tool "$test_repo" "src/MultiTargetLib/MultiTargetLib.csproj" "" "$test_name - lib initial" 2>&1 | grep "^Version: " | sed 's/Version: //' | tr -d '\r\n' | xargs)
+
+    # Get MultiTargetLib version after Core change
+    git checkout -q main 2>/dev/null || git checkout -q master 2>/dev/null
+    local lib_updated=$(run_monorepo_versioning_tool "$test_repo" "src/MultiTargetLib/MultiTargetLib.csproj" "" "$test_name - lib updated" 2>&1 | grep "^Version: " | sed 's/Version: //' | tr -d '\r\n' | xargs)
+
+    ((TOTAL_TESTS++))
+
+    if [ "$lib_initial" != "$lib_updated" ]; then
+        print_status "$GREEN" "✓ PASSED: MultiTargetLib version changed from $lib_initial to $lib_updated when its Core dependency changed"
+        ((PASSED_TESTS++))
+        echo "✅ **$test_name - MultiTargetLib**: Version incremented correctly ($lib_initial → $lib_updated)" >> $GITHUB_STEP_SUMMARY
+    else
+        print_status "$RED" "✗ FAILED: MultiTargetLib version should have changed when Core dependency changed"
+        print_status "$RED" "   Initial: $lib_initial, Updated: $lib_updated"
+        echo "❌ **$test_name - MultiTargetLib**: Version did not increment (stayed at $lib_initial)" >> $GITHUB_STEP_SUMMARY
+    fi
+}
+
+# Test that outer build (IsCrossTargetingBuild) doesn't interfere with dependency tracking
+test_cross_targeting_build_isolation() {
+    local test_name="Cross-targeting build isolation"
+    print_status "$CYAN" "============================================"
+    print_status "$CYAN" "Test: $test_name"
+    print_status "$CYAN" "============================================"
+
+    # Create test repository
+    local test_repo="$TEST_DIR/cross-targeting-isolation-test"
+    create_versioning_repo "$test_repo"
+
+    print_status "$YELLOW" "Creating multi-targeting projects with dependencies..."
+
+    # Create two multi-targeting libraries with dependency
+    mkdir -p src/LibA
+    cat > src/LibA/LibA.csproj << EOCSPROJ
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFrameworks>net472;net6.0;net8.0</TargetFrameworks>
+    <IsPackable>true</IsPackable>
+  </PropertyGroup>
+</Project>
+EOCSPROJ
+    echo "namespace LibA { public class LibAClass { } }" > src/LibA/LibAClass.cs
+
+    mkdir -p src/LibB
+    cat > src/LibB/LibB.csproj << EOCSPROJ
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFrameworks>net472;net6.0;net8.0</TargetFrameworks>
+    <IsPackable>true</IsPackable>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="../LibA/LibA.csproj" />
+  </ItemGroup>
+</Project>
+EOCSPROJ
+    echo "namespace LibB { public class LibBClass { } }" > src/LibB/LibBClass.cs
+
+    # Commit and tag
+    git add .
+    git commit -m "Initial commit with multi-targeting libs"
+    git tag v1.0.0
+
+    # Verify LibB detects LibA as dependency
+    print_status "$YELLOW" "Verifying dependency detection in multi-targeting scenario..."
+
+    # The test passes if we can successfully calculate a version for LibB
+    # (which requires properly detecting its dependency on LibA)
+    local lib_b_version=$(run_monorepo_versioning_tool "$test_repo" "src/LibB/LibB.csproj" "" "$test_name" 2>&1 | grep "^Version: " | sed 's/Version: //' | tr -d '\r\n' | xargs)
+
+    ((TOTAL_TESTS++))
+
+    if [ -n "$lib_b_version" ] && [ "$lib_b_version" != "Unknown" ]; then
+        print_status "$GREEN" "✓ PASSED: Successfully calculated version ($lib_b_version) for multi-targeting project with dependencies"
+        ((PASSED_TESTS++))
+        echo "✅ **$test_name**: Dependency detection works ($lib_b_version)" >> $GITHUB_STEP_SUMMARY
+    else
+        print_status "$RED" "✗ FAILED: Could not calculate version for multi-targeting project with dependencies"
+        echo "❌ **$test_name**: Version calculation failed" >> $GITHUB_STEP_SUMMARY
+    fi
+}

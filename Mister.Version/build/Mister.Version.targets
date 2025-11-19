@@ -144,8 +144,11 @@
 	</Target>
 
 	<!-- Handle multi-targeting scenarios -->
+	<!-- DISABLE versioning during cross-targeting build (outer build) -->
+	<!-- The versioning task will run during the inner builds for each specific TargetFramework -->
+	<!-- This ensures @(ProjectReference) items are fully populated with correct dependencies -->
 	<PropertyGroup Condition="'$(IsCrossTargetingBuild)' == 'true'">
-		<MonoRepoVersioningEnabled>true</MonoRepoVersioningEnabled>
+		<MonoRepoVersioningEnabled>false</MonoRepoVersioningEnabled>
 	</PropertyGroup>
 
 	<!-- Ensure version is set before generating nuspec - run VERY early -->

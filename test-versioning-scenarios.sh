@@ -95,7 +95,9 @@ main() {
     test_new_release_cycle_detection
     test_config_baseversion_scenarios
     test_nuget_package_dependencies
-    
+    test_multi_targeting_dependency_tracking
+    test_cross_targeting_build_isolation
+
     # Export summary
     export_test_summary
     
