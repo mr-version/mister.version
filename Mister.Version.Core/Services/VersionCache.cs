@@ -290,7 +290,11 @@ namespace Mister.Version.Core.Services
 
         public override string ToString()
         {
-            return $"VersionCache Statistics: HEAD={CurrentHeadSha?.Substring(0, 8)}, " +
+            var headShaDisplay = string.IsNullOrEmpty(CurrentHeadSha)
+                ? "null"
+                : (CurrentHeadSha.Length >= 8 ? CurrentHeadSha.Substring(0, 8) : CurrentHeadSha);
+
+            return $"VersionCache Statistics: HEAD={headShaDisplay}, " +
                    $"AllProjects={AllProjectsCached}, " +
                    $"ProjectDeps={ProjectDependenciesCount}, " +
                    $"GlobalTags={GlobalVersionTagsCached}, " +
