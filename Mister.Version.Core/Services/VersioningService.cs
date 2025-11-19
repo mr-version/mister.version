@@ -14,14 +14,29 @@ namespace Mister.Version.Core.Services
         private readonly IGitService _gitService;
         private readonly VersionCalculator _versionCalculator;
         private readonly Action<string, string> _logger;
+        private readonly VersionCache _cache;
         private bool _disposed = false;
 
         public VersioningService(string repoRoot, Action<string, string> logger)
+            : this(repoRoot, logger, null)
+        {
+        }
+
+        public VersioningService(string repoRoot, Action<string, string> logger, VersionCache cache)
         {
             _logger = logger ?? ((level, message) => { });
-            
-            // Initialize GitService
-            _gitService = new GitService(repoRoot);
+            _cache = cache;
+
+            // Initialize GitService with cache
+            if (_cache != null)
+            {
+                _gitService = new GitService(repoRoot, _cache);
+            }
+            else
+            {
+                _gitService = new GitService(repoRoot);
+            }
+
             _versionCalculator = new VersionCalculator(_gitService, _logger);
         }
 
