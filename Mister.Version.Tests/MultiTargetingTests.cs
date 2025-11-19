@@ -64,13 +64,16 @@ namespace Mister.Version.Tests
             CommitAllChanges("Initial commit");
             _gitService.CreateTag("v1.0.0", "Initial version", true);
 
+            // Get all dependencies including transitive ones
+            var allDependencies = GetTransitiveDependenciesHelper(appProjectPath);
+
             // Get initial version
             var initialOptions = new VersionOptions
             {
                 RepoRoot = _testRepoRoot,
                 ProjectPath = appProjectPath,
                 ProjectName = "App",
-                Dependencies = new List<string> { multiTargetLibPath }
+                Dependencies = allDependencies
             };
             var initialVersion = _versionCalculator.CalculateVersion(initialOptions);
 
@@ -84,7 +87,7 @@ namespace Mister.Version.Tests
                 RepoRoot = _testRepoRoot,
                 ProjectPath = appProjectPath,
                 ProjectName = "App",
-                Dependencies = new List<string> { multiTargetLibPath }
+                Dependencies = allDependencies
             };
             var updatedVersion = _versionCalculator.CalculateVersion(updatedOptions);
 
