@@ -87,7 +87,7 @@ main() {
     test_config_alpha
     test_config_beta
     test_config_rc
-    # test_yaml_config  # TODO: YAML config not implemented yet
+    # test_yaml_config  # TODO: Write tests for YAML configuration (ConfigurationService.cs)
     test_force_version
     test_tag_prefix
     test_dependency_tracking
