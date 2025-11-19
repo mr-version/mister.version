@@ -62,7 +62,7 @@ namespace Mister.Version.Tests
 
             // Commit and tag initial state
             CommitAllChanges("Initial commit");
-            _gitService.CreateTag("v1.0.0", "Initial version");
+            _gitService.CreateTag("v1.0.0", "Initial version", true);
 
             // Get initial version
             var initialOptions = new VersionOptions
