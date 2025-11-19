@@ -248,8 +248,6 @@ namespace Mister.Version.Core.Services
                 $"{projectName}-{tagPrefix}",
                 $"{projectName}/{tagPrefix}",
                 $"{projectName.ToLowerInvariant()}/{tagPrefix}",
-                // Additional formats for compatibility
-                $"{projectName.ToLowerInvariant().Replace(".", ".")}/{tagPrefix}",
             };
 
             // Note: We don't support suffix format (v1.2.3-projectname) as it conflicts with feature branch tags
@@ -364,11 +362,7 @@ namespace Mister.Version.Core.Services
                     foreach (var dependency in dependencies)
                     {
 #if NET472
-#if NET472
                         var relativeDependencyPath = NormalizePath(Mister.Version.Core.PathUtils.GetRelativePath(repoRoot, dependency));
-#else
-                        var relativeDependencyPath = NormalizePath(Path.GetRelativePath(repoRoot, dependency));
-#endif
 #else
                         var relativeDependencyPath = NormalizePath(Path.GetRelativePath(repoRoot, dependency));
 #endif

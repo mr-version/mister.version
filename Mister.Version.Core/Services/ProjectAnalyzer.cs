@@ -115,7 +115,7 @@ namespace Mister.Version.Core.Services
                 Dependencies = transitiveDependencies,
                 IsTestProject = isTestProject,
                 IsPackable = isPackable,
-                BaseVersion = additionalOptions.BaseVersion
+                BaseVersion = additionalOptions?.BaseVersion
             };
 
             // Apply additional options if provided
@@ -125,7 +125,7 @@ namespace Mister.Version.Core.Services
                 versionOptions.Debug = additionalOptions.Debug;
                 versionOptions.TagPrefix = additionalOptions.TagPrefix;
                 versionOptions.ForceVersion = additionalOptions.ForceVersion;
-                
+
                 // Override dependencies if provided in additional options
                 if (additionalOptions.Dependencies != null && additionalOptions.Dependencies.Count > 0)
                 {
