@@ -62,6 +62,12 @@
 			MinorPatterns="$(MonoRepoMinorPatterns)"
 			PatchPatterns="$(MonoRepoPatchPatterns)"
 			IgnorePatterns="$(MonoRepoIgnorePatterns)"
+			ChangeDetectionEnabled="$(MonoRepoChangeDetectionEnabled)"
+			IgnoreFilePatterns="$(MonoRepoIgnoreFilePatterns)"
+			MajorFilePatterns="$(MonoRepoMajorFilePatterns)"
+			MinorFilePatterns="$(MonoRepoMinorFilePatterns)"
+			PatchFilePatterns="$(MonoRepoPatchFilePatterns)"
+			SourceOnlyMode="$(MonoRepoSourceOnlyMode)"
 			Dependencies="@(_MonoRepoDependencies)">
 			<Output TaskParameter="Version" PropertyName="FullVersion" />
 			<Output TaskParameter="VersionChanged" PropertyName="VersionChanged" />
@@ -243,6 +249,12 @@
 			MinorPatterns="$(MonoRepoMinorPatterns)"
 			PatchPatterns="$(MonoRepoPatchPatterns)"
 			IgnorePatterns="$(MonoRepoIgnorePatterns)"
+			ChangeDetectionEnabled="$(MonoRepoChangeDetectionEnabled)"
+			IgnoreFilePatterns="$(MonoRepoIgnoreFilePatterns)"
+			MajorFilePatterns="$(MonoRepoMajorFilePatterns)"
+			MinorFilePatterns="$(MonoRepoMinorFilePatterns)"
+			PatchFilePatterns="$(MonoRepoPatchFilePatterns)"
+			SourceOnlyMode="$(MonoRepoSourceOnlyMode)"
 			Dependencies="@(_MonoRepoDependencies)">
 			<Output TaskParameter="Version" PropertyName="FullVersion" />
 			<Output TaskParameter="VersionChanged" PropertyName="VersionChanged" />

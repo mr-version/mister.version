@@ -42,6 +42,18 @@
     <MonoRepoPatchPatterns Condition="'$(MonoRepoPatchPatterns)' == ''">fix:;bugfix:;perf:;refactor:</MonoRepoPatchPatterns>
     <!-- Commit patterns to ignore for versioning -->
     <MonoRepoIgnorePatterns Condition="'$(MonoRepoIgnorePatterns)' == ''">chore:;docs:;style:;test:;ci:</MonoRepoIgnorePatterns>
+    <!-- Enable file pattern-based change detection for smart versioning -->
+    <MonoRepoChangeDetectionEnabled Condition="'$(MonoRepoChangeDetectionEnabled)' == ''">false</MonoRepoChangeDetectionEnabled>
+    <!-- File patterns to ignore (won't trigger version bumps) -->
+    <MonoRepoIgnoreFilePatterns Condition="'$(MonoRepoIgnoreFilePatterns)' == ''">**/*.md;**/docs/**;**/*.txt;**/.editorconfig;**/.gitignore</MonoRepoIgnoreFilePatterns>
+    <!-- File patterns that require major version bumps -->
+    <MonoRepoMajorFilePatterns Condition="'$(MonoRepoMajorFilePatterns)' == ''"></MonoRepoMajorFilePatterns>
+    <!-- File patterns that require minor version bumps -->
+    <MonoRepoMinorFilePatterns Condition="'$(MonoRepoMinorFilePatterns)' == ''"></MonoRepoMinorFilePatterns>
+    <!-- File patterns that require patch version bumps -->
+    <MonoRepoPatchFilePatterns Condition="'$(MonoRepoPatchFilePatterns)' == ''"></MonoRepoPatchFilePatterns>
+    <!-- Source-only mode: only version when source code changes (ignore test/doc changes) -->
+    <MonoRepoSourceOnlyMode Condition="'$(MonoRepoSourceOnlyMode)' == ''">false</MonoRepoSourceOnlyMode>
   </PropertyGroup>
 
   <PropertyGroup>

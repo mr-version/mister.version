@@ -161,6 +161,36 @@ public class MonoRepoVersionTask : Task
     public string IgnorePatterns { get; set; }
 
     /// <summary>
+    /// Enable file pattern-based change detection for smart versioning
+    /// </summary>
+    public bool ChangeDetectionEnabled { get; set; } = false;
+
+    /// <summary>
+    /// Semicolon-separated list of file patterns to ignore (won't trigger version bumps)
+    /// </summary>
+    public string IgnoreFilePatterns { get; set; }
+
+    /// <summary>
+    /// Semicolon-separated list of file patterns that require major version bumps
+    /// </summary>
+    public string MajorFilePatterns { get; set; }
+
+    /// <summary>
+    /// Semicolon-separated list of file patterns that require minor version bumps
+    /// </summary>
+    public string MinorFilePatterns { get; set; }
+
+    /// <summary>
+    /// Semicolon-separated list of file patterns that require patch version bumps
+    /// </summary>
+    public string PatchFilePatterns { get; set; }
+
+    /// <summary>
+    /// Source-only mode: only version when source code changes (ignore test/doc changes)
+    /// </summary>
+    public bool SourceOnlyMode { get; set; } = false;
+
+    /// <summary>
     /// Gets or creates the static cache for the current repository
     /// </summary>
     private VersionCache GetOrCreateCache(string repoRoot, string currentHeadSha)
@@ -266,7 +296,13 @@ public class MonoRepoVersionTask : Task
                 MajorPatterns = MajorPatterns,
                 MinorPatterns = MinorPatterns,
                 PatchPatterns = PatchPatterns,
-                IgnorePatterns = IgnorePatterns
+                IgnorePatterns = IgnorePatterns,
+                ChangeDetectionEnabled = ChangeDetectionEnabled,
+                IgnoreFilePatterns = IgnoreFilePatterns,
+                MajorFilePatterns = MajorFilePatterns,
+                MinorFilePatterns = MinorFilePatterns,
+                PatchFilePatterns = PatchFilePatterns,
+                SourceOnlyMode = SourceOnlyMode
             };
 
             // Calculate version
