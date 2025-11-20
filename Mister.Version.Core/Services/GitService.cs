@@ -77,25 +77,39 @@ namespace Mister.Version.Core.Services
 
         private Repository _repository;
         private VersionCache _cache;
+        private Action<string, string> _logger;
 
         public Repository Repository => _repository;
-        public string CurrentBranch => _repository.Head.FriendlyName;
+        public string CurrentBranch => _repository?.Head?.FriendlyName ?? "HEAD";
         public VersionCache Cache
         {
             get => _cache;
             set => _cache = value;
         }
 
-        public GitService(string repoPath)
+        public GitService(string repoPath) : this(repoPath, null, null)
         {
-            _repository = new Repository(repoPath);
-            _cache = null; // Cache is optional
         }
 
-        public GitService(string repoPath, VersionCache cache)
+        public GitService(string repoPath, VersionCache cache) : this(repoPath, cache, null)
         {
-            _repository = new Repository(repoPath);
-            _cache = cache;
+        }
+
+        public GitService(string repoPath, VersionCache cache, Action<string, string> logger)
+        {
+            Repository repo = null;
+            try
+            {
+                repo = new Repository(repoPath);
+                _repository = repo;
+                _cache = cache;
+                _logger = logger ?? ((level, message) => { }); // Default no-op logger
+            }
+            catch
+            {
+                repo?.Dispose();
+                throw;
+            }
         }
 
         public BranchType GetBranchType(string branchName)
@@ -153,43 +167,62 @@ namespace Mister.Version.Core.Services
                     // Global tags: v1.0.0, v1.0.0-alpha.1 (no project name prefix)
                     // Project-specific tags: ProjectName-v1.0.0, v1.0.0-projectname
                     var tagName = t.FriendlyName;
-                    var withoutPrefix = tagName.Substring(options.TagPrefix.Length);
-                    
-                    // If there's a dash after the version part, check if it's a project name or prerelease
-                    // Global tags can have prerelease (1.0.0-alpha.1) but not project names (1.0.0-projectname)
-                    // Project tags have project names: ProjectName-v1.0.0 or v1.0.0-projectname
-                    
+
+                    // Validate tag name is long enough to contain version after prefix
+                    if (tagName.Length <= options.TagPrefix.Length)
+                        return false;
+
                     // Since we don't support suffix format for project tags anymore,
                     // all tags starting with the tag prefix are potentially global
                     // (including v1.2.3-projectname which could be feature branch tags)
-                    
+
                     return true; // Treat as global
                 })
-                .Select(t => new VersionTag
+                .Select(t =>
                 {
-                    Tag = t,
-                    SemVer = ParseSemVer(t.FriendlyName.Substring(options.TagPrefix.Length)),
-                    Commit = t.Target as Commit,
-                    IsGlobal = true
+                    var tagName = t.FriendlyName;
+                    string versionPart = tagName.Length > options.TagPrefix.Length
+                        ? tagName.Substring(options.TagPrefix.Length)
+                        : "";
+
+                    // Peel annotated tags to get the actual commit
+                    GitObject target = t.Target;
+                    while (target is TagAnnotation annotation)
+                        target = annotation.Target;
+
+                    return new VersionTag
+                    {
+                        Tag = t,
+                        SemVer = ParseSemVer(versionPart),
+                        Commit = target as Commit,
+                        IsGlobal = true
+                    };
                 })
                 .Where(vt => vt.SemVer != null)
-                .OrderByDescending(vt => vt.SemVer.Major)
-                .ThenByDescending(vt => vt.SemVer.Minor)
-                .ThenByDescending(vt => vt.SemVer.Patch)
-                .ThenByDescending(vt => GetPrereleasePrecedence(vt.SemVer.PreRelease))
-                .ThenByDescending(vt => GetPrereleaseNumber(vt.SemVer.PreRelease))
                 .ToList();
+
+            // Sort version tags by precedence
+            globalVersionTags = SortVersionTagsByPrecedence(globalVersionTags).ToList();
 
             // Filter tags based on branch type
             if (branchType == BranchType.Release)
             {
-                var releaseVersion = ExtractReleaseVersion(_repository.Head.FriendlyName, options.TagPrefix);
-                if (releaseVersion != null)
+                // Check for detached HEAD state
+                if (_repository.Head.IsDetached)
                 {
-                    globalVersionTags = globalVersionTags
-                        .Where(vt => vt.SemVer.Major == releaseVersion.Major &&
-                                    vt.SemVer.Minor == releaseVersion.Minor)
-                        .ToList();
+                    _logger?.Invoke("Warning", "Repository is in detached HEAD state");
+                    // Skip release branch filtering in detached HEAD state
+                }
+                else
+                {
+                    var releaseVersion = ExtractReleaseVersion(_repository.Head.FriendlyName, options.TagPrefix);
+                    if (releaseVersion != null)
+                    {
+                        globalVersionTags = globalVersionTags
+                            .Where(vt => vt.SemVer.Major == releaseVersion.Major &&
+                                        vt.SemVer.Minor == releaseVersion.Minor)
+                            .ToList();
+                    }
                 }
             }
 
@@ -209,16 +242,10 @@ namespace Mister.Version.Core.Services
                     // Add config version to the list for comparison
                     var allVersionTags = globalVersionTags.ToList();
                     allVersionTags.Add(configVersionTag);
-                    
+
                     // Re-sort with config version included
-                    var sortedTags = allVersionTags
-                        .OrderByDescending(vt => vt.SemVer.Major)
-                        .ThenByDescending(vt => vt.SemVer.Minor)
-                        .ThenByDescending(vt => vt.SemVer.Patch)
-                        .ThenByDescending(vt => GetPrereleasePrecedence(vt.SemVer.PreRelease))
-                        .ThenByDescending(vt => GetPrereleaseNumber(vt.SemVer.PreRelease))
-                        .ToList();
-                    
+                    var sortedTags = SortVersionTagsByPrecedence(allVersionTags);
+
                     return sortedTags.First();
                 }
             }
@@ -273,40 +300,53 @@ namespace Mister.Version.Core.Services
                     // Extract version part from prefix format
                     foreach (var prefix in possiblePrefixes)
                     {
-                        if (tagName.StartsWith(prefix, StringComparison.OrdinalIgnoreCase))
+                        if (tagName.StartsWith(prefix, StringComparison.OrdinalIgnoreCase) &&
+                            tagName.Length > prefix.Length)
                         {
                             versionPart = tagName.Substring(prefix.Length);
                             break;
                         }
                     }
 
+                    // Peel annotated tags to get the actual commit
+                    GitObject target = t.Target;
+                    while (target is TagAnnotation annotation)
+                        target = annotation.Target;
+
                     return new VersionTag
                     {
                         Tag = t,
                         SemVer = ParseSemVer(versionPart),
-                        Commit = t.Target as Commit,
+                        Commit = target as Commit,
                         IsGlobal = false,
                         ProjectName = projectName
                     };
                 })
                 .Where(vt => vt.SemVer != null)
-                .OrderByDescending(vt => vt.SemVer.Major)
-                .ThenByDescending(vt => vt.SemVer.Minor)
-                .ThenByDescending(vt => vt.SemVer.Patch)
-                .ThenByDescending(vt => GetPrereleasePrecedence(vt.SemVer.PreRelease))
-                .ThenByDescending(vt => GetPrereleaseNumber(vt.SemVer.PreRelease))
                 .ToList();
+
+            // Sort version tags by precedence
+            projectVersionTags = SortVersionTagsByPrecedence(projectVersionTags).ToList();
 
             // Filter tags based on branch type
             if (branchType == BranchType.Release)
             {
-                var releaseVersion = ExtractReleaseVersion(_repository.Head.FriendlyName, tagPrefix);
-                if (releaseVersion != null)
+                // Check for detached HEAD state
+                if (_repository.Head.IsDetached)
                 {
-                    projectVersionTags = projectVersionTags
-                        .Where(vt => vt.SemVer.Major == releaseVersion.Major &&
-                                    vt.SemVer.Minor == releaseVersion.Minor)
-                        .ToList();
+                    _logger?.Invoke("Warning", "Repository is in detached HEAD state");
+                    // Skip release branch filtering in detached HEAD state
+                }
+                else
+                {
+                    var releaseVersion = ExtractReleaseVersion(_repository.Head.FriendlyName, tagPrefix);
+                    if (releaseVersion != null)
+                    {
+                        projectVersionTags = projectVersionTags
+                            .Where(vt => vt.SemVer.Major == releaseVersion.Major &&
+                                        vt.SemVer.Minor == releaseVersion.Minor)
+                            .ToList();
+                    }
                 }
             }
 
@@ -325,6 +365,13 @@ namespace Mister.Version.Core.Services
         {
             if (tagCommit == null)
                 return true;
+
+            // Validate HEAD and Tip are available
+            if (_repository?.Head?.Tip == null)
+            {
+                _logger?.Invoke("Warning", "Repository HEAD or Tip is null, assuming changes exist");
+                return true;
+            }
 
             // Create cache key from commit SHA, project path, and dependencies
             var commitSha = tagCommit.Sha;
@@ -389,6 +436,10 @@ namespace Mister.Version.Core.Services
                 if (!hasChanges)
                 {
                     string projectDir = Path.GetDirectoryName(projectPath);
+                    if (string.IsNullOrEmpty(projectDir))
+                    {
+                        projectDir = projectPath; // Use project path itself if at root
+                    }
                     string lockFilePath = projectDir == "" ? "packages.lock.json" : Path.Combine(projectDir, "packages.lock.json");
                     string normalizedLockFilePath = NormalizePath(lockFilePath);
 
@@ -410,8 +461,10 @@ namespace Mister.Version.Core.Services
 
                 return hasChanges;
             }
-            catch (Exception)
+            catch (Exception ex)
             {
+                // Log the exception for debugging
+                _logger?.Invoke("Warning", $"Error detecting changes: {ex.Message}");
                 // Don't cache exception results as they may be transient
                 return true; // Assume changes if we can't determine
             }
@@ -424,7 +477,12 @@ namespace Mister.Version.Core.Services
                 if (fromCommit == null)
                     return 0;
 
-                toCommit = toCommit ?? _repository.Head.Tip;
+                toCommit = toCommit ?? _repository?.Head?.Tip;
+                if (toCommit == null)
+                {
+                    _logger?.Invoke("Warning", "Cannot calculate commit height: HEAD tip is null");
+                    return 0;
+                }
 
                 // Check cache first (use from and to commit SHAs as key)
                 var cacheKey = $"{fromCommit.Sha}_{toCommit?.Sha ?? "HEAD"}";
@@ -453,8 +511,10 @@ namespace Mister.Version.Core.Services
 
                 return height;
             }
-            catch
+            catch (Exception ex)
             {
+                // Log the exception for debugging
+                _logger?.Invoke("Warning", $"Error calculating commit height: {ex.Message}");
                 // Return 0 if we can't calculate height (e.g., invalid commits, repository issues)
                 // This prevents version calculation failures due to git errors
                 return 0;
@@ -463,7 +523,15 @@ namespace Mister.Version.Core.Services
 
         public string GetCommitShortHash(Commit commit)
         {
-            if (commit == null) return new string('0', SHORT_HASH_LENGTH);
+            if (commit == null)
+                return new string('0', SHORT_HASH_LENGTH);
+
+            if (commit.Sha == null || commit.Sha.Length < SHORT_HASH_LENGTH)
+            {
+                _logger?.Invoke("Warning", $"Commit SHA is null or too short: {commit.Sha}");
+                return new string('0', SHORT_HASH_LENGTH);
+            }
+
             return commit.Sha.Substring(0, SHORT_HASH_LENGTH);
         }
 
@@ -493,6 +561,13 @@ namespace Mister.Version.Core.Services
 
             if (sinceCommit == null)
                 return changes;
+
+            // Validate HEAD and Tip are available
+            if (_repository?.Head?.Tip == null)
+            {
+                _logger?.Invoke("Warning", "Cannot get changes: HEAD tip is null");
+                return changes;
+            }
 
             try
             {
@@ -525,8 +600,10 @@ namespace Mister.Version.Core.Services
                     changes.Add(changeInfo);
                 }
             }
-            catch (Exception)
+            catch (Exception ex)
             {
+                // Log the exception for debugging
+                _logger?.Invoke("Warning", $"Error getting changes since commit: {ex.Message}");
                 // Return empty list on error (e.g., commit not found, repository issues)
                 // This allows the caller to continue with an assumption of no changes
             }
@@ -567,6 +644,13 @@ namespace Mister.Version.Core.Services
         {
             try
             {
+                // Validate tag name
+                if (!IsValidTagName(tagName))
+                {
+                    _logger?.Invoke("Error", $"Invalid tag name: {tagName}");
+                    return false;
+                }
+
                 // Check if tag already exists
                 if (TagExists(tagName))
                 {
@@ -578,18 +662,22 @@ namespace Mister.Version.Core.Services
                 }
 
                 // Get the current HEAD commit
-                var commit = _repository.Head.Tip;
+                var commit = _repository?.Head?.Tip;
                 if (commit == null)
                 {
+                    _logger?.Invoke("Error", "No commits in repository");
                     throw new InvalidOperationException("No commits in repository");
                 }
 
                 if (dryRun)
                 {
+                    var commitHash = commit.Sha != null && commit.Sha.Length >= SHORT_HASH_LENGTH
+                        ? commit.Sha.Substring(0, SHORT_HASH_LENGTH)
+                        : "unknown";
                     Console.WriteLine($"[DRY RUN] Would create tag:");
                     Console.WriteLine($"  Tag Name: {tagName}");
                     Console.WriteLine($"  Message: {message}");
-                    Console.WriteLine($"  Commit: {commit.Sha.Substring(0, SHORT_HASH_LENGTH)} - {commit.MessageShort}");
+                    Console.WriteLine($"  Commit: {commitHash} - {commit.MessageShort}");
                     Console.WriteLine($"  Type: {(isGlobalTag ? "Global" : $"Project ({projectName})")}");
                     return true;
                 }
@@ -599,17 +687,53 @@ namespace Mister.Version.Core.Services
 
                 return tag != null;
             }
-            catch (Exception)
+            catch (Exception ex)
             {
+                // Log the exception for debugging
+                _logger?.Invoke("Error", $"Tag creation failed: {ex.Message}");
                 // Tag creation failed (e.g., tag already exists, invalid name, permission issues)
                 // Return false to allow the caller to handle the failure gracefully
                 return false;
             }
         }
 
+        private bool IsValidTagName(string tagName)
+        {
+            if (string.IsNullOrWhiteSpace(tagName))
+                return false;
+
+            // Git tag name validation rules
+            // Tag names cannot contain: .., @{, \, spaces at the end, or start with a dot
+            if (tagName.Contains("..") ||
+                tagName.Contains("@{") ||
+                tagName.Contains("\\") ||
+                tagName.StartsWith(".") ||
+                tagName.EndsWith(".") ||
+                tagName.EndsWith(".lock") ||
+                tagName != tagName.TrimEnd())
+            {
+                return false;
+            }
+
+            return true;
+        }
+
         public bool TagExists(string tagName)
         {
             return _repository.Tags.Any(t => t.FriendlyName == tagName);
+        }
+
+        /// <summary>
+        /// Sorts version tags by semantic version precedence (highest version first)
+        /// </summary>
+        private IEnumerable<VersionTag> SortVersionTagsByPrecedence(IEnumerable<VersionTag> tags)
+        {
+            return tags
+                .OrderByDescending(vt => vt.SemVer.Major)
+                .ThenByDescending(vt => vt.SemVer.Minor)
+                .ThenByDescending(vt => vt.SemVer.Patch)
+                .ThenByDescending(vt => GetPrereleasePrecedence(vt.SemVer.PreRelease))
+                .ThenByDescending(vt => GetPrereleaseNumber(vt.SemVer.PreRelease));
         }
 
         public void Dispose()

@@ -32,6 +32,26 @@ namespace Mister.Version.Core.Services
 
     public class ReportGenerator : IReportGenerator
     {
+        // Constants for limiting output
+        private const int MAX_TRANSITIVE_DEPS_TO_DISPLAY = 10;
+        private const int MAX_GRAPH_DEPTH = 10;
+
+        // Constants for graph visualization - Emoji symbols
+        private const string EMOJI_CHANGED = "🔄";
+        private const string EMOJI_TEST = "🧪";
+        private const string EMOJI_PACKABLE = "📦";
+        private const string EMOJI_NORMAL = "📁";
+
+        // Constants for graph visualization - Color codes
+        private const string COLOR_CHANGED = "#ff9999";
+        private const string COLOR_CHANGED_BORDER = "#ff0000";
+        private const string COLOR_TEST = "#ccccff";
+        private const string COLOR_TEST_BORDER = "#0000ff";
+        private const string COLOR_PACKABLE = "#ccffcc";
+        private const string COLOR_PACKABLE_BORDER = "#00aa00";
+        private const string COLOR_NORMAL = "#f9f9f9";
+        private const string COLOR_NORMAL_BORDER = "#333";
+
         public string GenerateReport(VersionReport report, ReportOptions options)
         {
             return options.OutputFormat.ToLower() switch
@@ -109,15 +129,15 @@ namespace Mister.Version.Core.Services
                         if (transitiveDeps.Count > 0)
                         {
                             sb.AppendLine($"  Transitive Dependencies ({transitiveDeps.Count}):");
-                            foreach (var dep in transitiveDeps.Take(10)) // Limit to avoid too much output
+                            foreach (var dep in transitiveDeps.Take(MAX_TRANSITIVE_DEPS_TO_DISPLAY))
                             {
                                 var depProject = report.Projects.FirstOrDefault(p => p.Name == dep);
                                 var depVersion = depProject?.Version?.Version ?? "Unknown";
                                 sb.AppendLine($"    - {dep} ({depVersion})");
                             }
-                            if (transitiveDeps.Count > 10)
+                            if (transitiveDeps.Count > MAX_TRANSITIVE_DEPS_TO_DISPLAY)
                             {
-                                sb.AppendLine($"    ... and {transitiveDeps.Count - 10} more");
+                                sb.AppendLine($"    ... and {transitiveDeps.Count - MAX_TRANSITIVE_DEPS_TO_DISPLAY} more");
                             }
                         }
                     }
@@ -373,10 +393,10 @@ namespace Mister.Version.Core.Services
             sb.AppendLine();
 
             // Add styling classes
-            sb.AppendLine("    classDef changed fill:#ff9999,stroke:#ff0000,stroke-width:2px,color:#000;");
-            sb.AppendLine("    classDef test fill:#ccccff,stroke:#0000ff,stroke-width:1px,color:#000;");
-            sb.AppendLine("    classDef packable fill:#ccffcc,stroke:#00aa00,stroke-width:1px,color:#000;");
-            sb.AppendLine("    classDef normal fill:#f9f9f9,stroke:#333,stroke-width:1px,color:#000;");
+            sb.AppendLine($"    classDef changed fill:{COLOR_CHANGED},stroke:{COLOR_CHANGED_BORDER},stroke-width:2px,color:#000;");
+            sb.AppendLine($"    classDef test fill:{COLOR_TEST},stroke:{COLOR_TEST_BORDER},stroke-width:1px,color:#000;");
+            sb.AppendLine($"    classDef packable fill:{COLOR_PACKABLE},stroke:{COLOR_PACKABLE_BORDER},stroke-width:1px,color:#000;");
+            sb.AppendLine($"    classDef normal fill:{COLOR_NORMAL},stroke:{COLOR_NORMAL_BORDER},stroke-width:1px,color:#000;");
             
             sb.AppendLine("```");
             return sb.ToString();
@@ -484,7 +504,7 @@ namespace Mister.Version.Core.Services
         private void GenerateAsciiNode(StringBuilder sb, ProjectInfo project, List<ProjectInfo> allProjects, 
             ReportOptions options, HashSet<string> visited, int depth)
         {
-            if (visited.Contains(project.Name) || depth > 10) // Prevent infinite recursion
+            if (visited.Contains(project.Name) || depth > MAX_GRAPH_DEPTH) // Prevent infinite recursion
             {
                 return;
             }
@@ -528,23 +548,23 @@ namespace Mister.Version.Core.Services
         private string GetDotNodeStyle(ProjectInfo project)
         {
             if (project.Version?.VersionChanged == true)
-                return ", fillcolor=\"#ff9999\", color=\"#ff0000\"";
+                return $", fillcolor=\"{COLOR_CHANGED}\", color=\"{COLOR_CHANGED_BORDER}\"";
             if (project.IsTestProject)
-                return ", fillcolor=\"#ccccff\", color=\"#0000ff\"";
+                return $", fillcolor=\"{COLOR_TEST}\", color=\"{COLOR_TEST_BORDER}\"";
             if (project.IsPackable)
-                return ", fillcolor=\"#ccffcc\", color=\"#00aa00\"";
-            return ", fillcolor=\"#f9f9f9\", color=\"#333333\"";
+                return $", fillcolor=\"{COLOR_PACKABLE}\", color=\"{COLOR_PACKABLE_BORDER}\"";
+            return $", fillcolor=\"{COLOR_NORMAL}\", color=\"{COLOR_NORMAL_BORDER}\"";
         }
 
         private string GetAsciiSymbol(ProjectInfo project)
         {
             if (project.Version?.VersionChanged == true)
-                return "🔄";
+                return EMOJI_CHANGED;
             if (project.IsTestProject)
-                return "🧪";
+                return EMOJI_TEST;
             if (project.IsPackable)
-                return "📦";
-            return "📁";
+                return EMOJI_PACKABLE;
+            return EMOJI_NORMAL;
         }
     }
 }

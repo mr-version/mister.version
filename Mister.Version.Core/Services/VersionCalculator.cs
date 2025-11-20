@@ -77,11 +77,19 @@ namespace Mister.Version.Core.Services
                 try
                 {
                     var projectDir = Path.GetDirectoryName(options.ProjectPath);
+                    if (string.IsNullOrEmpty(projectDir))
+                    {
+                        _logger("Warning", "Cannot determine project directory from path");
+                        relativeProjectPath = "";
+                    }
+                    else
+                    {
 #if NET472
-                    relativeProjectPath = NormalizePath(Mister.Version.Core.PathUtils.GetRelativePath(options.RepoRoot, projectDir));
+                        relativeProjectPath = NormalizePath(Mister.Version.Core.PathUtils.GetRelativePath(options.RepoRoot, projectDir));
 #else
-                    relativeProjectPath = NormalizePath(Path.GetRelativePath(options.RepoRoot, projectDir));
+                        relativeProjectPath = NormalizePath(Path.GetRelativePath(options.RepoRoot, projectDir));
 #endif
+                    }
                 }
                 catch (ArgumentException)
                 {
