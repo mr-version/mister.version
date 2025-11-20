@@ -28,7 +28,7 @@ This document outlines potential expansion opportunities for Mister.Version base
 ## Expansion Opportunities
 
 ### Priority 1: Conventional Commits in Core Library 🚀
-**Impact:** Very High | **Effort:** Medium | **Status:** Not Started
+**Impact:** Very High | **Effort:** Medium | **Status:** ✅ Completed (except TypeScript deprecation)
 
 #### Problem
 Currently the C# core always bumps patch version when changes are detected. The TypeScript GitHub Action has separate logic to analyze conventional commits, creating duplication and inconsistency.
@@ -37,29 +37,29 @@ Currently the C# core always bumps patch version when changes are detected. The 
 Add commit analysis to the core library so all consumers benefit.
 
 #### Implementation Tasks
-- [ ] Create `ICommitAnalyzer` interface in Core library
-- [ ] Implement `ConventionalCommitAnalyzer` class
-  - [ ] Parse commit messages for conventional commit patterns
-  - [ ] Detect BREAKING CHANGE in commit body/footer
-  - [ ] Handle `!` suffix for breaking changes
-  - [ ] Support configurable commit patterns
-- [ ] Add `CommitClassification` model
-- [ ] Add `VersionBumpType` enum (Major, Minor, Patch, None)
-- [ ] Update `VersionCalculator` to use commit analysis
-  - [ ] Get commits between base tag and HEAD
-  - [ ] Analyze commits to determine bump type
-  - [ ] Apply appropriate version increment
-- [ ] Add configuration options to `VersionConfig.cs`
-  - [ ] `commitConventions.enabled`
-  - [ ] `commitConventions.majorPatterns`
-  - [ ] `commitConventions.minorPatterns`
-  - [ ] `commitConventions.patchPatterns`
-  - [ ] `commitConventions.ignorePatterns`
-- [ ] Update MSBuild properties for configuration
-- [ ] Update CLI to show semantic bump reasoning
+- [x] Create `ICommitAnalyzer` interface in Core library
+- [x] Implement `ConventionalCommitAnalyzer` class
+  - [x] Parse commit messages for conventional commit patterns
+  - [x] Detect BREAKING CHANGE in commit body/footer
+  - [x] Handle `!` suffix for breaking changes
+  - [x] Support configurable commit patterns
+- [x] Add `CommitClassification` model
+- [x] Add `VersionBumpType` enum (Major, Minor, Patch, None)
+- [x] Update `VersionCalculator` to use commit analysis
+  - [x] Get commits between base tag and HEAD
+  - [x] Analyze commits to determine bump type
+  - [x] Apply appropriate version increment
+- [x] Add configuration options to `VersionConfig.cs`
+  - [x] `commitConventions.enabled`
+  - [x] `commitConventions.majorPatterns`
+  - [x] `commitConventions.minorPatterns`
+  - [x] `commitConventions.patchPatterns`
+  - [x] `commitConventions.ignorePatterns`
+- [x] Update MSBuild properties for configuration
+- [x] Update CLI to show semantic bump reasoning
 - [ ] Deprecate duplicate logic in TypeScript `calculate` action
-- [ ] Write comprehensive unit tests
-- [ ] Update documentation and examples
+- [x] Write comprehensive unit tests
+- [x] Update documentation and examples
 
 #### Configuration Example
 ```yaml
@@ -82,7 +82,7 @@ commitConventions:
 ---
 
 ### Priority 2: Changelog Generation 📝
-**Impact:** High | **Effort:** Medium | **Status:** Not Started
+**Impact:** High | **Effort:** Medium | **Status:** ✅ Completed (except GitHub Action)
 
 #### Problem
 The `report` action generates version reports but NOT changelogs. There's no automatic release notes generation from commit history.
@@ -91,26 +91,26 @@ The `report` action generates version reports but NOT changelogs. There's no aut
 Add changelog generation capabilities to core library and expose via CLI, MSBuild, and GitHub Actions.
 
 #### Implementation Tasks
-- [ ] Create `IChangelogGenerator` interface
-- [ ] Implement `ChangelogGenerator` class
-  - [ ] Group commits by type (Breaking Changes, Features, Fixes, etc.)
-  - [ ] Support multiple output formats (Markdown, Plain Text, JSON)
-  - [ ] Link to GitHub issues/PRs when detected
-  - [ ] Support custom grouping and filtering
-- [ ] Add changelog models
-  - [ ] `ChangelogEntry`
-  - [ ] `ChangelogSection`
-  - [ ] `ChangelogConfig`
-- [ ] Integrate with `VersionCalculator`
-- [ ] Add CLI command: `mr-version changelog`
-  - [ ] Options for version range
-  - [ ] Options for output format
-  - [ ] Options for file output
+- [x] Create `IChangelogGenerator` interface
+- [x] Implement `ChangelogGenerator` class
+  - [x] Group commits by type (Breaking Changes, Features, Fixes, etc.)
+  - [x] Support multiple output formats (Markdown, Plain Text, JSON)
+  - [x] Link to GitHub issues/PRs when detected
+  - [x] Support custom grouping and filtering
+- [x] Add changelog models
+  - [x] `ChangelogEntry`
+  - [x] `ChangelogSection`
+  - [x] `ChangelogConfig`
+- [x] Integrate with `VersionCalculator`
+- [x] Add CLI command: `mr-version changelog`
+  - [x] Options for version range
+  - [x] Options for output format
+  - [x] Options for file output
 - [ ] Create new GitHub Action: `mr-version/changelog`
-- [ ] Add MSBuild property: `GenerateChangelog=true`
-- [ ] Add configuration options
-- [ ] Write tests
-- [ ] Update documentation
+- [x] Add MSBuild property: `GenerateChangelog=true`
+- [x] Add configuration options
+- [x] Write tests
+- [x] Update documentation
 
 #### Configuration Example
 ```yaml
@@ -158,7 +158,7 @@ changelog:
 ---
 
 ### Priority 3: File Pattern-Based Change Detection 🔍
-**Impact:** Medium-High | **Effort:** Low-Medium | **Status:** Not Started
+**Impact:** Medium-High | **Effort:** Low-Medium | **Status:** ✅ Completed
 
 #### Problem
 Currently any file change triggers a version bump. Documentation-only changes or test-only changes shouldn't necessarily trigger new releases.
@@ -167,21 +167,21 @@ Currently any file change triggers a version bump. Documentation-only changes or
 Add file pattern configuration to control which changes are significant and what bump level they require.
 
 #### Implementation Tasks
-- [ ] Create `ChangeDetectionConfig` model
-- [ ] Add pattern matching service
-  - [ ] Support glob patterns
-  - [ ] Support include/exclude logic
-  - [ ] Support significance rules
-- [ ] Update `GitService.ProjectHasChangedSinceTag`
-  - [ ] Filter changes by ignore patterns
-  - [ ] Classify changes by significance rules
-  - [ ] Return change classification info
-- [ ] Add configuration options
-- [ ] Add `sourceOnlyMode` option
-- [ ] Update `VersionCalculator` to use classifications
-- [ ] Combine with conventional commits analysis
-- [ ] Write tests
-- [ ] Update documentation
+- [x] Create `ChangeDetectionConfig` model
+- [x] Add pattern matching service
+  - [x] Support glob patterns
+  - [x] Support include/exclude logic
+  - [x] Support significance rules
+- [x] Update `GitService.ProjectHasChangedSinceTag`
+  - [x] Filter changes by ignore patterns
+  - [x] Classify changes by significance rules
+  - [x] Return change classification info
+- [x] Add configuration options
+- [x] Add `sourceOnlyMode` option
+- [x] Update `VersionCalculator` to use classifications
+- [x] Combine with conventional commits analysis
+- [x] Write tests
+- [x] Update documentation
 
 #### Configuration Example
 ```yaml
@@ -376,36 +376,36 @@ constraints:
 
 ## Implementation Roadmap
 
-### Phase 1: Semantic Versioning Foundation (2-3 weeks)
+### Phase 1: Semantic Versioning Foundation (2-3 weeks) ✅
 **Goal:** Add conventional commits support to core library
 
-1. Implement `ICommitAnalyzer` and `ConventionalCommitAnalyzer`
-2. Update `VersionCalculator` to use commit analysis
-3. Add configuration for commit patterns
-4. Update CLI to show semantic bump reasoning
-5. Deprecate duplicate logic in TypeScript actions
-6. Comprehensive testing
-7. Documentation updates
+1. ✅ Implement `ICommitAnalyzer` and `ConventionalCommitAnalyzer`
+2. ✅ Update `VersionCalculator` to use commit analysis
+3. ✅ Add configuration for commit patterns
+4. ✅ Update CLI to show semantic bump reasoning
+5. ⏳ Deprecate duplicate logic in TypeScript actions
+6. ✅ Comprehensive testing
+7. ✅ Documentation updates
 
 **Deliverables:**
-- Consistent conventional commit support across all tools
-- Foundation for changelog generation
-- Better semantic versioning
+- ✅ Consistent conventional commit support across all tools
+- ✅ Foundation for changelog generation
+- ✅ Better semantic versioning
 
-### Phase 2: Release Automation (2 weeks)
+### Phase 2: Release Automation (2 weeks) ✅
 **Goal:** Add changelog generation and advanced change detection
 
-8. Implement `IChangelogGenerator`
-9. Add markdown/JSON/text format support
-10. Add file pattern-based change detection
-11. New CLI command: `mr-version changelog`
-12. New GitHub Action: `mr-version/changelog`
-13. Testing and documentation
+8. ✅ Implement `IChangelogGenerator`
+9. ✅ Add markdown/JSON/text format support
+10. ✅ Add file pattern-based change detection
+11. ✅ New CLI command: `mr-version changelog`
+12. ⏳ New GitHub Action: `mr-version/changelog`
+13. ✅ Testing and documentation
 
 **Deliverables:**
-- Automatic changelog generation
-- More granular change detection
-- Complete release workflow
+- ✅ Automatic changelog generation
+- ✅ More granular change detection
+- ✅ Complete release workflow
 
 ### Phase 3: Advanced Features (2 weeks)
 **Goal:** Add version policies and alternative schemes
@@ -549,5 +549,5 @@ constraints:
 ## Notes
 
 Last Updated: 2025-11-20
-Status: Planning Phase
-Next Review: After Phase 1 completion
+Status: Phase 1 & 2 Completed, Phase 3 Planned
+Next Review: When starting Phase 3 (Version Policies and CalVer)
