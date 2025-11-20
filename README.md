@@ -12,6 +12,7 @@ A sophisticated automatic versioning system for .NET monorepos built on MSBuild 
 - **📝 Automatic Changelog Generation**: Generate beautiful changelogs from commit history in Markdown, Plain Text, or JSON formats
 - **🔧 Git Integration Enhancements**: Shallow clone support, custom tag patterns, submodule detection, branch metadata, and tag ancestry validation
 - **📂 File Pattern-Based Change Detection**: Smart versioning based on which files changed (major/minor/patch patterns)
+- **📁 Additional Directory Monitoring**: Monitor shared directories and external modules for changes that trigger version bumps
 - **🏗️ Refactored Architecture**: Shared core library between MSBuild task and CLI tool
 - **🔧 Dev Branch Support**: Development branches now increment patch versions like main branches
 - **📊 Enhanced Feature Branches**: Feature branches include commit height in versioning (e.g., `v3.0.4-feature.1-{git-hash}`)
@@ -336,6 +337,82 @@ In this mode:
 - Only changes to files NOT matching ignore patterns will trigger version bumps
 - Perfect for libraries where docs/tests don't warrant new versions
 - Combine with ignore patterns for fine-grained control
+
+#### Additional Directory Monitoring
+
+Monitor changes in directories outside your project directory. This is useful when your project depends on shared libraries, common utilities, or external modules that should trigger version bumps.
+
+**Use Cases:**
+- Shared code libraries used by multiple projects
+- Common utilities or helper directories
+- External modules included in your build
+- Monorepo shared resources
+
+**Via MSBuild:**
+
+```xml
+<PropertyGroup>
+  <!-- Monitor additional directories for changes -->
+  <MonoRepoAdditionalMonitorPaths>../shared/common;../libs/core;/absolute/path/to/utils</MonoRepoAdditionalMonitorPaths>
+
+  <!-- These paths respect file pattern rules -->
+  <MonoRepoIgnoreFilePatterns>**/*.md;**/docs/**</MonoRepoIgnoreFilePatterns>
+  <MonoRepoMajorFilePatterns>**/PublicApi/**</MonoRepoMajorFilePatterns>
+</PropertyGroup>
+```
+
+**Via YAML (per-project):**
+
+```yaml
+projects:
+  MyApi:
+    # Project-specific additional paths
+    additionalMonitorPaths:
+      - "../shared/common"
+      - "../libs/authentication"
+      - "/absolute/path/to/contracts"
+
+  MyWeb:
+    # Different paths for different projects
+    additionalMonitorPaths:
+      - "../shared/frontend"
+      - "../libs/ui-components"
+```
+
+**How It Works:**
+
+1. Changes in additional directories are detected alongside project changes
+2. File pattern rules (major/minor/patch/ignore) apply to additional paths
+3. Both absolute and relative paths are supported
+4. Paths are relative to repository root when using relative paths
+5. Multiple paths can be specified (semicolon-separated in MSBuild, list in YAML)
+
+**Example:**
+
+```bash
+# Project structure:
+# /monorepo
+#   /projects
+#     /MyApi        (monitors /shared/common)
+#   /shared
+#     /common       (contains shared utilities)
+
+# Change shared/common/Utils.cs
+cd /monorepo/projects/MyApi
+dotnet build
+
+# Result: MyApi version bumps because shared/common changed
+# If Utils.cs matches majorPatterns → MAJOR bump
+# If Utils.cs matches minorPatterns → MINOR bump
+# Otherwise → PATCH bump (or ignored if matches ignorePatterns)
+```
+
+**Configuration Priority:**
+
+When both MSBuild properties and YAML config specify additional paths:
+1. YAML project-specific paths are loaded
+2. MSBuild property paths are added/merged
+3. Duplicates are automatically removed
 
 ### Git Integration Enhancements
 
@@ -887,6 +964,7 @@ Mister.Version can be configured using MSBuild properties or a YAML configuratio
 | `MonoRepoMinorFilePatterns` | ✨ File patterns requiring minor version bumps | Empty |
 | `MonoRepoPatchFilePatterns` | ✨ File patterns requiring patch version bumps | Empty |
 | `MonoRepoSourceOnlyMode` | ✨ Only version when source code changes (ignore docs/tests) | `false` |
+| `MonoRepoAdditionalMonitorPaths` | ✨ Additional directories to monitor for changes (semicolon-separated) | Empty |
 | `MonoRepoGenerateChangelog` | ✨ Enable automatic changelog generation during build | `false` |
 | `MonoRepoChangelogFormat` | ✨ Changelog output format (markdown, text, json) | `markdown` |
 | `MonoRepoChangelogOutputPath` | ✨ Changelog output file path | `CHANGELOG.md` |

@@ -54,6 +54,8 @@
     <MonoRepoPatchFilePatterns Condition="'$(MonoRepoPatchFilePatterns)' == ''"></MonoRepoPatchFilePatterns>
     <!-- Source-only mode: only version when source code changes (ignore test/doc changes) -->
     <MonoRepoSourceOnlyMode Condition="'$(MonoRepoSourceOnlyMode)' == ''">false</MonoRepoSourceOnlyMode>
+    <!-- Additional directories to monitor for changes (semicolon-separated paths) -->
+    <MonoRepoAdditionalMonitorPaths Condition="'$(MonoRepoAdditionalMonitorPaths)' == ''"></MonoRepoAdditionalMonitorPaths>
     <!-- Enable automatic changelog generation during build -->
     <MonoRepoGenerateChangelog Condition="'$(MonoRepoGenerateChangelog)' == ''">false</MonoRepoGenerateChangelog>
     <!-- Changelog output format (markdown, text, json) -->

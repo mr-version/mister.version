@@ -612,6 +612,36 @@ namespace Mister.Version.Core.Services
                     }
                 }
 
+                // Add additional monitor path changes
+                if (config?.AdditionalMonitorPaths != null)
+                {
+                    foreach (var monitorPath in config.AdditionalMonitorPaths)
+                    {
+                        if (string.IsNullOrWhiteSpace(monitorPath))
+                            continue;
+
+                        string normalizedMonitorPath;
+                        if (Path.IsPathRooted(monitorPath))
+                        {
+                            // Absolute path - convert to relative from repo root
+#if NET472
+                            normalizedMonitorPath = NormalizePath(Mister.Version.Core.PathUtils.GetRelativePath(repoRoot, monitorPath));
+#else
+                            normalizedMonitorPath = NormalizePath(Path.GetRelativePath(repoRoot, monitorPath));
+#endif
+                        }
+                        else
+                        {
+                            // Relative path - use as is
+                            normalizedMonitorPath = NormalizePath(monitorPath);
+                        }
+
+                        changedFiles.AddRange(diff
+                            .Where(c => NormalizePath(c.Path).StartsWith(normalizedMonitorPath))
+                            .Select(c => c.Path));
+                    }
+                }
+
                 // Add packages.lock.json changes
                 string projectDir = Path.GetDirectoryName(projectPath);
                 if (string.IsNullOrEmpty(projectDir))

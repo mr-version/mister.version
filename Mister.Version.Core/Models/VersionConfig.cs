@@ -71,6 +71,13 @@ public class ProjectVersionConfig
     /// Force a specific version for this project
     /// </summary>
     public string ForceVersion { get; set; }
+
+    /// <summary>
+    /// Additional directories to monitor for changes beyond the project directory.
+    /// Changes in these directories will trigger version bumps according to file pattern rules.
+    /// Paths can be absolute or relative to the repository root.
+    /// </summary>
+    public List<string> AdditionalMonitorPaths { get; set; } = new List<string>();
 }
 
 /// <summary>

@@ -45,6 +45,13 @@ namespace Mister.Version.Core.Models
         /// Default: None (uses file-based detection)
         /// </summary>
         public VersionBumpType MinimumBumpType { get; set; } = VersionBumpType.None;
+
+        /// <summary>
+        /// Additional directories to monitor for changes beyond the project directory.
+        /// Changes in these directories will trigger version bumps according to file pattern rules.
+        /// Paths can be absolute or relative to the repository root.
+        /// </summary>
+        public List<string> AdditionalMonitorPaths { get; set; } = new List<string>();
     }
 
     /// <summary>
