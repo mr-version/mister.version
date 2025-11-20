@@ -98,6 +98,15 @@ namespace Mister.Version.Core.Services
                     };
                 }
 
+                // Create change detection configuration
+                ChangeDetectionConfig changeDetectionConfig = null;
+
+                // Get from YAML configuration (if available)
+                if (config?.ChangeDetection != null)
+                {
+                    changeDetectionConfig = config.ChangeDetection;
+                }
+
                 // Create version options
                 var versionOptions = new VersionOptions
                 {
@@ -116,7 +125,8 @@ namespace Mister.Version.Core.Services
                     IsPackable = request.IsPackable,
                     PrereleaseType = configOverrides.PrereleaseType ?? request.PrereleaseType,
                     BaseVersion = configOverrides.BaseVersion,
-                    CommitConventions = conventionalCommitsConfig
+                    CommitConventions = conventionalCommitsConfig,
+                    ChangeDetection = changeDetectionConfig
                 };
 
                 // Calculate version
