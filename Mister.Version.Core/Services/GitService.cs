@@ -52,18 +52,22 @@ namespace Mister.Version.Core.Services
     {
         Repository Repository { get; }
         string CurrentBranch { get; }
+        bool IsShallowClone { get; }
         BranchType GetBranchType(string branchName);
         SemVer ExtractReleaseVersion(string branchName, string tagPrefix);
         VersionTag GetGlobalVersionTag(BranchType branchType, VersionOptions options);
-        VersionTag GetProjectVersionTag(string projectName, BranchType branchType, string tagPrefix);
+        VersionTag GetProjectVersionTag(string projectName, BranchType branchType, string tagPrefix, VersionOptions options = null);
         bool ProjectHasChangedSinceTag(Commit tagCommit, string projectPath, List<string> dependencies, string repoRoot, bool debug = false);
         ChangeClassification ClassifyProjectChanges(Commit tagCommit, string projectPath, List<string> dependencies, string repoRoot, ChangeDetectionConfig config);
         int GetCommitHeight(Commit fromCommit, Commit toCommit = null);
         string GetCommitShortHash(Commit commit);
         SemVer ParseSemVer(string version);
+        SemVer AddBranchMetadata(SemVer version, string branchName, GitIntegrationConfig config = null);
         List<ChangeInfo> GetChangesSinceCommit(Commit sinceCommit, string projectPath = null);
         bool CreateTag(string tagName, string message, bool isGlobalTag, string projectName = null, bool dryRun = false);
         bool TagExists(string tagName);
+        bool HasSubmoduleChanges(Commit fromCommit, Commit toCommit = null);
+        bool IsCommitReachable(Commit fromCommit, Commit toCommit = null);
     }
 
     public class GitService : IGitService
@@ -82,6 +86,7 @@ namespace Mister.Version.Core.Services
 
         public Repository Repository => _repository;
         public string CurrentBranch => _repository?.Head?.FriendlyName ?? "HEAD";
+        public bool IsShallowClone => _repository?.Info?.IsShallow ?? false;
         public VersionCache Cache
         {
             get => _cache;
@@ -161,6 +166,12 @@ namespace Mister.Version.Core.Services
 
         public VersionTag GetGlobalVersionTag(BranchType branchType, VersionOptions options)
         {
+            // Check for shallow clone and log warning
+            if (IsShallowClone && options.GitIntegration?.ShallowCloneSupport == true)
+            {
+                _logger?.Invoke("Info", "Repository is a shallow clone - version tag history may be limited");
+            }
+
             var globalVersionTags = _repository.Tags
                 .Where(t => t.FriendlyName.StartsWith(options.TagPrefix, StringComparison.OrdinalIgnoreCase))
                 .Where(t =>
@@ -201,6 +212,14 @@ namespace Mister.Version.Core.Services
                 })
                 .Where(vt => vt.SemVer != null)
                 .ToList();
+
+            // Filter by tag ancestry if validation is enabled and not a shallow clone
+            if (options.GitIntegration?.ValidateTagAncestry == true && !IsShallowClone)
+            {
+                globalVersionTags = globalVersionTags
+                    .Where(vt => vt.Commit == null || IsCommitReachable(vt.Commit))
+                    .ToList();
+            }
 
             // Sort version tags by precedence
             globalVersionTags = SortVersionTagsByPrecedence(globalVersionTags).ToList();
@@ -256,6 +275,23 @@ namespace Mister.Version.Core.Services
                 return globalVersionTags.First();
             }
 
+            // Check for shallow clone fallback version
+            if (IsShallowClone && options.GitIntegration?.ShallowCloneSupport == true &&
+                !string.IsNullOrEmpty(options.GitIntegration.ShallowCloneFallbackVersion))
+            {
+                var fallbackSemVer = ParseSemVer(options.GitIntegration.ShallowCloneFallbackVersion);
+                if (fallbackSemVer != null)
+                {
+                    _logger?.Invoke("Info", $"Using shallow clone fallback version: {options.GitIntegration.ShallowCloneFallbackVersion}");
+                    return new VersionTag
+                    {
+                        SemVer = fallbackSemVer,
+                        IsGlobal = true,
+                        Commit = null
+                    };
+                }
+            }
+
             // Default version if no tags found and no config BaseVersion
             return new VersionTag
             {
@@ -264,7 +300,7 @@ namespace Mister.Version.Core.Services
             };
         }
 
-        public VersionTag GetProjectVersionTag(string projectName, BranchType branchType, string tagPrefix)
+        public VersionTag GetProjectVersionTag(string projectName, BranchType branchType, string tagPrefix, VersionOptions options = null)
         {
             // Check cache first
             var cacheKey = $"{projectName}_{branchType}_{tagPrefix}";
@@ -277,8 +313,8 @@ namespace Mister.Version.Core.Services
                 }
             }
 
-            // Try multiple tag formats to support existing tags
-            var possiblePrefixes = new[]
+            // Build possible prefixes list from standard patterns and custom patterns
+            var possiblePrefixes = new List<string>
             {
                 $"{projectName.ToLowerInvariant()}-{tagPrefix}",
                 $"{projectName}-{tagPrefix}",
@@ -286,10 +322,41 @@ namespace Mister.Version.Core.Services
                 $"{projectName.ToLowerInvariant()}/{tagPrefix}",
             };
 
+            // Add custom tag patterns if configured
+            if (options?.GitIntegration?.CustomTagPatterns != null)
+            {
+                foreach (var pattern in options.GitIntegration.CustomTagPatterns)
+                {
+                    // Parse pattern: "ProjectName={name}-{prefix}{version}" or "{name}/{prefix}{version}"
+                    var parts = pattern.Split('=');
+                    if (parts.Length == 2)
+                    {
+                        var patternProjectName = parts[0].Trim();
+                        var patternFormat = parts[1].Trim();
+
+                        // Check if this pattern applies to current project
+                        if (patternProjectName.Equals(projectName, StringComparison.OrdinalIgnoreCase) ||
+                            patternProjectName == "*")
+                        {
+                            // Replace placeholders with actual values (prefix only, version will be parsed later)
+                            var customPrefix = patternFormat
+                                .Replace("{name}", projectName)
+                                .Replace("{prefix}", tagPrefix)
+                                .Replace("{version}", ""); // Remove version placeholder to get prefix
+
+                            if (!string.IsNullOrWhiteSpace(customPrefix))
+                            {
+                                possiblePrefixes.Add(customPrefix);
+                            }
+                        }
+                    }
+                }
+            }
+
             // Note: We don't support suffix format (v1.2.3-projectname) as it conflicts with feature branch tags
 
             var projectVersionTags = _repository.Tags
-                .Where(t => 
+                .Where(t =>
                     // Check prefix formats: ProjectName-v1.0.0, ProjectName/v1.0.0
                     possiblePrefixes.Any(prefix =>
                         t.FriendlyName.StartsWith(prefix, StringComparison.OrdinalIgnoreCase)))
@@ -325,6 +392,14 @@ namespace Mister.Version.Core.Services
                 })
                 .Where(vt => vt.SemVer != null)
                 .ToList();
+
+            // Filter by tag ancestry if validation is enabled and not a shallow clone
+            if (options?.GitIntegration?.ValidateTagAncestry == true && !IsShallowClone)
+            {
+                projectVersionTags = projectVersionTags
+                    .Where(vt => vt.Commit == null || IsCommitReachable(vt.Commit))
+                    .ToList();
+            }
 
             // Sort version tags by precedence
             projectVersionTags = SortVersionTagsByPrecedence(projectVersionTags).ToList();
@@ -753,6 +828,66 @@ namespace Mister.Version.Core.Services
             return UNKNOWN_PRERELEASE_PRECEDENCE;
         }
 
+        public SemVer AddBranchMetadata(SemVer version, string branchName, GitIntegrationConfig config = null)
+        {
+            if (version == null || string.IsNullOrWhiteSpace(branchName))
+                return version;
+
+            // Only add metadata if enabled in config
+            if (config?.IncludeBranchInMetadata != true)
+                return version;
+
+            // Normalize branch name for metadata (remove invalid characters)
+            var sanitizedBranch = SanitizeBranchName(branchName);
+
+            // Don't add metadata for main/master/release branches (stable branches)
+            var branchType = GetBranchType(branchName);
+            if (branchType == BranchType.Main || branchType == BranchType.Release)
+                return version;
+
+            // Create new SemVer with branch metadata
+            var newVersion = new SemVer
+            {
+                Major = version.Major,
+                Minor = version.Minor,
+                Patch = version.Patch,
+                PreRelease = version.PreRelease,
+                BuildMetadata = string.IsNullOrEmpty(version.BuildMetadata)
+                    ? sanitizedBranch
+                    : $"{version.BuildMetadata}.{sanitizedBranch}"
+            };
+
+            return newVersion;
+        }
+
+        private string SanitizeBranchName(string branchName)
+        {
+            if (string.IsNullOrWhiteSpace(branchName))
+                return "unknown";
+
+            // Remove common prefixes
+            var sanitized = branchName
+                .Replace("feature/", "")
+                .Replace("hotfix/", "")
+                .Replace("bugfix/", "")
+                .Replace("dev/", "");
+
+            // Replace invalid characters with hyphens
+            sanitized = Regex.Replace(sanitized, @"[^a-zA-Z0-9\-]", "-");
+
+            // Remove consecutive hyphens
+            sanitized = Regex.Replace(sanitized, @"-+", "-");
+
+            // Trim hyphens from start and end
+            sanitized = sanitized.Trim('-');
+
+            // Truncate if too long
+            if (sanitized.Length > 20)
+                sanitized = sanitized.Substring(0, 20).TrimEnd('-');
+
+            return string.IsNullOrEmpty(sanitized) ? "branch" : sanitized.ToLowerInvariant();
+        }
+
         public bool CreateTag(string tagName, string message, bool isGlobalTag, string projectName = null, bool dryRun = false)
         {
             try
@@ -834,6 +969,83 @@ namespace Mister.Version.Core.Services
         public bool TagExists(string tagName)
         {
             return _repository.Tags.Any(t => t.FriendlyName == tagName);
+        }
+
+        public bool HasSubmoduleChanges(Commit fromCommit, Commit toCommit = null)
+        {
+            if (fromCommit == null)
+                return false;
+
+            try
+            {
+                toCommit = toCommit ?? _repository?.Head?.Tip;
+                if (toCommit == null)
+                    return false;
+
+                var compareOptions = new CompareOptions();
+                var diff = _repository.Diff.Compare<TreeChanges>(
+                    fromCommit.Tree,
+                    toCommit.Tree,
+                    compareOptions);
+
+                // Check for .gitmodules file changes or submodule pointer changes
+                foreach (var change in diff)
+                {
+                    // .gitmodules file changed
+                    if (change.Path.Equals(".gitmodules", StringComparison.OrdinalIgnoreCase))
+                    {
+                        _logger?.Invoke("Info", "Submodule configuration changed (.gitmodules)");
+                        return true;
+                    }
+
+                    // Submodule pointer changed (mode 160000 is a gitlink/submodule)
+                    if (change.Mode == Mode.GitLink)
+                    {
+                        _logger?.Invoke("Info", $"Submodule changed: {change.Path}");
+                        return true;
+                    }
+                }
+
+                return false;
+            }
+            catch (Exception ex)
+            {
+                _logger?.Invoke("Warning", $"Error checking submodule changes: {ex.Message}");
+                return false;
+            }
+        }
+
+        public bool IsCommitReachable(Commit fromCommit, Commit toCommit = null)
+        {
+            if (fromCommit == null)
+                return false;
+
+            try
+            {
+                toCommit = toCommit ?? _repository?.Head?.Tip;
+                if (toCommit == null)
+                    return false;
+
+                // If commits are the same, they're reachable
+                if (fromCommit.Sha == toCommit.Sha)
+                    return true;
+
+                // Use LibGit2Sharp's commit filter to check reachability
+                var filter = new CommitFilter
+                {
+                    IncludeReachableFrom = toCommit,
+                    ExcludeReachableFrom = fromCommit.Parents
+                };
+
+                var reachableCommits = _repository.Commits.QueryBy(filter);
+                return reachableCommits.Any(c => c.Sha == fromCommit.Sha);
+            }
+            catch (Exception ex)
+            {
+                _logger?.Invoke("Warning", $"Error checking commit reachability: {ex.Message}");
+                // In shallow clones or error cases, assume reachable to avoid false negatives
+                return true;
+            }
         }
 
         /// <summary>

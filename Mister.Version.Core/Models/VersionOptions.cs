@@ -49,4 +49,9 @@ public class VersionOptions
     /// Change detection configuration for file pattern-based versioning
     /// </summary>
     public ChangeDetectionConfig ChangeDetection { get; set; }
+
+    /// <summary>
+    /// Git integration configuration for advanced repository scenarios
+    /// </summary>
+    public GitIntegrationConfig GitIntegration { get; set; }
 }

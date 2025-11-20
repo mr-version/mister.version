@@ -216,6 +216,51 @@ public class MonoRepoVersionTask : Task
     public bool ChangelogIncludeAuthors { get; set; } = false;
 
     /// <summary>
+    /// Enable shallow clone support for repos cloned with --depth
+    /// </summary>
+    public bool ShallowCloneSupport { get; set; } = true;
+
+    /// <summary>
+    /// Fallback version for shallow clones with limited history
+    /// </summary>
+    public string ShallowCloneFallbackVersion { get; set; }
+
+    /// <summary>
+    /// Enable submodule change detection
+    /// </summary>
+    public bool SubmoduleSupport { get; set; } = false;
+
+    /// <summary>
+    /// Custom tag patterns (semicolon-separated)
+    /// </summary>
+    public string CustomTagPatterns { get; set; }
+
+    /// <summary>
+    /// Enable branch-based versioning strategies
+    /// </summary>
+    public bool BranchBasedVersioning { get; set; } = false;
+
+    /// <summary>
+    /// Branch versioning rules (semicolon-separated)
+    /// </summary>
+    public string BranchVersioningRules { get; set; }
+
+    /// <summary>
+    /// Include branch name in version build metadata
+    /// </summary>
+    public bool IncludeBranchInMetadata { get; set; } = false;
+
+    /// <summary>
+    /// Validate that version tags are reachable from current branch
+    /// </summary>
+    public bool ValidateTagAncestry { get; set; } = true;
+
+    /// <summary>
+    /// Fetch depth for shallow clone operations
+    /// </summary>
+    public int FetchDepth { get; set; } = 50;
+
+    /// <summary>
     /// Gets or creates the static cache for the current repository
     /// </summary>
     private VersionCache GetOrCreateCache(string repoRoot, string currentHeadSha)
@@ -327,7 +372,16 @@ public class MonoRepoVersionTask : Task
                 MajorFilePatterns = MajorFilePatterns,
                 MinorFilePatterns = MinorFilePatterns,
                 PatchFilePatterns = PatchFilePatterns,
-                SourceOnlyMode = SourceOnlyMode
+                SourceOnlyMode = SourceOnlyMode,
+                ShallowCloneSupport = ShallowCloneSupport,
+                ShallowCloneFallbackVersion = ShallowCloneFallbackVersion,
+                SubmoduleSupport = SubmoduleSupport,
+                CustomTagPatterns = CustomTagPatterns,
+                BranchBasedVersioning = BranchBasedVersioning,
+                BranchVersioningRules = BranchVersioningRules,
+                IncludeBranchInMetadata = IncludeBranchInMetadata,
+                ValidateTagAncestry = ValidateTagAncestry,
+                FetchDepth = FetchDepth
             };
 
             // Calculate version

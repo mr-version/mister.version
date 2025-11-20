@@ -120,6 +120,31 @@ namespace Mister.Version.Core.Services
                     };
                 }
 
+                // Create git integration configuration
+                GitIntegrationConfig gitIntegrationConfig = null;
+
+                // First priority: YAML configuration
+                if (config?.GitIntegration != null)
+                {
+                    gitIntegrationConfig = config.GitIntegration;
+                }
+                // Second priority: MSBuild properties from request (always create config with defaults)
+                else
+                {
+                    gitIntegrationConfig = new GitIntegrationConfig
+                    {
+                        ShallowCloneSupport = request.ShallowCloneSupport,
+                        ShallowCloneFallbackVersion = request.ShallowCloneFallbackVersion,
+                        SubmoduleSupport = request.SubmoduleSupport,
+                        CustomTagPatterns = ParsePatternString(request.CustomTagPatterns),
+                        BranchBasedVersioning = request.BranchBasedVersioning,
+                        BranchVersioningRules = ParsePatternString(request.BranchVersioningRules),
+                        IncludeBranchInMetadata = request.IncludeBranchInMetadata,
+                        ValidateTagAncestry = request.ValidateTagAncestry,
+                        FetchDepth = request.FetchDepth
+                    };
+                }
+
                 // Create version options
                 var versionOptions = new VersionOptions
                 {
@@ -139,7 +164,8 @@ namespace Mister.Version.Core.Services
                     PrereleaseType = configOverrides.PrereleaseType ?? request.PrereleaseType,
                     BaseVersion = configOverrides.BaseVersion,
                     CommitConventions = conventionalCommitsConfig,
-                    ChangeDetection = changeDetectionConfig
+                    ChangeDetection = changeDetectionConfig,
+                    GitIntegration = gitIntegrationConfig
                 };
 
                 // Calculate version
@@ -256,6 +282,17 @@ namespace Mister.Version.Core.Services
         public string MinorFilePatterns { get; set; }
         public string PatchFilePatterns { get; set; }
         public bool SourceOnlyMode { get; set; } = false;
+
+        // Git integration configuration
+        public bool ShallowCloneSupport { get; set; } = true;
+        public string ShallowCloneFallbackVersion { get; set; }
+        public bool SubmoduleSupport { get; set; } = false;
+        public string CustomTagPatterns { get; set; }
+        public bool BranchBasedVersioning { get; set; } = false;
+        public string BranchVersioningRules { get; set; }
+        public bool IncludeBranchInMetadata { get; set; } = false;
+        public bool ValidateTagAncestry { get; set; } = true;
+        public int FetchDepth { get; set; } = 50;
     }
 
     /// <summary>

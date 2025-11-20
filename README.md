@@ -10,6 +10,8 @@ A sophisticated automatic versioning system for .NET monorepos built on MSBuild 
 
 - **🎯 Conventional Commits Support**: Automatic semantic version bump detection based on commit message conventions (BREAKING CHANGE → major, feat → minor, fix → patch)
 - **📝 Automatic Changelog Generation**: Generate beautiful changelogs from commit history in Markdown, Plain Text, or JSON formats
+- **🔧 Git Integration Enhancements**: Shallow clone support, custom tag patterns, submodule detection, branch metadata, and tag ancestry validation
+- **📂 File Pattern-Based Change Detection**: Smart versioning based on which files changed (major/minor/patch patterns)
 - **🏗️ Refactored Architecture**: Shared core library between MSBuild task and CLI tool
 - **🔧 Dev Branch Support**: Development branches now increment patch versions like main branches
 - **📊 Enhanced Feature Branches**: Feature branches include commit height in versioning (e.g., `v3.0.4-feature.1-{git-hash}`)
@@ -334,6 +336,101 @@ In this mode:
 - Only changes to files NOT matching ignore patterns will trigger version bumps
 - Perfect for libraries where docs/tests don't warrant new versions
 - Combine with ignore patterns for fine-grained control
+
+### Git Integration Enhancements
+
+Mister.Version includes advanced Git repository integration features to handle various repository scenarios.
+
+#### Shallow Clone Support
+
+Works seamlessly with repositories cloned using `git clone --depth N`:
+
+```xml
+<PropertyGroup>
+  <!-- Enabled by default -->
+  <MonoRepoShallowCloneSupport>true</MonoRepoShallowCloneSupport>
+
+  <!-- Optional: Fallback version when history is unavailable -->
+  <MonoRepoShallowCloneFallbackVersion>1.0.0</MonoRepoShallowCloneFallbackVersion>
+</PropertyGroup>
+```
+
+Features:
+- Automatically detects shallow clones
+- Logs warnings when version history is limited
+- Uses fallback version when tags aren't available
+- Perfect for CI/CD pipelines with shallow checkouts
+
+#### Custom Tag Patterns
+
+Define custom tag naming conventions per project:
+
+```xml
+<PropertyGroup>
+  <!-- Format: ProjectName={name}-{prefix}{version} -->
+  <MonoRepoCustomTagPatterns>
+    MyLib={name}_{prefix}{version};
+    MyApp={name}/{prefix}{version}
+  </MonoRepoCustomTagPatterns>
+</PropertyGroup>
+```
+
+Supported placeholders:
+- `{name}`: Project name
+- `{prefix}`: Tag prefix (e.g., "v")
+- `{version}`: Semantic version
+
+#### Submodule Change Detection
+
+Track changes in Git submodules:
+
+```xml
+<PropertyGroup>
+  <MonoRepoSubmoduleSupport>true</MonoRepoSubmoduleSupport>
+</PropertyGroup>
+```
+
+Monitors:
+- `.gitmodules` file changes
+- Submodule pointer updates (gitlink changes)
+- Triggers version bumps when submodules are updated
+
+#### Branch Metadata in Versions
+
+Include branch names in version build metadata:
+
+```xml
+<PropertyGroup>
+  <MonoRepoIncludeBranchInMetadata>true</MonoRepoIncludeBranchInMetadata>
+</PropertyGroup>
+```
+
+Example outputs:
+- `1.2.3+auth-feature` (on feature/auth-feature branch)
+- `1.2.3+bugfix-login` (on bugfix/login-issue branch)
+- `1.2.3` (on main/master - no metadata added)
+
+Branch names are sanitized:
+- Common prefixes removed (feature/, hotfix/, bugfix/)
+- Invalid characters replaced with hyphens
+- Truncated to 20 characters max
+
+#### Tag Ancestry Validation
+
+Ensure version tags are reachable from current branch:
+
+```xml
+<PropertyGroup>
+  <!-- Enabled by default -->
+  <MonoRepoValidateTagAncestry>true</MonoRepoValidateTagAncestry>
+</PropertyGroup>
+```
+
+Benefits:
+- Filters out tags not in current branch's history
+- Prevents using versions from unmerged branches
+- Automatically disabled for shallow clones
+- Ensures accurate version calculation
 
 ### Feature Branch Versioning
 
@@ -795,6 +892,15 @@ Mister.Version can be configured using MSBuild properties or a YAML configuratio
 | `MonoRepoChangelogOutputPath` | ✨ Changelog output file path | `CHANGELOG.md` |
 | `MonoRepoChangelogRepositoryUrl` | ✨ Repository URL for generating links in changelog | Empty |
 | `MonoRepoChangelogIncludeAuthors` | ✨ Include commit authors in changelog | `false` |
+| `MonoRepoShallowCloneSupport` | 🔧 Enable shallow clone support for repos cloned with --depth | `true` |
+| `MonoRepoShallowCloneFallbackVersion` | 🔧 Fallback version for shallow clones with limited history | Empty |
+| `MonoRepoSubmoduleSupport` | 🔧 Enable submodule change detection (.gitmodules and submodule pointers) | `false` |
+| `MonoRepoCustomTagPatterns` | 🔧 Custom tag patterns (semicolon-separated): ProjectName={name}-{prefix}{version} | Empty |
+| `MonoRepoBranchBasedVersioning` | 🔧 Enable branch-based versioning strategies | `false` |
+| `MonoRepoBranchVersioningRules` | 🔧 Branch versioning rules (semicolon-separated): branchPattern=strategy | Empty |
+| `MonoRepoIncludeBranchInMetadata` | 🔧 Include branch name in version build metadata for feature branches | `false` |
+| `MonoRepoValidateTagAncestry` | 🔧 Validate that version tags are reachable from current branch | `true` |
+| `MonoRepoFetchDepth` | 🔧 Fetch depth for shallow clone operations | `50` |
 
 #### Example MSBuild Configuration
 
