@@ -104,7 +104,7 @@ namespace Mister.Version.Core.Services
 
             // Get version tags
             var globalVersionTag = _gitService.GetGlobalVersionTag(branchType, options);
-            var projectVersionTag = _gitService.GetProjectVersionTag(options.ProjectName, branchType, options.TagPrefix);
+            var projectVersionTag = _gitService.GetProjectVersionTag(options.ProjectName, branchType, options.TagPrefix, options);
 
             // Determine base version
             var baseVersionTag = DetermineBaseVersion(globalVersionTag, projectVersionTag, branchType);
@@ -239,6 +239,13 @@ namespace Mister.Version.Core.Services
             {
                 HandleNoChangesDetected(projectTag, globalTag, baseVersionTag, newVersion,
                     branchType, result);
+            }
+
+            // Apply branch metadata if configured
+            if (options.GitIntegration?.IncludeBranchInMetadata == true)
+            {
+                result.SemVer = _gitService.AddBranchMetadata(result.SemVer, branchName, options.GitIntegration);
+                result.Version = result.SemVer.ToVersionString();
             }
 
             return result;
