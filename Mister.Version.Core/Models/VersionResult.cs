@@ -35,4 +35,19 @@ public class VersionResult
     /// List of commit classifications analyzed (for detailed output)
     /// </summary>
     public List<CommitClassification> CommitClassifications { get; set; }
+
+    /// <summary>
+    /// Version policy applied to this project (if any)
+    /// </summary>
+    public VersionPolicy? VersionPolicyApplied { get; set; }
+
+    /// <summary>
+    /// Name of the version group this project belongs to (if grouped policy)
+    /// </summary>
+    public string VersionGroupName { get; set; }
+
+    /// <summary>
+    /// List of other projects that share this version (for lock-step/grouped policies)
+    /// </summary>
+    public List<string> LinkedProjects { get; set; }
 }

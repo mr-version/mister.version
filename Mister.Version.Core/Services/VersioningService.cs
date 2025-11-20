@@ -173,6 +173,14 @@ namespace Mister.Version.Core.Services
                     };
                 }
 
+                // Load version policy configuration (YAML only for now)
+                VersionPolicyConfig versionPolicyConfig = null;
+                if (config?.VersionPolicy != null)
+                {
+                    versionPolicyConfig = config.VersionPolicy;
+                    _logger("Info", $"Loaded version policy configuration: {versionPolicyConfig.Policy}");
+                }
+
                 // Create version options
                 var versionOptions = new VersionOptions
                 {
@@ -193,7 +201,8 @@ namespace Mister.Version.Core.Services
                     BaseVersion = configOverrides.BaseVersion,
                     CommitConventions = conventionalCommitsConfig,
                     ChangeDetection = changeDetectionConfig,
-                    GitIntegration = gitIntegrationConfig
+                    GitIntegration = gitIntegrationConfig,
+                    VersionPolicy = versionPolicyConfig
                 };
 
                 // Calculate version

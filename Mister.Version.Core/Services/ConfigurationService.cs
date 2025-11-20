@@ -77,12 +77,69 @@ namespace Mister.Version.Core.Services
                 
                 var config = deserializer.Deserialize<VersionConfig>(yaml);
                 logger?.Invoke("Info", $"Loaded configuration from {configPath}");
+
+                // Validate version policy configuration if present
+                if (config?.VersionPolicy != null)
+                {
+                    ValidateVersionPolicy(config.VersionPolicy, logger);
+                }
+
                 return config;
             }
             catch (Exception ex)
             {
                 logger?.Invoke("Warning", $"Failed to load configuration from {configPath}: {ex.Message}");
                 return null;
+            }
+        }
+
+        /// <summary>
+        /// Validates version policy configuration and logs any errors
+        /// </summary>
+        /// <param name="policyConfig">Version policy configuration to validate</param>
+        /// <param name="logger">Logger for error messages</param>
+        public static void ValidateVersionPolicy(VersionPolicyConfig policyConfig, Action<string, string> logger)
+        {
+            if (policyConfig == null)
+                return;
+
+            var policyEngine = new VersionPolicyEngine();
+
+            // For validation, we need a list of projects. Since we don't have it at config load time,
+            // we'll do basic structural validation here. Full validation will happen during version calculation
+            // when all projects are known.
+
+            logger?.Invoke("Info", $"Version policy: {policyConfig.Policy}");
+
+            if (policyConfig.Policy == VersionPolicy.Grouped && (policyConfig.Groups == null || policyConfig.Groups.Count == 0))
+            {
+                logger?.Invoke("Warning", "Version policy is set to 'Grouped' but no groups are defined");
+            }
+
+            if (policyConfig.Groups != null)
+            {
+                foreach (var kvp in policyConfig.Groups)
+                {
+                    var groupName = kvp.Key;
+                    var group = kvp.Value;
+
+                    if (group.Projects == null || group.Projects.Count == 0)
+                    {
+                        logger?.Invoke("Warning", $"Version group '{groupName}' has no projects defined");
+                    }
+                    else
+                    {
+                        logger?.Invoke("Info", $"  Group '{groupName}': {group.Projects.Count} project pattern(s), strategy: {group.Strategy}");
+                    }
+
+                    if (!string.IsNullOrEmpty(group.BaseVersion))
+                    {
+                        if (!SemVer.TryParse(group.BaseVersion, out _))
+                        {
+                            logger?.Invoke("Warning", $"Version group '{groupName}' has invalid base version: {group.BaseVersion}");
+                        }
+                    }
+                }
             }
         }
 
