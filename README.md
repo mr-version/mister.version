@@ -790,6 +790,11 @@ Mister.Version can be configured using MSBuild properties or a YAML configuratio
 | `MonoRepoMinorFilePatterns` | ✨ File patterns requiring minor version bumps | Empty |
 | `MonoRepoPatchFilePatterns` | ✨ File patterns requiring patch version bumps | Empty |
 | `MonoRepoSourceOnlyMode` | ✨ Only version when source code changes (ignore docs/tests) | `false` |
+| `MonoRepoGenerateChangelog` | ✨ Enable automatic changelog generation during build | `false` |
+| `MonoRepoChangelogFormat` | ✨ Changelog output format (markdown, text, json) | `markdown` |
+| `MonoRepoChangelogOutputPath` | ✨ Changelog output file path | `CHANGELOG.md` |
+| `MonoRepoChangelogRepositoryUrl` | ✨ Repository URL for generating links in changelog | Empty |
+| `MonoRepoChangelogIncludeAuthors` | ✨ Include commit authors in changelog | `false` |
 
 #### Example MSBuild Configuration
 
