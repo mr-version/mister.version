@@ -191,6 +191,11 @@ public class MonoRepoVersionTask : Task
     public bool SourceOnlyMode { get; set; } = false;
 
     /// <summary>
+    /// Semicolon-separated list of additional directories to monitor for changes
+    /// </summary>
+    public string AdditionalMonitorPaths { get; set; }
+
+    /// <summary>
     /// Enable automatic changelog generation during build
     /// </summary>
     public bool GenerateChangelog { get; set; } = false;
@@ -373,6 +378,7 @@ public class MonoRepoVersionTask : Task
                 MinorFilePatterns = MinorFilePatterns,
                 PatchFilePatterns = PatchFilePatterns,
                 SourceOnlyMode = SourceOnlyMode,
+                AdditionalMonitorPaths = AdditionalMonitorPaths,
                 ShallowCloneSupport = ShallowCloneSupport,
                 ShallowCloneFallbackVersion = ShallowCloneFallbackVersion,
                 SubmoduleSupport = SubmoduleSupport,

@@ -116,8 +116,36 @@ namespace Mister.Version.Core.Services
                         MajorPatterns = ParsePatternString(request.MajorFilePatterns),
                         MinorPatterns = ParsePatternString(request.MinorFilePatterns),
                         PatchPatterns = ParsePatternString(request.PatchFilePatterns),
-                        SourceOnlyMode = request.SourceOnlyMode
+                        SourceOnlyMode = request.SourceOnlyMode,
+                        AdditionalMonitorPaths = ParsePatternString(request.AdditionalMonitorPaths)
                     };
+                }
+
+                // Merge project-specific AdditionalMonitorPaths from YAML if available
+                if (config?.Projects != null &&
+                    !string.IsNullOrEmpty(projectName) &&
+                    config.Projects.TryGetValue(projectName, out var projectConfig) &&
+                    projectConfig.AdditionalMonitorPaths != null &&
+                    projectConfig.AdditionalMonitorPaths.Count > 0)
+                {
+                    // If we already have a change detection config, merge the paths
+                    if (changeDetectionConfig != null)
+                    {
+                        var mergedPaths = new List<string>(changeDetectionConfig.AdditionalMonitorPaths ?? new List<string>());
+                        mergedPaths.AddRange(projectConfig.AdditionalMonitorPaths);
+                        changeDetectionConfig.AdditionalMonitorPaths = mergedPaths.Distinct().ToList();
+                        _logger("Info", $"Merged project-specific additional monitor paths for {projectName}");
+                    }
+                    else
+                    {
+                        // Create a minimal config just for the additional paths
+                        changeDetectionConfig = new ChangeDetectionConfig
+                        {
+                            Enabled = true,
+                            AdditionalMonitorPaths = projectConfig.AdditionalMonitorPaths
+                        };
+                        _logger("Info", $"Applied project-specific additional monitor paths for {projectName}");
+                    }
                 }
 
                 // Create git integration configuration
@@ -282,6 +310,7 @@ namespace Mister.Version.Core.Services
         public string MinorFilePatterns { get; set; }
         public string PatchFilePatterns { get; set; }
         public bool SourceOnlyMode { get; set; } = false;
+        public string AdditionalMonitorPaths { get; set; }
 
         // Git integration configuration
         public bool ShallowCloneSupport { get; set; } = true;
