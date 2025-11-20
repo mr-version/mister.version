@@ -890,6 +890,14 @@ namespace Mister.Version.CLI
                     isTestProject = projectInfo.IsTestProject,
                     isPackable = projectInfo.IsPackable,
                     dependencies = projectInfo.DirectDependencies,
+                    scheme = projectInfo.Version?.Scheme.ToString(),
+                    calver = projectInfo.Version?.Scheme == Core.Models.VersionScheme.CalVer && projectInfo.Version?.CalVerConfig != null ? new
+                    {
+                        format = projectInfo.Version.CalVerConfig.Format,
+                        startDate = projectInfo.Version.CalVerConfig.StartDate,
+                        resetPatchPeriodically = projectInfo.Version.CalVerConfig.ResetPatchPeriodically,
+                        separator = projectInfo.Version.CalVerConfig.Separator
+                    } : null,
                     conventionalCommits = projectInfo.Version?.ConventionalCommitsEnabled == true ? new
                     {
                         enabled = true,
@@ -932,6 +940,18 @@ namespace Mister.Version.CLI
                 {
                     Console.WriteLine($"Reason: {projectInfo.Version.ChangeReason}");
                     Console.WriteLine($"Branch: {projectInfo.Version.BranchName} ({projectInfo.Version.BranchType})");
+
+                    // Show version scheme information
+                    Console.WriteLine($"Scheme: {projectInfo.Version.Scheme}");
+                    if (projectInfo.Version.Scheme == Core.Models.VersionScheme.CalVer && projectInfo.Version.CalVerConfig != null)
+                    {
+                        Console.WriteLine($"CalVer Format: {projectInfo.Version.CalVerConfig.Format}");
+                        if (!string.IsNullOrEmpty(projectInfo.Version.CalVerConfig.StartDate))
+                        {
+                            Console.WriteLine($"CalVer Start Date: {projectInfo.Version.CalVerConfig.StartDate}");
+                        }
+                        Console.WriteLine($"CalVer Reset Patch: {projectInfo.Version.CalVerConfig.ResetPatchPeriodically}");
+                    }
 
                     // Show conventional commits analysis if enabled
                     if (projectInfo.Version.ConventionalCommitsEnabled && projectInfo.Version.BumpType.HasValue)

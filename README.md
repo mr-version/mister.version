@@ -8,6 +8,8 @@ A sophisticated automatic versioning system for .NET monorepos built on MSBuild 
 
 ## ✨ What's New in v3.0.0
 
+- **📅 Calendar Versioning (CalVer) Support**: Use date-based versioning (e.g., 2025.11.0) as an alternative to SemVer. Supports YYYY.MM.PATCH, YY.0M.PATCH, YYYY.WW.PATCH formats. Perfect for time-based releases!
+- **📋 Version Policies (Lock-Step & Grouped)**: Coordinate versions across projects with lock-step, grouped, or independent versioning strategies
 - **🎯 Conventional Commits Support**: Automatic semantic version bump detection based on commit message conventions (BREAKING CHANGE → major, feat → minor, fix → patch)
 - **📝 Automatic Changelog Generation**: Generate beautiful changelogs from commit history in Markdown, Plain Text, or JSON formats
 - **🔧 Git Integration Enhancements**: Shallow clone support, custom tag patterns, submodule detection, branch metadata, and tag ancestry validation
@@ -42,9 +44,11 @@ Mister.Version.CLI/           # Command-line tool
 
 ## Features
 
-- **Conventional Commits Support**: ✨ **NEW** - Intelligent semantic versioning based on commit message conventions
-- **Automatic Changelog Generation**: ✨ **NEW** - Generate changelogs automatically from conventional commits
-- **File Pattern-Based Change Detection**: ✨ **NEW** - Smart versioning based on which files changed (ignore docs, force major for public API changes)
+- **Calendar Versioning (CalVer) Support**: 📅 **NEW** - Date-based versioning alternative to SemVer with multiple format options
+- **Version Policies**: 📋 **NEW** - Lock-step, grouped, or independent versioning strategies for coordinating project releases
+- **Conventional Commits Support**: 🎯 **NEW** - Intelligent semantic versioning based on commit message conventions
+- **Automatic Changelog Generation**: 📝 **NEW** - Generate changelogs automatically from conventional commits
+- **File Pattern-Based Change Detection**: 📂 **NEW** - Smart versioning based on which files changed (ignore docs, force major for public API changes)
 - **Change-Based Versioning**: Version numbers only increment when actual code changes are detected
 - **Dependency-Aware**: Automatically bumps versions when dependencies change
 - **Enhanced Branch Support**: Different versioning strategies for main, dev, release, and feature branches
@@ -808,6 +812,215 @@ Bug Fixes
   * [cli] fix JSON output formatting (pqr1234)
 ```
 
+## Calendar Versioning (CalVer) Support
+
+📅 **NEW in v3.0** - Mister.Version now supports Calendar Versioning (CalVer) as an alternative to Semantic Versioning (SemVer). CalVer is a date-based versioning scheme commonly used by projects like Ubuntu, Windows, and many others.
+
+### What is CalVer?
+
+Calendar Versioning uses date-based version numbers instead of arbitrary increments. For example:
+- `2025.11.0` - Released in November 2025 (first release)
+- `2025.11.5` - Released in November 2025 (sixth release)
+
+### Supported CalVer Formats
+
+Mister.Version supports four CalVer formats:
+
+| Format | Description | Example | Use Case |
+|--------|-------------|---------|----------|
+| `YYYY.MM.PATCH` | Full year, month, patch | `2025.11.0` | Ubuntu-style releases |
+| `YY.0M.PATCH` | Short year, zero-padded month, patch | `25.11.0` | Compact year format |
+| `YYYY.WW.PATCH` | Full year, ISO week number, patch | `2025.47.0` | Weekly release cadence |
+| `YYYY.0M.PATCH` | Full year, zero-padded month, patch | `2025.11.0` | Alternative month format |
+
+### How CalVer Works
+
+When CalVer is enabled:
+1. **Major** version = Year or short year (e.g., 2025 or 25)
+2. **Minor** version = Month (1-12) or ISO week number (1-53)
+3. **Patch** version = Incremental counter (0, 1, 2, ...)
+
+The patch version increments for each release within the same period (month/week):
+- Same month/week: Patch increments (e.g., `2025.11.0` → `2025.11.1`)
+- New month/week: Patch resets to 0 (e.g., `2025.11.5` → `2025.12.0`)
+
+### Configuration
+
+#### MSBuild Configuration
+
+Add these properties to your project file or `Directory.Build.props`:
+
+```xml
+<PropertyGroup>
+  <!-- Enable CalVer -->
+  <MonoRepoVersionScheme>CalVer</MonoRepoVersionScheme>
+
+  <!-- Choose format -->
+  <MonoRepoCalVerFormat>YYYY.MM.PATCH</MonoRepoCalVerFormat>
+
+  <!-- Optional: Reset patch version each period (default: true) -->
+  <MonoRepoCalVerResetPatch>true</MonoRepoCalVerResetPatch>
+
+  <!-- Optional: Custom separator (default: ".") -->
+  <MonoRepoCalVerSeparator>.</MonoRepoCalVerSeparator>
+</PropertyGroup>
+```
+
+#### YAML Configuration
+
+Add CalVer configuration to your `mr-version.yml`:
+
+```yaml
+# Enable CalVer versioning scheme
+versionScheme: calver  # or semver (default)
+
+# CalVer configuration
+calver:
+  format: "YYYY.MM.PATCH"  # Options: YYYY.MM.PATCH, YY.0M.PATCH, YYYY.WW.PATCH, YYYY.0M.PATCH
+  resetPatchPeriodically: true  # Reset patch to 0 each month/week
+  separator: "."  # Version separator
+  startDate: "2025-01-01"  # Optional: Starting date for versioning
+
+# Project-specific CalVer overrides
+projects:
+  MyProject:
+    versionScheme: calver
+    calver:
+      format: "YY.0M.PATCH"
+      resetPatchPeriodically: true
+```
+
+### CLI Usage
+
+#### Calculate CalVer Version
+
+```bash
+# Use CalVer format from configuration
+mr-version version --project MyProject/MyProject.csproj
+
+# View detailed CalVer information
+mr-version version --project MyProject/MyProject.csproj --detailed
+```
+
+**Sample Output (with `--detailed`):**
+
+```
+Project: MyProject
+Version: 2025.11.2
+Changed: Yes
+Reason: CalVer - Changes detected in project (patch increment)
+Branch: main (Main)
+Scheme: CalVer
+CalVer Format: YYYY.MM.PATCH
+CalVer Reset Patch: True
+```
+
+#### JSON Output
+
+```bash
+mr-version version --project MyProject/MyProject.csproj --json
+```
+
+```json
+{
+  "project": "MyProject",
+  "version": "2025.11.2",
+  "versionChanged": true,
+  "changeReason": "CalVer - Changes detected in project (patch increment)",
+  "scheme": "CalVer",
+  "calver": {
+    "format": "YYYY.MM.PATCH",
+    "startDate": null,
+    "resetPatchPeriodically": true,
+    "separator": "."
+  }
+}
+```
+
+### CalVer with Prereleases
+
+CalVer works seamlessly with prerelease versions:
+
+```xml
+<PropertyGroup>
+  <MonoRepoVersionScheme>CalVer</MonoRepoVersionScheme>
+  <MonoRepoCalVerFormat>YYYY.MM.PATCH</MonoRepoCalVerFormat>
+  <MonoRepoPrereleaseType>alpha</MonoRepoPrereleaseType>
+</PropertyGroup>
+```
+
+**Result:** `2025.11.0-alpha`
+
+### CalVer with Build Metadata
+
+Include branch names in version metadata for feature branches:
+
+```xml
+<PropertyGroup>
+  <MonoRepoVersionScheme>CalVer</MonoRepoVersionScheme>
+  <MonoRepoCalVerFormat>YYYY.MM.PATCH</MonoRepoCalVerFormat>
+  <MonoRepoIncludeBranchInMetadata>true</MonoRepoIncludeBranchInMetadata>
+</PropertyGroup>
+```
+
+**Result on feature branch:** `2025.11.2+feature-calver-support`
+
+### Use Cases for CalVer
+
+CalVer is ideal for projects with:
+- **Time-based releases**: Monthly or weekly release schedules
+- **Long-term support**: Clear indication of when versions were released
+- **Marketing alignment**: Version numbers that match release dates
+- **Operating systems**: Following Ubuntu's model (e.g., 22.04 for April 2022)
+- **Tools and utilities**: Where release date is more meaningful than feature changes
+
+### CalVer vs SemVer
+
+| Aspect | CalVer | SemVer |
+|--------|---------|---------|
+| **Version format** | Date-based (2025.11.0) | Feature-based (3.0.0) |
+| **Breaking changes** | Not explicitly indicated | Major version bump |
+| **Release timing** | Tied to calendar | Independent of calendar |
+| **Best for** | Time-based releases | Feature-driven releases |
+| **Examples** | Ubuntu, Windows 10 | Most libraries/frameworks |
+
+You can use either scheme in the same repository - configure CalVer per-project in your `mr-version.yml`!
+
+### Examples
+
+#### Ubuntu-Style Releases
+
+```yaml
+versionScheme: calver
+calver:
+  format: "YYYY.MM.PATCH"
+  resetPatchPeriodically: true
+```
+
+**Versions:** `2025.04.0` (April 2025 LTS), `2025.10.0` (October 2025)
+
+#### Week-Based Releases
+
+```yaml
+versionScheme: calver
+calver:
+  format: "YYYY.WW.PATCH"
+  resetPatchPeriodically: true
+```
+
+**Versions:** `2025.01.0` (Week 1), `2025.47.2` (Week 47, third release)
+
+#### Compact Year Format
+
+```yaml
+versionScheme: calver
+calver:
+  format: "YY.0M.PATCH"
+  resetPatchPeriodically: true
+```
+
+**Versions:** `25.11.0`, `25.12.5`
+
 ## Report Formats
 
 ### Dependency Graph Visualization
@@ -979,6 +1192,11 @@ Mister.Version can be configured using MSBuild properties or a YAML configuratio
 | `MonoRepoIncludeBranchInMetadata` | 🔧 Include branch name in version build metadata for feature branches | `false` |
 | `MonoRepoValidateTagAncestry` | 🔧 Validate that version tags are reachable from current branch | `true` |
 | `MonoRepoFetchDepth` | 🔧 Fetch depth for shallow clone operations | `50` |
+| `MonoRepoVersionScheme` | 📅 Version scheme to use: SemVer or CalVer | `SemVer` |
+| `MonoRepoCalVerFormat` | 📅 CalVer format (YYYY.MM.PATCH, YY.0M.PATCH, YYYY.WW.PATCH, YYYY.0M.PATCH) | `YYYY.MM.PATCH` |
+| `MonoRepoCalVerResetPatch` | 📅 Reset patch version at the start of each period | `true` |
+| `MonoRepoCalVerSeparator` | 📅 Separator between version components | `.` |
+| `MonoRepoCalVerStartDate` | 📅 Optional start date for CalVer (YYYY-MM-DD format) | Empty |
 
 #### Example MSBuild Configuration
 
