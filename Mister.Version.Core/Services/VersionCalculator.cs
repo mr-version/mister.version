@@ -709,9 +709,15 @@ namespace Mister.Version.Core.Services
         /// </summary>
         /// <param name="baseVersionTag">The base version tag to analyze commits from</param>
         /// <param name="options">Version calculation options</param>
+        /// <param name="bumpType">Output parameter for the determined bump type</param>
+        /// <param name="commitClassifications">Output parameter for commit classifications</param>
         /// <returns>Increment type string (major, minor, or patch)</returns>
-        private string DetermineIncrementFromCommits(VersionTag baseVersionTag, VersionOptions options)
+        private string DetermineIncrementFromCommits(VersionTag baseVersionTag, VersionOptions options,
+            out VersionBumpType? bumpType, out System.Collections.Generic.List<CommitClassification> commitClassifications)
         {
+            bumpType = null;
+            commitClassifications = null;
+
             // If conventional commits is not enabled, use default increment
             if (options.CommitConventions == null || !options.CommitConventions.Enabled)
             {
@@ -751,11 +757,18 @@ namespace Mister.Version.Core.Services
                     return options.DefaultIncrement ?? "patch";
                 }
 
+                // Classify all commits for detailed output
+                commitClassifications = commits
+                    .Select(c => _commitAnalyzer.ClassifyCommit(c, options.CommitConventions))
+                    .Where(c => c != null)
+                    .ToList();
+
                 // Analyze commits to determine bump type
-                var bumpType = _commitAnalyzer.AnalyzeBumpType(commits, options.CommitConventions);
+                var determinedBumpType = _commitAnalyzer.AnalyzeBumpType(commits, options.CommitConventions);
+                bumpType = determinedBumpType;
 
                 // Convert VersionBumpType to string increment type
-                var incrementType = bumpType switch
+                var incrementType = determinedBumpType switch
                 {
                     VersionBumpType.Major => "major",
                     VersionBumpType.Minor => "minor",
@@ -764,7 +777,7 @@ namespace Mister.Version.Core.Services
                     _ => options.DefaultIncrement ?? "patch"
                 };
 
-                _logger("Info", $"Conventional commits analysis determined increment type: {incrementType} (bump type: {bumpType})");
+                _logger("Info", $"Conventional commits analysis determined increment type: {incrementType} (bump type: {determinedBumpType})");
                 return incrementType;
             }
             catch (Exception ex)
@@ -780,7 +793,15 @@ namespace Mister.Version.Core.Services
         private void ApplyMainBranchVersioning(SemVer newVersion, VersionTag baseVersionTag, VersionOptions options, VersionResult result, bool isInitialRepository)
         {
             // Determine increment type from commits (or use default if conventional commits disabled)
-            var incrementType = DetermineIncrementFromCommits(baseVersionTag, options);
+            var incrementType = DetermineIncrementFromCommits(baseVersionTag, options, out var bumpType, out var commitClassifications);
+
+            // Store conventional commits analysis information in result
+            if (options.CommitConventions != null && options.CommitConventions.Enabled)
+            {
+                result.ConventionalCommitsEnabled = true;
+                result.BumpType = bumpType;
+                result.CommitClassifications = commitClassifications;
+            }
 
             // Check if the base version already has a prerelease
             if (!string.IsNullOrEmpty(baseVersionTag.SemVer.PreRelease))
@@ -848,7 +869,15 @@ namespace Mister.Version.Core.Services
         private void ApplyDevBranchVersioning(SemVer newVersion, VersionTag baseVersionTag, VersionOptions options, VersionResult result)
         {
             // Determine increment type from commits (or use default if conventional commits disabled)
-            var incrementType = DetermineIncrementFromCommits(baseVersionTag, options);
+            var incrementType = DetermineIncrementFromCommits(baseVersionTag, options, out var bumpType, out var commitClassifications);
+
+            // Store conventional commits analysis information in result
+            if (options.CommitConventions != null && options.CommitConventions.Enabled)
+            {
+                result.ConventionalCommitsEnabled = true;
+                result.BumpType = bumpType;
+                result.CommitClassifications = commitClassifications;
+            }
 
             // Dev branches increment version and add dev prerelease
             ApplyVersionIncrement(newVersion, incrementType);
