@@ -1,18 +1,18 @@
 [submodule ".github/actions/report"]
 	path = .github/actions/report
-	url = git@github.com:mr-version/report.git
+	url = https://github.com/mr-version/report.git
 [submodule ".github/actions/tag"]
 	path = .github/actions/tag
-	url = git@github.com:mr-version/tag.git
+	url = https://github.com/mr-version/tag.git
 [submodule ".github/actions/calculate"]
 	path = .github/actions/calculate
-	url = git@github.com:mr-version/calculate.git
+	url = https://github.com/mr-version/calculate.git
 [submodule ".github/actions/setup"]
 	path = .github/actions/setup
-	url = git@github.com:mr-version/setup.git
+	url = https://github.com/mr-version/setup.git
 [submodule ".github/actions/release"]
 	path = .github/actions/release
-	url = git@github.com:mr-version/release.git
+	url = https://github.com/mr-version/release.git
 [submodule ".github/actions/changelog"]
 	path = .github/actions/changelog
-	url = git@github.com:mr-version/changelog.git
+	url = https://github.com/mr-version/changelog.git

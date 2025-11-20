@@ -16,19 +16,21 @@ This document outlines potential expansion opportunities for Mister.Version base
 - ✅ Comprehensive testing infrastructure
 - ✅ Performance caching for large monorepos
 
-### Architecture Gap Identified
-**Conventional Commits:** The TypeScript `calculate` action analyzes conventional commits for semantic versioning, but the C# core library does NOT. This creates inconsistency:
-- ✅ GitHub Actions users get conventional commits support
-- ❌ CLI users don't
-- ❌ MSBuild users don't
-- ❌ Direct library consumers don't
+### GitHub Actions Status
+**Implementation Status:** 5 of 6 production actions are fully implemented as separate repositories:
+- ✅ **setup** - Install Mister.Version CLI (TypeScript action)
+- ✅ **calculate** - Calculate versions for projects (TypeScript action)
+- ✅ **report** - Generate version reports (TypeScript action)
+- ✅ **tag** - Create git tags (TypeScript action)
+- ✅ **release** - Complete release workflow (Composite action)
+- ⏳ **changelog** - Placeholder repository (TypeScript wrapper needed)
 
 ---
 
 ## Expansion Opportunities
 
 ### Priority 1: Conventional Commits in Core Library 🚀
-**Impact:** Very High | **Effort:** Medium | **Status:** ✅ Completed (except TypeScript deprecation)
+**Impact:** Very High | **Effort:** Medium | **Status:** ✅ Completed
 
 #### Problem
 Currently the C# core always bumps patch version when changes are detected. The TypeScript GitHub Action has separate logic to analyze conventional commits, creating duplication and inconsistency.
@@ -57,7 +59,7 @@ Add commit analysis to the core library so all consumers benefit.
   - [x] `commitConventions.ignorePatterns`
 - [x] Update MSBuild properties for configuration
 - [x] Update CLI to show semantic bump reasoning
-- [ ] Deprecate duplicate logic in TypeScript `calculate` action
+- [x] ~~Deprecate duplicate logic in TypeScript `calculate` action~~ (N/A - no duplication exists, implemented only in C#)
 - [x] Write comprehensive unit tests
 - [x] Update documentation and examples
 
@@ -106,7 +108,7 @@ Add changelog generation capabilities to core library and expose via CLI, MSBuil
   - [x] Options for version range
   - [x] Options for output format
   - [x] Options for file output
-- [ ] Create new GitHub Action: `mr-version/changelog`
+- [ ] Create new GitHub Action: `mr-version/changelog` (placeholder repo exists, needs TypeScript implementation)
 - [x] Add MSBuild property: `GenerateChangelog=true`
 - [x] Add configuration options
 - [x] Write tests
@@ -694,12 +696,70 @@ constraints:
 
 ---
 
+## Next Steps
+
+### Outstanding Tasks
+
+#### 1. Implement Changelog GitHub Action (Priority 2)
+**Status:** Placeholder repository exists
+**Effort:** 2-3 days
+**Description:**
+- Create TypeScript wrapper around `mr-version changelog` CLI command
+- Implement action.yml with inputs for output format, file path, etc.
+- Build dist/ bundle for GitHub Actions execution
+- Add support for posting changelog as PR comment
+- Test with example workflows
+
+**Repository:** https://github.com/mr-version/changelog
+
+#### 2. Add Validation to GitHub Actions (Priority 8)
+**Status:** Not started
+**Effort:** 1-2 days
+**Description:**
+- Integrate validation errors/warnings into action outputs
+- Add validation configuration inputs to calculate/release actions
+- Display validation errors as GitHub Action annotations
+- Add `validation-mode` input (strict/warn/off)
+- Update action documentation with validation examples
+
+**Affects:** calculate, release actions
+
+#### 3. Update Documentation
+**Status:** Not started
+**Effort:** 2-3 hours
+**Description:**
+- Update `.github/actions/README.md` with accurate status
+- Add workflow examples for changelog action once implemented
+- Document validation options in action READMEs
+- Update main README.md to reference all 6 GitHub Actions
+
+### Future Enhancements
+
+- Publish actions to GitHub Actions Marketplace
+- Add integration tests for GitHub Actions workflows
+- Implement action versioning strategy (tags/releases)
+- Add telemetry/analytics for action usage
+- Create action badges and branding
+
+---
+
 ## Notes
 
 Last Updated: 2025-11-20
-Status: Priorities 1-8 Completed
-Next Review: When planning future priorities
+Status: Priorities 1-8 Completed (C# Core 100%, GitHub Actions 83%)
+Next Review: After changelog action implementation
 Current Version: 3.0.0
+
+### GitHub Actions Implementation
+GitHub Actions ecosystem implemented as separate repositories (submodules):
+- **setup** (https://github.com/mr-version/setup) - TypeScript action to install Mister.Version CLI
+- **calculate** (https://github.com/mr-version/calculate) - TypeScript action for version calculation with 13 input options
+- **report** (https://github.com/mr-version/report) - TypeScript action for generating version reports in multiple formats
+- **tag** (https://github.com/mr-version/tag) - TypeScript action for creating git tags with GPG signing support
+- **release** (https://github.com/mr-version/release) - Composite action orchestrating setup → calculate → tag → report
+- **changelog** (https://github.com/mr-version/changelog) - Placeholder repository, needs TypeScript wrapper implementation
+
+All actions are referenced as git submodules in `.github/actions/` using HTTPS URLs for broad accessibility.
 
 ### Recent Completion: Priority 8 - Enhanced Validation & Constraints
 Added version validation engine with comprehensive constraint support:
