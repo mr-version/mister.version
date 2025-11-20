@@ -1,12 +1,12 @@
 # Mister.Version
 
-![version](https://img.shields.io/badge/version-2.3.0-blue.svg)
+![version](https://img.shields.io/badge/version-3.0.0-blue.svg)
 ![.NET](https://img.shields.io/badge/.NET-8.0-purple.svg)
 ![License](https://img.shields.io/badge/license-MIT-green.svg)
 
 A sophisticated automatic versioning system for .NET monorepos built on MSBuild with enhanced support for development workflows and feature branches. Mister.Version (MR Version → MonoRepo Version) provides intelligent, change-based versioning that increases version numbers only when actual changes are detected in a project or its dependencies.
 
-## ✨ What's New in v2.3.0
+## ✨ What's New in v3.0.0
 
 - **🎯 Conventional Commits Support**: Automatic semantic version bump detection based on commit message conventions (BREAKING CHANGE → major, feat → minor, fix → patch)
 - **📝 Automatic Changelog Generation**: Generate beautiful changelogs from commit history in Markdown, Plain Text, or JSON formats
@@ -537,13 +537,13 @@ Where:
 #### Option 1: NuGet Package
 
 ```bash
-dotnet add package Mister.Version --version 2.3.0
+dotnet add package Mister.Version --version 3.0.0
 ```
 
 #### Option 2: CLI Tool
 
 ```bash
-dotnet tool install --global Mister.Version.CLI --version 2.3.0
+dotnet tool install --global Mister.Version.CLI --version 3.0.0
 ```
 
 ### Basic Setup

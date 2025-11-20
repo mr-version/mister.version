@@ -286,7 +286,66 @@ Add comprehensive Git integration features to handle various repository scenario
 
 ---
 
-### Priority 5: Version Policies (Lock-Step & Grouped) 📋
+### Priority 5: Additional Directory Monitoring 📁
+**Impact:** Medium | **Effort:** Low-Medium | **Status:** ✅ Completed
+
+#### Problem
+Projects in monorepos often depend on shared code directories that exist outside the project folder. Currently, only changes within the project directory and its dependencies trigger version bumps. Shared libraries and common utilities aren't monitored.
+
+#### Solution
+Add configuration to monitor additional directories beyond the project directory, with support for both MSBuild properties and YAML configuration.
+
+#### Implementation Tasks
+- [x] Add `AdditionalMonitorPaths` to `ChangeDetectionConfig`
+- [x] Add `AdditionalMonitorPaths` to `VersionOptions`
+- [x] Add `AdditionalMonitorPaths` to `ProjectVersionConfig` (YAML)
+- [x] Update `GitService.ClassifyProjectChanges` to include additional directories
+- [x] Add `MonoRepoAdditionalMonitorPaths` MSBuild property
+- [x] Wire through `MonoRepoVersionTask` and `VersioningService`
+- [x] Update both targets files to pass property
+- [x] Implement path merging (YAML + MSBuild)
+- [x] Support absolute and relative paths
+- [x] Respect file pattern rules (major/minor/patch/ignore)
+- [x] Write comprehensive unit tests
+- [x] Update documentation with examples
+
+#### Configuration Example
+```xml
+<PropertyGroup>
+  <!-- Monitor additional directories -->
+  <MonoRepoAdditionalMonitorPaths>../shared/common;../libs/core;/absolute/path/to/utils</MonoRepoAdditionalMonitorPaths>
+
+  <!-- File patterns apply to additional paths -->
+  <MonoRepoIgnoreFilePatterns>**/*.md;**/docs/**</MonoRepoIgnoreFilePatterns>
+  <MonoRepoMajorFilePatterns>**/PublicApi/**</MonoRepoMajorFilePatterns>
+</PropertyGroup>
+```
+
+```yaml
+# mr-version.yml
+projects:
+  MyApi:
+    additionalMonitorPaths:
+      - "../shared/common"
+      - "../libs/authentication"
+
+  MyWeb:
+    additionalMonitorPaths:
+      - "../shared/frontend"
+      - "../libs/ui-components"
+```
+
+#### Benefits
+- Monitor shared libraries and common utilities
+- Changes in shared code trigger appropriate version bumps
+- Support for both MSBuild and YAML configuration
+- Per-project customization via YAML
+- Respect file pattern rules for smart versioning
+- Essential for monorepos with shared code
+
+---
+
+### Priority 6: Version Policies (Lock-Step & Grouped) 📋
 **Impact:** Medium | **Effort:** Medium-High | **Status:** Not Started
 
 #### Problem
@@ -341,7 +400,7 @@ versionGroups:
 
 ---
 
-### Priority 6: CalVer Support 📅
+### Priority 7: CalVer Support 📅
 **Impact:** Low-Medium | **Effort:** Medium | **Status:** Not Started
 
 #### Problem
@@ -392,7 +451,7 @@ calver:
 
 ---
 
-### Priority 7: Enhanced Validation & Constraints ✅
+### Priority 8: Enhanced Validation & Constraints ✅
 **Impact:** Low-Medium | **Effort:** Low | **Status:** Not Started
 
 #### Problem
@@ -632,15 +691,22 @@ constraints:
 ## Notes
 
 Last Updated: 2025-11-20
-Status: Phase 1, 2, & 2.5 Completed, Phase 3 Planned
-Next Review: When starting Phase 3 (Version Policies and CalVer)
+Status: Priorities 1-5 Completed, Priorities 6-8 Planned
+Next Review: When starting Priority 6 (Version Policies)
+Current Version: 3.0.0
 
-### Recent Completion: Phase 2.5 - Git Integration Enhancements
-Added comprehensive Git integration features including:
-- Shallow clone support with fallback versioning
-- Custom tag patterns with placeholder support
-- Tag ancestry validation for branch filtering
-- Submodule change detection (.gitmodules and gitlinks)
-- Branch metadata in version build metadata
-- 9 new MSBuild properties for configuration
-- Full documentation and examples in README
+### Recent Completion: Priority 5 - Additional Directory Monitoring
+Added ability to monitor additional directories outside project folders:
+- Monitor shared libraries and common utilities for changes
+- Support both MSBuild properties and YAML configuration
+- Respect file pattern rules (major/minor/patch/ignore)
+- Support absolute and relative paths
+- Per-project customization via YAML
+- Automatic path merging and deduplication
+- Comprehensive unit tests and documentation
+
+### Previous Completions:
+- **Priority 4**: Git Integration Enhancements (shallow clones, custom tags, submodules, branch metadata)
+- **Priority 3**: File Pattern-Based Change Detection (smart versioning, ignore patterns)
+- **Priority 2**: Changelog Generation (markdown, text, JSON formats)
+- **Priority 1**: Conventional Commits Support (semantic version bump detection)
