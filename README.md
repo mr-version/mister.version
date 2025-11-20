@@ -41,6 +41,7 @@ Mister.Version.CLI/           # Command-line tool
 
 - **Conventional Commits Support**: ✨ **NEW** - Intelligent semantic versioning based on commit message conventions
 - **Automatic Changelog Generation**: ✨ **NEW** - Generate changelogs automatically from conventional commits
+- **File Pattern-Based Change Detection**: ✨ **NEW** - Smart versioning based on which files changed (ignore docs, force major for public API changes)
 - **Change-Based Versioning**: Version numbers only increment when actual code changes are detected
 - **Dependency-Aware**: Automatically bumps versions when dependencies change
 - **Enhanced Branch Support**: Different versioning strategies for main, dev, release, and feature branches
@@ -175,6 +176,164 @@ Analyzed Commits:
     - stu5678: chore: update dependencies
     - vwx9012: docs: update README
 ```
+
+### File Pattern-Based Change Detection
+
+✨ **NEW** - Control version bumps based on which files changed. Perfect for ignoring documentation-only changes or forcing major bumps for public API changes.
+
+#### How It Works
+
+When file pattern detection is enabled, Mister.Version analyzes changed files and applies significance rules:
+
+```bash
+# Documentation-only changes - NO version bump
+# Changed: README.md, docs/guide.md
+dotnet build
+# Result: No version bump (files matched ignore patterns)
+
+# Public API changes - MAJOR version bump
+# Changed: src/PublicApi/IUserService.cs
+dotnet build
+# Result: Major bump 2.0.0 → 3.0.0 (even if commit says "fix:")
+
+# Feature file changes - MINOR version bump
+# Changed: src/Features/Authentication.cs
+dotnet build
+# Result: Minor bump 2.0.0 → 2.1.0
+
+# Combined with conventional commits (takes highest)
+# Commit: fix: resolve bug (patch)
+# Changed: src/PublicApi/IService.cs (major pattern)
+# Result: MAJOR bump (file pattern overrides commit message)
+```
+
+#### Configuration
+
+**Via MSBuild:**
+
+```xml
+<PropertyGroup>
+  <!-- Enable file pattern-based change detection -->
+  <MonoRepoChangeDetectionEnabled>true</MonoRepoChangeDetectionEnabled>
+
+  <!-- Ignore documentation changes (won't trigger version bumps) -->
+  <MonoRepoIgnoreFilePatterns>**/*.md;**/docs/**;**/*.txt;**/.editorconfig</MonoRepoIgnoreFilePatterns>
+
+  <!-- Force major version for public API changes -->
+  <MonoRepoMajorFilePatterns>**/PublicApi/**;**/Contracts/**;**/Interfaces/**</MonoRepoMajorFilePatterns>
+
+  <!-- Force minor version for new features -->
+  <MonoRepoMinorFilePatterns>**/Features/**</MonoRepoMinorFilePatterns>
+
+  <!-- Force patch version for internal changes -->
+  <MonoRepoPatchFilePatterns>**/Internal/**;**/Utils/**</MonoRepoPatchFilePatterns>
+
+  <!-- Source-only mode: ignore all non-source changes -->
+  <MonoRepoSourceOnlyMode>false</MonoRepoSourceOnlyMode>
+</PropertyGroup>
+```
+
+**Via YAML:**
+
+```yaml
+changeDetection:
+  enabled: true
+
+  # Ignore patterns (won't trigger version bumps)
+  ignorePatterns:
+    - "**/*.md"           # All markdown files
+    - "**/docs/**"        # Documentation folder
+    - "**/*.txt"          # Text files
+    - "**/.editorconfig"  # Editor config
+    - "**/.gitignore"     # Git ignore files
+
+  # Major version patterns (breaking changes)
+  majorPatterns:
+    - "**/PublicApi/**"   # Public API folder
+    - "**/Contracts/**"   # Contract definitions
+    - "**/Interfaces/**"  # Public interfaces
+
+  # Minor version patterns (new features)
+  minorPatterns:
+    - "**/Features/**"    # New features
+
+  # Patch version patterns (bug fixes)
+  patchPatterns:
+    - "**/Internal/**"    # Internal code
+    - "**/Utils/**"       # Utility code
+
+  # Source-only mode
+  sourceOnlyMode: false
+```
+
+#### Pattern Syntax
+
+Supports glob patterns with these wildcards:
+
+| Pattern | Description | Example Matches |
+|---------|-------------|-----------------|
+| `*` | Matches any characters except `/` | `*.md` matches `README.md` |
+| `**` | Matches any number of directories | `**/docs/**` matches `src/docs/api.md` |
+| `?` | Matches any single character | `test.??` matches `test.cs` |
+
+#### Pattern Priority Rules
+
+1. **Ignore patterns** are evaluated first (highest priority)
+2. **Major patterns** take precedence over minor/patch
+3. **Minor patterns** take precedence over patch
+4. **Patch patterns** are the baseline
+5. **Unclassified files** default to patch (or `MinimumBumpType` if configured)
+
+**Example:**
+
+```
+Changed files:
+- README.md              → Ignored (matches **/*.md)
+- src/PublicApi/IFoo.cs  → Major (matches **/PublicApi/**)
+- src/Features/Bar.cs    → Minor (matches **/Features/**)
+- src/Internal/Baz.cs    → Patch (matches **/Internal/**)
+
+Result: MAJOR version bump (highest priority wins)
+```
+
+#### Integration with Conventional Commits
+
+When both conventional commits AND file pattern detection are enabled, **both are analyzed** and the **higher bump type wins**:
+
+```
+Scenario 1:
+  Commit: chore: update (ignored)
+  Files: src/Features/Auth.cs (minor pattern)
+  Result: MINOR bump
+
+Scenario 2:
+  Commit: feat: add feature (minor)
+  Files: src/PublicApi/IService.cs (major pattern)
+  Result: MAJOR bump
+
+Scenario 3:
+  Commit: fix: resolve bug (patch)
+  Files: README.md (ignored)
+  Result: PATCH bump
+
+Scenario 4:
+  Commit: docs: update (ignored)
+  Files: docs/guide.md (ignored)
+  Result: NO version bump
+```
+
+#### Source-Only Mode
+
+Enable `SourceOnlyMode` to ignore ALL documentation, test, and configuration changes:
+
+```xml
+<MonoRepoSourceOnlyMode>true</MonoRepoSourceOnlyMode>
+```
+
+In this mode:
+- Only changes to files NOT matching ignore patterns will trigger version bumps
+- Perfect for libraries where docs/tests don't warrant new versions
+- Combine with ignore patterns for fine-grained control
 
 ### Feature Branch Versioning
 
@@ -625,6 +784,12 @@ Mister.Version can be configured using MSBuild properties or a YAML configuratio
 | `MonoRepoMinorPatterns` | ✨ Semicolon-separated patterns for minor version bumps | `feat:;feature:` |
 | `MonoRepoPatchPatterns` | ✨ Semicolon-separated patterns for patch version bumps | `fix:;bugfix:;perf:;refactor:` |
 | `MonoRepoIgnorePatterns` | ✨ Semicolon-separated patterns to ignore for versioning | `chore:;docs:;style:;test:;ci:` |
+| `MonoRepoChangeDetectionEnabled` | ✨ Enable file pattern-based change detection | `false` |
+| `MonoRepoIgnoreFilePatterns` | ✨ File patterns to ignore (semicolon-separated) | `**/*.md;**/docs/**;**/*.txt;**/.editorconfig;**/.gitignore` |
+| `MonoRepoMajorFilePatterns` | ✨ File patterns requiring major version bumps | Empty |
+| `MonoRepoMinorFilePatterns` | ✨ File patterns requiring minor version bumps | Empty |
+| `MonoRepoPatchFilePatterns` | ✨ File patterns requiring patch version bumps | Empty |
+| `MonoRepoSourceOnlyMode` | ✨ Only version when source code changes (ignore docs/tests) | `false` |
 
 #### Example MSBuild Configuration
 
@@ -651,6 +816,30 @@ Mister.Version can be configured using MSBuild properties or a YAML configuratio
   <MonoRepoMinorPatterns>feat:;feature:;add:</MonoRepoMinorPatterns>
   <MonoRepoPatchPatterns>fix:;bugfix:;patch:;perf:;refactor:</MonoRepoPatchPatterns>
   <MonoRepoIgnorePatterns>chore:;docs:;style:;test:;ci:;wip:</MonoRepoIgnorePatterns>
+</PropertyGroup>
+```
+
+#### Example: File Pattern-Based Change Detection
+
+```xml
+<PropertyGroup>
+  <!-- Enable file pattern-based change detection -->
+  <MonoRepoChangeDetectionEnabled>true</MonoRepoChangeDetectionEnabled>
+
+  <!-- Ignore documentation and config files -->
+  <MonoRepoIgnoreFilePatterns>**/*.md;**/docs/**;**/*.txt;**/.editorconfig;**/.gitignore</MonoRepoIgnoreFilePatterns>
+
+  <!-- Force major version for public API changes -->
+  <MonoRepoMajorFilePatterns>**/PublicApi/**;**/Contracts/**;**/Interfaces/**</MonoRepoMajorFilePatterns>
+
+  <!-- Force minor version for new features -->
+  <MonoRepoMinorFilePatterns>**/Features/**</MonoRepoMinorFilePatterns>
+
+  <!-- Force patch version for internal changes -->
+  <MonoRepoPatchFilePatterns>**/Internal/**;**/Utils/**</MonoRepoPatchFilePatterns>
+
+  <!-- Enable source-only mode (optional) -->
+  <MonoRepoSourceOnlyMode>false</MonoRepoSourceOnlyMode>
 </PropertyGroup>
 ```
 
