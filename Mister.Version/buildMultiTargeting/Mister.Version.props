@@ -53,6 +53,15 @@
 		<MonoRepoChangelogRepositoryUrl Condition="'$(MonoRepoChangelogRepositoryUrl)'==''"></MonoRepoChangelogRepositoryUrl>
 		<!-- Include commit authors in changelog -->
 		<MonoRepoChangelogIncludeAuthors Condition="'$(MonoRepoChangelogIncludeAuthors)'==''">false</MonoRepoChangelogIncludeAuthors>
+		<MonoRepoShallowCloneSupport Condition="'$(MonoRepoShallowCloneSupport)'==''">true</MonoRepoShallowCloneSupport>
+		<MonoRepoShallowCloneFallbackVersion Condition="'$(MonoRepoShallowCloneFallbackVersion)'==''"></MonoRepoShallowCloneFallbackVersion>
+		<MonoRepoSubmoduleSupport Condition="'$(MonoRepoSubmoduleSupport)'==''">false</MonoRepoSubmoduleSupport>
+		<MonoRepoCustomTagPatterns Condition="'$(MonoRepoCustomTagPatterns)'==''"></MonoRepoCustomTagPatterns>
+		<MonoRepoBranchBasedVersioning Condition="'$(MonoRepoBranchBasedVersioning)'==''">false</MonoRepoBranchBasedVersioning>
+		<MonoRepoBranchVersioningRules Condition="'$(MonoRepoBranchVersioningRules)'==''"></MonoRepoBranchVersioningRules>
+		<MonoRepoIncludeBranchInMetadata Condition="'$(MonoRepoIncludeBranchInMetadata)'==''">false</MonoRepoIncludeBranchInMetadata>
+		<MonoRepoValidateTagAncestry Condition="'$(MonoRepoValidateTagAncestry)'==''">true</MonoRepoValidateTagAncestry>
+		<MonoRepoFetchDepth Condition="'$(MonoRepoFetchDepth)'==''">50</MonoRepoFetchDepth>
 	</PropertyGroup>
 
 	<!-- Inject versioning into GenerateNuspec dependency chain -->

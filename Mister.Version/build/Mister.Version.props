@@ -64,6 +64,24 @@
     <MonoRepoChangelogRepositoryUrl Condition="'$(MonoRepoChangelogRepositoryUrl)' == ''"></MonoRepoChangelogRepositoryUrl>
     <!-- Include commit authors in changelog -->
     <MonoRepoChangelogIncludeAuthors Condition="'$(MonoRepoChangelogIncludeAuthors)' == ''">false</MonoRepoChangelogIncludeAuthors>
+    <!-- Enable shallow clone support for repos cloned with --depth -->
+    <MonoRepoShallowCloneSupport Condition="'$(MonoRepoShallowCloneSupport)' == ''">true</MonoRepoShallowCloneSupport>
+    <!-- Fallback version for shallow clones with limited history -->
+    <MonoRepoShallowCloneFallbackVersion Condition="'$(MonoRepoShallowCloneFallbackVersion)' == ''"></MonoRepoShallowCloneFallbackVersion>
+    <!-- Enable submodule change detection (tracks .gitmodules and submodule pointer changes) -->
+    <MonoRepoSubmoduleSupport Condition="'$(MonoRepoSubmoduleSupport)' == ''">false</MonoRepoSubmoduleSupport>
+    <!-- Custom tag patterns (semicolon-separated): ProjectName={name}-{prefix}{version} -->
+    <MonoRepoCustomTagPatterns Condition="'$(MonoRepoCustomTagPatterns)' == ''"></MonoRepoCustomTagPatterns>
+    <!-- Enable branch-based versioning strategies -->
+    <MonoRepoBranchBasedVersioning Condition="'$(MonoRepoBranchBasedVersioning)' == ''">false</MonoRepoBranchBasedVersioning>
+    <!-- Branch versioning rules (semicolon-separated): branchPattern=strategy -->
+    <MonoRepoBranchVersioningRules Condition="'$(MonoRepoBranchVersioningRules)' == ''"></MonoRepoBranchVersioningRules>
+    <!-- Include branch name in version build metadata for feature branches -->
+    <MonoRepoIncludeBranchInMetadata Condition="'$(MonoRepoIncludeBranchInMetadata)' == ''">false</MonoRepoIncludeBranchInMetadata>
+    <!-- Validate that version tags are reachable from current branch -->
+    <MonoRepoValidateTagAncestry Condition="'$(MonoRepoValidateTagAncestry)' == ''">true</MonoRepoValidateTagAncestry>
+    <!-- Fetch depth for shallow clone operations -->
+    <MonoRepoFetchDepth Condition="'$(MonoRepoFetchDepth)' == ''">50</MonoRepoFetchDepth>
   </PropertyGroup>
 
   <PropertyGroup>

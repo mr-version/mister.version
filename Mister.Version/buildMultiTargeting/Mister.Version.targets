@@ -73,6 +73,15 @@
 			ChangelogOutputPath="$(MonoRepoChangelogOutputPath)"
 			ChangelogRepositoryUrl="$(MonoRepoChangelogRepositoryUrl)"
 			ChangelogIncludeAuthors="$(MonoRepoChangelogIncludeAuthors)"
+			ShallowCloneSupport="$(MonoRepoShallowCloneSupport)"
+			ShallowCloneFallbackVersion="$(MonoRepoShallowCloneFallbackVersion)"
+			SubmoduleSupport="$(MonoRepoSubmoduleSupport)"
+			CustomTagPatterns="$(MonoRepoCustomTagPatterns)"
+			BranchBasedVersioning="$(MonoRepoBranchBasedVersioning)"
+			BranchVersioningRules="$(MonoRepoBranchVersioningRules)"
+			IncludeBranchInMetadata="$(MonoRepoIncludeBranchInMetadata)"
+			ValidateTagAncestry="$(MonoRepoValidateTagAncestry)"
+			FetchDepth="$(MonoRepoFetchDepth)"
 			Dependencies="@(_MonoRepoDependencies)">
 			<Output TaskParameter="Version" PropertyName="FullVersion" />
 			<Output TaskParameter="VersionChanged" PropertyName="VersionChanged" />
@@ -265,6 +274,15 @@
 			ChangelogOutputPath="$(MonoRepoChangelogOutputPath)"
 			ChangelogRepositoryUrl="$(MonoRepoChangelogRepositoryUrl)"
 			ChangelogIncludeAuthors="$(MonoRepoChangelogIncludeAuthors)"
+			ShallowCloneSupport="$(MonoRepoShallowCloneSupport)"
+			ShallowCloneFallbackVersion="$(MonoRepoShallowCloneFallbackVersion)"
+			SubmoduleSupport="$(MonoRepoSubmoduleSupport)"
+			CustomTagPatterns="$(MonoRepoCustomTagPatterns)"
+			BranchBasedVersioning="$(MonoRepoBranchBasedVersioning)"
+			BranchVersioningRules="$(MonoRepoBranchVersioningRules)"
+			IncludeBranchInMetadata="$(MonoRepoIncludeBranchInMetadata)"
+			ValidateTagAncestry="$(MonoRepoValidateTagAncestry)"
+			FetchDepth="$(MonoRepoFetchDepth)"
 			Dependencies="@(_MonoRepoDependencies)">
 			<Output TaskParameter="Version" PropertyName="FullVersion" />
 			<Output TaskParameter="VersionChanged" PropertyName="VersionChanged" />
