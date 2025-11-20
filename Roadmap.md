@@ -401,7 +401,7 @@ versionGroups:
 ---
 
 ### Priority 7: CalVer Support 📅
-**Impact:** Low-Medium | **Effort:** Medium | **Status:** ✅ Completed (Core implementation)
+**Impact:** Low-Medium | **Effort:** Medium | **Status:** ✅ Completed
 
 #### Problem
 Some organizations prefer calendar-based versioning over semantic versioning.
@@ -423,9 +423,9 @@ Add CalVer as an alternative versioning scheme with configurable formats.
 - [x] Add MSBuild properties (MonoRepoVersionScheme, MonoRepoCalVerFormat, etc.)
 - [x] Integrate with VersioningService and MonoRepoVersionTask
 - [x] Implement CalVerCalculator with date-based version generation
-- [ ] Update CLI output for CalVer display
-- [ ] Write comprehensive unit tests
-- [ ] Update documentation and examples
+- [x] Update CLI output for CalVer display (added scheme info to detailed and JSON output)
+- [x] Write comprehensive unit tests (CalVerCalculatorTests.cs and CalVerIntegrationTests.cs)
+- [x] Update documentation and examples (comprehensive CalVer section in README.md)
 
 #### Configuration Example
 ```yaml
@@ -693,11 +693,22 @@ constraints:
 ## Notes
 
 Last Updated: 2025-11-20
-Status: Priorities 1-6 Completed, Priorities 7-8 Planned
-Next Review: When starting Priority 7 (CalVer Support)
+Status: Priorities 1-7 Completed, Priority 8 Planned
+Next Review: When starting Priority 8 (Enhanced Validation & Constraints)
 Current Version: 3.0.0
 
-### Recent Completion: Priority 6 - Version Policies (Lock-Step & Grouped)
+### Recent Completion: Priority 7 - CalVer Support
+Added Calendar Versioning (CalVer) as an alternative to SemVer:
+- Created `VersionScheme` enum and `CalVerConfig` model
+- Implemented `CalVerCalculator` with four format options (YYYY.MM.PATCH, YY.0M.PATCH, YYYY.WW.PATCH, YYYY.0M.PATCH)
+- Integrated CalVer into VersionCalculator and VersionResult
+- Added MSBuild properties (MonoRepoVersionScheme, MonoRepoCalVerFormat, etc.)
+- Enhanced CLI output to display CalVer information (scheme, format, settings)
+- Comprehensive unit tests (50+ test cases in CalVerCalculatorTests.cs and CalVerIntegrationTests.cs)
+- Complete documentation in README.md with examples and use cases
+- Foundation for date-based versioning in monorepos
+
+### Previous Completion: Priority 6 - Version Policies (Lock-Step & Grouped)
 Added version policy engine for coordinating versions across projects:
 - Created `VersionPolicy` enum (Independent, LockStep, Grouped)
 - Implemented `VersionPolicyEngine` with pattern matching and validation

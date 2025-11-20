@@ -1212,7 +1212,9 @@ namespace Mister.Version.Core.Services
                 Version = versionString,
                 SemVer = newVersion,
                 VersionChanged = hasChanges,
-                ChangeReason = changeReason
+                ChangeReason = changeReason,
+                Scheme = VersionScheme.CalVer,
+                CalVerConfig = options.CalVer
             };
         }
 

@@ -50,4 +50,14 @@ public class VersionResult
     /// List of other projects that share this version (for lock-step/grouped policies)
     /// </summary>
     public List<string> LinkedProjects { get; set; }
+
+    /// <summary>
+    /// Version scheme used for this calculation (SemVer or CalVer)
+    /// </summary>
+    public VersionScheme Scheme { get; set; } = VersionScheme.SemVer;
+
+    /// <summary>
+    /// CalVer configuration used (if CalVer scheme was used)
+    /// </summary>
+    public CalVerConfig CalVerConfig { get; set; }
 }
