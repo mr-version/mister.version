@@ -17,13 +17,13 @@ This document outlines potential expansion opportunities for Mister.Version base
 - ✅ Performance caching for large monorepos
 
 ### GitHub Actions Status
-**Implementation Status:** 5 of 6 production actions are fully implemented as separate repositories:
+**Implementation Status:** All 6 production actions are fully implemented as separate repositories:
 - ✅ **setup** - Install Mister.Version CLI (TypeScript action)
-- ✅ **calculate** - Calculate versions for projects (TypeScript action)
+- ✅ **calculate** - Calculate versions for projects with validation (TypeScript action)
 - ✅ **report** - Generate version reports (TypeScript action)
 - ✅ **tag** - Create git tags (TypeScript action)
 - ✅ **release** - Complete release workflow (Composite action)
-- ⏳ **changelog** - Placeholder repository (TypeScript wrapper needed)
+- ✅ **changelog** - Generate changelogs from commits with PR integration (TypeScript action)
 
 ---
 
@@ -84,7 +84,7 @@ commitConventions:
 ---
 
 ### Priority 2: Changelog Generation 📝
-**Impact:** High | **Effort:** Medium | **Status:** ✅ Completed (except GitHub Action)
+**Impact:** High | **Effort:** Medium | **Status:** ✅ Completed
 
 #### Problem
 The `report` action generates version reports but NOT changelogs. There's no automatic release notes generation from commit history.
@@ -108,7 +108,11 @@ Add changelog generation capabilities to core library and expose via CLI, MSBuil
   - [x] Options for version range
   - [x] Options for output format
   - [x] Options for file output
-- [ ] Create new GitHub Action: `mr-version/changelog` (placeholder repo exists, needs TypeScript implementation)
+- [x] Create new GitHub Action: `mr-version/changelog`
+  - [x] TypeScript wrapper with 16 configuration inputs
+  - [x] PR comment posting with update support
+  - [x] Breaking change detection
+  - [x] Built dist/ bundle
 - [x] Add MSBuild property: `GenerateChangelog=true`
 - [x] Add configuration options
 - [x] Write tests
@@ -479,7 +483,10 @@ Add validation engine for version constraints and rules.
 - [x] Add validation to build process (VersionCalculator)
 - [x] Add validation to CLI
 - [x] Add MSBuild properties for all constraints
-- [ ] Add validation to GitHub Actions
+- [x] Add validation to GitHub Actions
+  - [x] Validation outputs in calculate action (has-validation-errors, validation-errors-count, etc.)
+  - [x] Integration in release action composite workflow
+  - [x] Job summary display of validation errors/warnings
 - [x] Write comprehensive unit tests (50+ test cases)
 - [x] Update documentation
 
@@ -533,7 +540,7 @@ constraints:
 9. ✅ Add markdown/JSON/text format support
 10. ✅ Add file pattern-based change detection
 11. ✅ New CLI command: `mr-version changelog`
-12. ⏳ New GitHub Action: `mr-version/changelog`
+12. ✅ New GitHub Action: `mr-version/changelog`
 13. ✅ Testing and documentation
 
 **Deliverables:**
@@ -557,19 +564,19 @@ constraints:
 - ✅ Submodule tracking support
 - ✅ Better Git workflow support
 
-### Phase 3: Advanced Features (2 weeks)
+### Phase 3: Advanced Features (2 weeks) ✅
 **Goal:** Add version policies and alternative schemes
 
-20. Implement version policy engine
-21. Add lock-step and grouped versioning
-22. Implement CalVer support
-23. Add validation and constraints
-24. Testing and documentation
+20. ✅ Implement version policy engine
+21. ✅ Add lock-step and grouped versioning
+22. ✅ Implement CalVer support
+23. ✅ Add validation and constraints
+24. ✅ Testing and documentation
 
 **Deliverables:**
-- Coordinated versioning strategies
-- Alternative versioning schemes
-- Safety validations
+- ✅ Coordinated versioning strategies
+- ✅ Alternative versioning schemes
+- ✅ Safety validations
 
 ---
 
@@ -698,68 +705,40 @@ constraints:
 
 ## Next Steps
 
-### Outstanding Tasks
-
-#### 1. Implement Changelog GitHub Action (Priority 2)
-**Status:** Placeholder repository exists
-**Effort:** 2-3 days
-**Description:**
-- Create TypeScript wrapper around `mr-version changelog` CLI command
-- Implement action.yml with inputs for output format, file path, etc.
-- Build dist/ bundle for GitHub Actions execution
-- Add support for posting changelog as PR comment
-- Test with example workflows
-
-**Repository:** https://github.com/mr-version/changelog
-
-#### 2. Add Validation to GitHub Actions (Priority 8)
-**Status:** Not started
-**Effort:** 1-2 days
-**Description:**
-- Integrate validation errors/warnings into action outputs
-- Add validation configuration inputs to calculate/release actions
-- Display validation errors as GitHub Action annotations
-- Add `validation-mode` input (strict/warn/off)
-- Update action documentation with validation examples
-
-**Affects:** calculate, release actions
-
-#### 3. Update Documentation
-**Status:** Not started
-**Effort:** 2-3 hours
-**Description:**
-- Update `.github/actions/README.md` with accurate status
-- Add workflow examples for changelog action once implemented
-- Document validation options in action READMEs
-- Update main README.md to reference all 6 GitHub Actions
-
 ### Future Enhancements
+
+All planned roadmap priorities (1-8) and GitHub Actions are now complete. Future optional enhancements include:
 
 - Publish actions to GitHub Actions Marketplace
 - Add integration tests for GitHub Actions workflows
 - Implement action versioning strategy (tags/releases)
 - Add telemetry/analytics for action usage
 - Create action badges and branding
+- Enhance documentation with more examples and use cases
 
 ---
 
 ## Notes
 
 Last Updated: 2025-11-20
-Status: Priorities 1-8 Completed (C# Core 100%, GitHub Actions 83%)
-Next Review: After changelog action implementation
+Status: **All Priorities 1-8 Completed (C# Core 100%, GitHub Actions 100%)**
 Current Version: 3.0.0
 
-### GitHub Actions Implementation
-GitHub Actions ecosystem implemented as separate repositories (submodules):
-- **setup** (https://github.com/mr-version/setup) - TypeScript action to install Mister.Version CLI
-- **calculate** (https://github.com/mr-version/calculate) - TypeScript action for version calculation with 13 input options
-- **report** (https://github.com/mr-version/report) - TypeScript action for generating version reports in multiple formats
-- **tag** (https://github.com/mr-version/tag) - TypeScript action for creating git tags with GPG signing support
-- **release** (https://github.com/mr-version/release) - Composite action orchestrating setup → calculate → tag → report
-- **changelog** (https://github.com/mr-version/changelog) - Placeholder repository, needs TypeScript wrapper implementation
+### GitHub Actions Implementation Status: Complete ✅
+All 6 GitHub Actions are fully implemented as separate repositories (submodules):
+- ✅ **setup** (https://github.com/mr-version/setup) - TypeScript action to install Mister.Version CLI
+- ✅ **calculate** (https://github.com/mr-version/calculate) - TypeScript action for version calculation with validation support
+- ✅ **report** (https://github.com/mr-version/report) - TypeScript action for generating version reports in multiple formats
+- ✅ **tag** (https://github.com/mr-version/tag) - TypeScript action for creating git tags with GPG signing support
+- ✅ **release** (https://github.com/mr-version/release) - Composite action orchestrating setup → calculate → tag → report
+- ✅ **changelog** (https://github.com/mr-version/changelog) - TypeScript action for generating changelogs with PR comment support
 
 All actions are referenced as git submodules in `.github/actions/` using HTTPS URLs for broad accessibility.
+
+### Recent Completion: GitHub Actions Ecosystem
+- **Changelog Action**: Complete TypeScript implementation with 16 inputs, PR comment posting, breaking change detection
+- **Validation Integration**: Fully integrated into calculate and release actions with error/warning outputs and job summary display
+- **All Actions Built**: All TypeScript actions have compiled dist/ bundles ready for execution
 
 ### Recent Completion: Priority 8 - Enhanced Validation & Constraints
 Added version validation engine with comprehensive constraint support:
