@@ -57,6 +57,7 @@ namespace Mister.Version.Core.Services
         VersionTag GetGlobalVersionTag(BranchType branchType, VersionOptions options);
         VersionTag GetProjectVersionTag(string projectName, BranchType branchType, string tagPrefix);
         bool ProjectHasChangedSinceTag(Commit tagCommit, string projectPath, List<string> dependencies, string repoRoot, bool debug = false);
+        ChangeClassification ClassifyProjectChanges(Commit tagCommit, string projectPath, List<string> dependencies, string repoRoot, ChangeDetectionConfig config);
         int GetCommitHeight(Commit fromCommit, Commit toCommit = null);
         string GetCommitShortHash(Commit commit);
         SemVer ParseSemVer(string version);
@@ -467,6 +468,118 @@ namespace Mister.Version.Core.Services
                 _logger?.Invoke("Warning", $"Error detecting changes: {ex.Message}");
                 // Don't cache exception results as they may be transient
                 return true; // Assume changes if we can't determine
+            }
+        }
+
+        public ChangeClassification ClassifyProjectChanges(Commit tagCommit, string projectPath, List<string> dependencies, string repoRoot, ChangeDetectionConfig config)
+        {
+            var classification = new ChangeClassification();
+
+            if (config == null || !config.Enabled)
+            {
+                // If change detection is disabled, just return whether project has changes
+                var hasChanges = ProjectHasChangedSinceTag(tagCommit, projectPath, dependencies, repoRoot);
+                classification.ShouldIgnore = !hasChanges;
+                classification.RequiredBumpType = hasChanges ? VersionBumpType.Patch : VersionBumpType.None;
+                classification.Reason = hasChanges ? "Changes detected (pattern matching disabled)" : "No changes detected";
+                return classification;
+            }
+
+            if (tagCommit == null)
+            {
+                classification.ShouldIgnore = false;
+                classification.RequiredBumpType = VersionBumpType.Patch;
+                classification.Reason = "No tag commit (initial version)";
+                return classification;
+            }
+
+            if (_repository?.Head?.Tip == null)
+            {
+                classification.ShouldIgnore = false;
+                classification.RequiredBumpType = VersionBumpType.Patch;
+                classification.Reason = "Repository HEAD or Tip is null, assuming changes exist";
+                return classification;
+            }
+
+            try
+            {
+                var compareOptions = new CompareOptions();
+                var diff = _repository.Diff.Compare<TreeChanges>(
+                    tagCommit.Tree,
+                    _repository.Head.Tip.Tree,
+                    compareOptions);
+
+                string normalizedProjectPath = NormalizePath(projectPath);
+
+                // Collect all changed files for this project
+                var changedFiles = new List<string>();
+
+                // Add direct project changes
+                changedFiles.AddRange(diff
+                    .Where(c => NormalizePath(c.Path).StartsWith(normalizedProjectPath))
+                    .Select(c => c.Path));
+
+                // Add dependency changes
+                if (dependencies != null)
+                {
+                    foreach (var dependency in dependencies)
+                    {
+#if NET472
+                        var relativeDependencyPath = NormalizePath(Mister.Version.Core.PathUtils.GetRelativePath(repoRoot, dependency));
+#else
+                        var relativeDependencyPath = NormalizePath(Path.GetRelativePath(repoRoot, dependency));
+#endif
+                        string dependencyDirectory = NormalizePath(Path.GetDirectoryName(relativeDependencyPath) ?? relativeDependencyPath);
+
+                        changedFiles.AddRange(diff
+                            .Where(c => NormalizePath(c.Path).StartsWith(dependencyDirectory))
+                            .Select(c => c.Path));
+                    }
+                }
+
+                // Add packages.lock.json changes
+                string projectDir = Path.GetDirectoryName(projectPath);
+                if (string.IsNullOrEmpty(projectDir))
+                {
+                    projectDir = projectPath;
+                }
+                string lockFilePath = projectDir == "" ? "packages.lock.json" : Path.Combine(projectDir, "packages.lock.json");
+                string normalizedLockFilePath = NormalizePath(lockFilePath);
+
+                var lockFileChange = diff.FirstOrDefault(c =>
+                    NormalizePath(c.Path).Equals(normalizedLockFilePath, StringComparison.OrdinalIgnoreCase));
+                if (lockFileChange != null)
+                {
+                    changedFiles.Add(lockFileChange.Path);
+                }
+
+                // Remove duplicates
+                changedFiles = changedFiles.Distinct().ToList();
+                classification.TotalFiles = changedFiles.Count;
+
+                if (changedFiles.Count == 0)
+                {
+                    classification.ShouldIgnore = true;
+                    classification.RequiredBumpType = VersionBumpType.None;
+                    classification.Reason = "No files changed";
+                    return classification;
+                }
+
+                // Use pattern matcher to classify changes
+                var patternMatcher = new FilePatternMatcher();
+                classification = patternMatcher.ClassifyChanges(changedFiles, config);
+                var bumpType = patternMatcher.DetermineBumpType(classification, config);
+
+                return classification;
+            }
+            catch (Exception ex)
+            {
+                _logger?.Invoke("Warning", $"Error classifying changes: {ex.Message}");
+                // On error, assume changes and use default bump type
+                classification.ShouldIgnore = false;
+                classification.RequiredBumpType = VersionBumpType.Patch;
+                classification.Reason = $"Error classifying changes: {ex.Message}";
+                return classification;
             }
         }
 
