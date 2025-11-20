@@ -219,7 +219,74 @@ changeDetection:
 
 ---
 
-### Priority 4: Version Policies (Lock-Step & Grouped) 📋
+### Priority 4: Git Integration Enhancements 🔧
+**Impact:** Medium | **Effort:** Medium | **Status:** ✅ Completed
+
+#### Problem
+Limited support for advanced Git repository scenarios like shallow clones, custom tag naming conventions, submodule tracking, and branch-based metadata.
+
+#### Solution
+Add comprehensive Git integration features to handle various repository scenarios and CI/CD requirements.
+
+#### Implementation Tasks
+- [x] Create `GitIntegrationConfig` model
+- [x] Implement shallow clone detection and support
+  - [x] Detect shallow clones via `Repository.Info.IsShallow`
+  - [x] Add fallback versioning for limited history
+  - [x] Log warnings when history is unavailable
+- [x] Implement custom tag pattern support
+  - [x] Support placeholders: `{name}`, `{prefix}`, `{version}`
+  - [x] Per-project tag patterns
+  - [x] Wildcard project matching
+- [x] Implement tag ancestry validation
+  - [x] Filter unreachable tags from other branches
+  - [x] Use LibGit2Sharp commit reachability
+  - [x] Auto-disable for shallow clones
+- [x] Implement submodule change detection
+  - [x] Monitor `.gitmodules` file changes
+  - [x] Detect gitlink (submodule pointer) updates
+  - [x] Trigger version bumps on submodule changes
+- [x] Implement branch metadata in versions
+  - [x] Add sanitized branch name to build metadata
+  - [x] Only for non-stable branches
+  - [x] Configurable via `IncludeBranchInMetadata`
+- [x] Add MSBuild properties (9 properties)
+- [x] Integrate with VersionCalculator
+- [x] Write unit tests
+- [x] Update documentation with examples
+
+#### Configuration Example
+```xml
+<PropertyGroup>
+  <!-- Shallow clone support -->
+  <MonoRepoShallowCloneSupport>true</MonoRepoShallowCloneSupport>
+  <MonoRepoShallowCloneFallbackVersion>1.0.0</MonoRepoShallowCloneFallbackVersion>
+
+  <!-- Custom tag patterns -->
+  <MonoRepoCustomTagPatterns>MyLib={name}_{prefix}{version};MyApp={name}/{prefix}{version}</MonoRepoCustomTagPatterns>
+
+  <!-- Submodule detection -->
+  <MonoRepoSubmoduleSupport>true</MonoRepoSubmoduleSupport>
+
+  <!-- Branch metadata -->
+  <MonoRepoIncludeBranchInMetadata>true</MonoRepoIncludeBranchInMetadata>
+
+  <!-- Tag ancestry validation -->
+  <MonoRepoValidateTagAncestry>true</MonoRepoValidateTagAncestry>
+</PropertyGroup>
+```
+
+#### Benefits
+- CI/CD pipelines with shallow clones work seamlessly
+- Flexible tag naming conventions for different projects
+- Automatic version bumps when submodules update
+- Branch names in version metadata for traceability
+- Prevents using versions from unreachable tags
+- Better support for complex Git workflows
+
+---
+
+### Priority 5: Version Policies (Lock-Step & Grouped) 📋
 **Impact:** Medium | **Effort:** Medium-High | **Status:** Not Started
 
 #### Problem
@@ -274,7 +341,7 @@ versionGroups:
 
 ---
 
-### Priority 5: CalVer Support 📅
+### Priority 6: CalVer Support 📅
 **Impact:** Low-Medium | **Effort:** Medium | **Status:** Not Started
 
 #### Problem
@@ -325,7 +392,7 @@ calver:
 
 ---
 
-### Priority 6: Enhanced Validation & Constraints ✅
+### Priority 7: Enhanced Validation & Constraints ✅
 **Impact:** Low-Medium | **Effort:** Low | **Status:** Not Started
 
 #### Problem
@@ -407,14 +474,30 @@ constraints:
 - ✅ More granular change detection
 - ✅ Complete release workflow
 
+### Phase 2.5: Git Integration Enhancements (1-2 weeks) ✅
+**Goal:** Add advanced Git repository support
+
+14. ✅ Implement shallow clone detection and fallback versioning
+15. ✅ Add custom tag pattern support with placeholders
+16. ✅ Add tag ancestry validation
+17. ✅ Add submodule change detection
+18. ✅ Add branch metadata in version build metadata
+19. ✅ MSBuild properties and documentation
+
+**Deliverables:**
+- ✅ CI/CD pipeline compatibility (shallow clones)
+- ✅ Flexible tag naming conventions
+- ✅ Submodule tracking support
+- ✅ Better Git workflow support
+
 ### Phase 3: Advanced Features (2 weeks)
 **Goal:** Add version policies and alternative schemes
 
-14. Implement version policy engine
-15. Add lock-step and grouped versioning
-16. Implement CalVer support
-17. Add validation and constraints
-18. Testing and documentation
+20. Implement version policy engine
+21. Add lock-step and grouped versioning
+22. Implement CalVer support
+23. Add validation and constraints
+24. Testing and documentation
 
 **Deliverables:**
 - Coordinated versioning strategies
@@ -549,5 +632,15 @@ constraints:
 ## Notes
 
 Last Updated: 2025-11-20
-Status: Phase 1 & 2 Completed, Phase 3 Planned
+Status: Phase 1, 2, & 2.5 Completed, Phase 3 Planned
 Next Review: When starting Phase 3 (Version Policies and CalVer)
+
+### Recent Completion: Phase 2.5 - Git Integration Enhancements
+Added comprehensive Git integration features including:
+- Shallow clone support with fallback versioning
+- Custom tag patterns with placeholder support
+- Tag ancestry validation for branch filtering
+- Submodule change detection (.gitmodules and gitlinks)
+- Branch metadata in version build metadata
+- 9 new MSBuild properties for configuration
+- Full documentation and examples in README
