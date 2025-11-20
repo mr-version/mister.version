@@ -45,6 +45,11 @@ public class VersionConfig
     /// Conventional commits configuration for semantic version bump detection
     /// </summary>
     public ConventionalCommitConfig CommitConventions { get; set; }
+
+    /// <summary>
+    /// Changelog generation configuration
+    /// </summary>
+    public ChangelogConfig Changelog { get; set; }
 }
 
 /// <summary>
