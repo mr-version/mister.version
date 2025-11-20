@@ -202,7 +202,15 @@ namespace Mister.Version.Core.Services
                     CommitConventions = conventionalCommitsConfig,
                     ChangeDetection = changeDetectionConfig,
                     GitIntegration = gitIntegrationConfig,
-                    VersionPolicy = versionPolicyConfig
+                    VersionPolicy = versionPolicyConfig,
+                    Scheme = ParseVersionScheme(request.VersionScheme),
+                    CalVer = new CalVerConfig
+                    {
+                        Format = request.CalVerFormat ?? "YYYY.MM.PATCH",
+                        StartDate = request.CalVerStartDate,
+                        ResetPatchPeriodically = request.CalVerResetPatch,
+                        Separator = request.CalVerSeparator ?? "."
+                    }
                 };
 
                 // Calculate version
@@ -276,6 +284,21 @@ namespace Mister.Version.Core.Services
                 .ToList();
         }
 
+        /// <summary>
+        /// Parses version scheme string to enum
+        /// </summary>
+        /// <param name="schemeString">Version scheme string (semver or calver)</param>
+        /// <returns>VersionScheme enum value</returns>
+        private VersionScheme ParseVersionScheme(string schemeString)
+        {
+            if (string.IsNullOrWhiteSpace(schemeString))
+                return VersionScheme.SemVer;
+
+            return schemeString.ToLowerInvariant() == "calver"
+                ? VersionScheme.CalVer
+                : VersionScheme.SemVer;
+        }
+
         public void Dispose()
         {
             if (!_disposed)
@@ -331,6 +354,13 @@ namespace Mister.Version.Core.Services
         public bool IncludeBranchInMetadata { get; set; } = false;
         public bool ValidateTagAncestry { get; set; } = true;
         public int FetchDepth { get; set; } = 50;
+
+        // CalVer configuration
+        public string VersionScheme { get; set; } = "semver";
+        public string CalVerFormat { get; set; } = "YYYY.MM.PATCH";
+        public string CalVerStartDate { get; set; }
+        public bool CalVerResetPatch { get; set; } = true;
+        public string CalVerSeparator { get; set; } = ".";
     }
 
     /// <summary>

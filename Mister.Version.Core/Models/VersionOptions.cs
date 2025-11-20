@@ -65,4 +65,15 @@ public class VersionOptions
     /// Version policy configuration for coordinating versions across projects
     /// </summary>
     public VersionPolicyConfig VersionPolicy { get; set; }
+
+    /// <summary>
+    /// Version scheme to use (SemVer or CalVer)
+    /// Default: SemVer
+    /// </summary>
+    public VersionScheme Scheme { get; set; } = VersionScheme.SemVer;
+
+    /// <summary>
+    /// CalVer configuration (only used when Scheme is CalVer)
+    /// </summary>
+    public CalVerConfig CalVer { get; set; }
 }

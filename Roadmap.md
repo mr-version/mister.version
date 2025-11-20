@@ -401,7 +401,7 @@ versionGroups:
 ---
 
 ### Priority 7: CalVer Support 📅
-**Impact:** Low-Medium | **Effort:** Medium | **Status:** Not Started
+**Impact:** Low-Medium | **Effort:** Medium | **Status:** ✅ Completed (Core implementation)
 
 #### Problem
 Some organizations prefer calendar-based versioning over semantic versioning.
@@ -410,20 +410,22 @@ Some organizations prefer calendar-based versioning over semantic versioning.
 Add CalVer as an alternative versioning scheme with configurable formats.
 
 #### Implementation Tasks
-- [ ] Create `VersionScheme` enum (SemVer, CalVer)
-- [ ] Create `CalVerConfig` model
-- [ ] Create `ICalVerCalculator` interface
-- [ ] Implement CalVer calculation logic
-  - [ ] YYYY.MM.PATCH format
-  - [ ] YY.0M.PATCH format
-  - [ ] YYYY.WW.PATCH format (week-based)
-  - [ ] Custom formats
-- [ ] Update `VersionCalculator` to support both schemes
-- [ ] Add configuration options
-- [ ] Update parsing and formatting
-- [ ] Update CLI output
-- [ ] Write tests
-- [ ] Update documentation
+- [x] Create `VersionScheme` enum (SemVer, CalVer)
+- [x] Create `CalVerConfig` model
+- [x] Create `ICalVerCalculator` interface
+- [x] Implement CalVer calculation logic
+  - [x] YYYY.MM.PATCH format
+  - [x] YY.0M.PATCH format
+  - [x] YYYY.WW.PATCH format (week-based)
+  - [x] YYYY.0M.PATCH format
+- [x] Update `VersionCalculator` to support both schemes
+- [x] Add configuration options to VersionConfig and VersionOptions
+- [x] Add MSBuild properties (MonoRepoVersionScheme, MonoRepoCalVerFormat, etc.)
+- [x] Integrate with VersioningService and MonoRepoVersionTask
+- [x] Implement CalVerCalculator with date-based version generation
+- [ ] Update CLI output for CalVer display
+- [ ] Write comprehensive unit tests
+- [ ] Update documentation and examples
 
 #### Configuration Example
 ```yaml

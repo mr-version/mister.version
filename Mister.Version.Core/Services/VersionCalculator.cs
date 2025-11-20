@@ -18,12 +18,14 @@ namespace Mister.Version.Core.Services
 
         private readonly IGitService _gitService;
         private readonly ICommitAnalyzer _commitAnalyzer;
+        private readonly ICalVerCalculator _calVerCalculator;
         private readonly Action<string, string> _logger;
 
-        public VersionCalculator(IGitService gitService, ICommitAnalyzer commitAnalyzer = null, Action<string, string> logger = null)
+        public VersionCalculator(IGitService gitService, ICommitAnalyzer commitAnalyzer = null, ICalVerCalculator calVerCalculator = null, Action<string, string> logger = null)
         {
             _gitService = gitService ?? throw new ArgumentNullException(nameof(gitService));
             _commitAnalyzer = commitAnalyzer ?? new ConventionalCommitAnalyzer(logger);
+            _calVerCalculator = calVerCalculator ?? new CalVerCalculator();
             _logger = logger ?? ((level, message) => { }); // Default no-op logger
         }
 
@@ -63,6 +65,13 @@ namespace Mister.Version.Core.Services
                     VersionChanged = true,
                     ChangeReason = "Forced version"
                 };
+            }
+
+            // Check if CalVer is enabled
+            if (options.Scheme == VersionScheme.CalVer)
+            {
+                _logger("Info", "Using CalVer versioning scheme");
+                return CalculateCalVerVersion(options);
             }
 
             // Get current branch and determine type
@@ -1067,6 +1076,171 @@ namespace Mister.Version.Core.Services
             newVersion.PreRelease = $"{featureName}.{commitHeight}";
             result.ChangeReason = $"Feature branch: Incrementing {featureIncrementType} version with pre-release {featureName}.{commitHeight}";
             _logger("Debug", $"Feature branch: Using version {newVersion.ToVersionString()}");
+        }
+
+        /// <summary>
+        /// Calculates a CalVer version based on the current date and existing tags
+        /// </summary>
+        private VersionResult CalculateCalVerVersion(VersionOptions options)
+        {
+            // Ensure CalVer config exists
+            if (options.CalVer == null)
+            {
+                options.CalVer = new CalVerConfig();
+                _logger("Warning", "CalVer config not provided, using defaults");
+            }
+
+            // Validate CalVer format
+            if (!options.CalVer.IsValidFormat())
+            {
+                _logger("Error", $"Invalid CalVer format: {options.CalVer.Format}. Using default YYYY.MM.PATCH");
+                options.CalVer.Format = "YYYY.MM.PATCH";
+            }
+
+            // Get the current branch type to determine if changes matter
+            var currentBranch = _gitService.CurrentBranch;
+            var branchType = _gitService.GetBranchType(currentBranch);
+
+            _logger("Debug", $"CalVer - Current branch: {currentBranch}");
+            _logger("Debug", $"CalVer - Branch type: {branchType}");
+
+            // Get the latest version tag for this project
+            var projectVersionTag = _gitService.GetProjectVersionTag(
+                options.ProjectName,
+                branchType,
+                options.TagPrefix,
+                options);
+
+            // Use the latest tag's version as the base
+            SemVer existingVersion = projectVersionTag?.SemVer;
+
+            if (existingVersion != null)
+            {
+                _logger("Debug", $"CalVer - Found existing version: {existingVersion.ToVersionString()}");
+            }
+            else
+            {
+                _logger("Debug", "CalVer - No existing version found, starting fresh");
+            }
+
+            // Calculate new CalVer version
+            var calculationDate = DateTime.UtcNow;
+            var newVersion = _calVerCalculator.CalculateVersion(options.CalVer, calculationDate, existingVersion);
+
+            // Check if there are changes in the project
+            bool hasChanges = false;
+            string changeReason = "CalVer - No changes detected";
+
+            if (existingVersion == null)
+            {
+                hasChanges = true;
+                changeReason = "CalVer - Initial version";
+            }
+            else
+            {
+                // Check if we're in a new period (month/week)
+                if (newVersion.Major != existingVersion.Major || newVersion.Minor != existingVersion.Minor)
+                {
+                    hasChanges = true;
+                    changeReason = $"CalVer - New period: {newVersion.Major}.{newVersion.Minor}";
+                }
+                else
+                {
+                    // Same period, check for actual code changes
+                    var relativeProjectPath = "";
+                    if (!string.IsNullOrWhiteSpace(options.ProjectPath))
+                    {
+                        try
+                        {
+                            var projectDir = Path.GetDirectoryName(options.ProjectPath);
+                            if (!string.IsNullOrEmpty(projectDir))
+                            {
+#if NET472
+                                relativeProjectPath = NormalizePath(Mister.Version.Core.PathUtils.GetRelativePath(options.RepoRoot, projectDir));
+#else
+                                relativeProjectPath = NormalizePath(Path.GetRelativePath(options.RepoRoot, projectDir));
+#endif
+                            }
+                        }
+                        catch (ArgumentException)
+                        {
+                            relativeProjectPath = "";
+                        }
+                    }
+
+                    if (!string.IsNullOrEmpty(relativeProjectPath))
+                    {
+                        var projectChanges = _gitService.ClassifyProjectChanges(
+                            projectVersionTag,
+                            relativeProjectPath,
+                            options.Dependencies ?? new System.Collections.Generic.List<string>(),
+                            options.ChangeDetection,
+                            options.AdditionalMonitorPaths);
+
+                        if (projectChanges.HasChanges)
+                        {
+                            hasChanges = true;
+                            changeReason = $"CalVer - Changes detected in project (patch increment)";
+                        }
+                    }
+                }
+            }
+
+            // Apply prerelease suffix if specified
+            if (!string.IsNullOrEmpty(options.PrereleaseType) &&
+                options.PrereleaseType.ToLowerInvariant() != "none")
+            {
+                newVersion.PreRelease = options.PrereleaseType.ToLowerInvariant();
+            }
+
+            // Apply branch metadata if configured
+            if (options.GitIntegration?.IncludeBranchInMetadata == true &&
+                branchType != BranchType.Main &&
+                branchType != BranchType.Release)
+            {
+                var branchName = SanitizeBranchName(currentBranch);
+                newVersion.BuildMetadata = branchName;
+            }
+
+            var versionString = newVersion.ToString();
+
+            _logger("Info", $"CalVer calculated version: {versionString}");
+            _logger("Debug", $"CalVer change reason: {changeReason}");
+
+            return new VersionResult
+            {
+                Version = versionString,
+                SemVer = newVersion,
+                VersionChanged = hasChanges,
+                ChangeReason = changeReason
+            };
+        }
+
+        /// <summary>
+        /// Sanitizes branch name for use in version metadata
+        /// </summary>
+        private string SanitizeBranchName(string branchName)
+        {
+            if (string.IsNullOrWhiteSpace(branchName))
+                return "unknown";
+
+            // Remove common prefixes
+            var sanitized = branchName
+                .Replace("feature/", "")
+                .Replace("hotfix/", "")
+                .Replace("bugfix/", "")
+                .Replace("dev/", "");
+
+            // Replace invalid characters with hyphens
+            sanitized = System.Text.RegularExpressions.Regex.Replace(sanitized, @"[^a-zA-Z0-9\-]", "-");
+
+            // Remove consecutive hyphens
+            sanitized = System.Text.RegularExpressions.Regex.Replace(sanitized, @"-+", "-");
+
+            // Trim hyphens from start and end
+            sanitized = sanitized.Trim('-');
+
+            return string.IsNullOrEmpty(sanitized) ? "unknown" : sanitized;
         }
 
         /// <summary>

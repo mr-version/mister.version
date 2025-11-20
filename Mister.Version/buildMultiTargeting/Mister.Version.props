@@ -64,6 +64,16 @@
 		<MonoRepoIncludeBranchInMetadata Condition="'$(MonoRepoIncludeBranchInMetadata)'==''">false</MonoRepoIncludeBranchInMetadata>
 		<MonoRepoValidateTagAncestry Condition="'$(MonoRepoValidateTagAncestry)'==''">true</MonoRepoValidateTagAncestry>
 		<MonoRepoFetchDepth Condition="'$(MonoRepoFetchDepth)'==''">50</MonoRepoFetchDepth>
+		<!-- Version scheme to use: semver or calver (default: semver) -->
+		<MonoRepoVersionScheme Condition="'$(MonoRepoVersionScheme)'==''">semver</MonoRepoVersionScheme>
+		<!-- CalVer format: YYYY.MM.PATCH, YY.0M.PATCH, YYYY.WW.PATCH, YYYY.0M.PATCH -->
+		<MonoRepoCalVerFormat Condition="'$(MonoRepoCalVerFormat)'==''">YYYY.MM.PATCH</MonoRepoCalVerFormat>
+		<!-- CalVer start date (optional): YYYY-MM-DD format -->
+		<MonoRepoCalVerStartDate Condition="'$(MonoRepoCalVerStartDate)'==''"></MonoRepoCalVerStartDate>
+		<!-- Reset patch version periodically for CalVer (monthly/weekly) -->
+		<MonoRepoCalVerResetPatch Condition="'$(MonoRepoCalVerResetPatch)'==''">true</MonoRepoCalVerResetPatch>
+		<!-- CalVer separator (default: .) -->
+		<MonoRepoCalVerSeparator Condition="'$(MonoRepoCalVerSeparator)'==''">.</MonoRepoCalVerSeparator>
 	</PropertyGroup>
 
 	<!-- Inject versioning into GenerateNuspec dependency chain -->
