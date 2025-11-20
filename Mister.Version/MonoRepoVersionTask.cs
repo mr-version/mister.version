@@ -266,6 +266,31 @@ public class MonoRepoVersionTask : Task
     public int FetchDepth { get; set; } = 50;
 
     /// <summary>
+    /// Version scheme to use: semver or calver (default: semver)
+    /// </summary>
+    public string VersionScheme { get; set; } = "semver";
+
+    /// <summary>
+    /// CalVer format: YYYY.MM.PATCH, YY.0M.PATCH, YYYY.WW.PATCH, YYYY.0M.PATCH
+    /// </summary>
+    public string CalVerFormat { get; set; } = "YYYY.MM.PATCH";
+
+    /// <summary>
+    /// CalVer start date (optional): YYYY-MM-DD format
+    /// </summary>
+    public string CalVerStartDate { get; set; }
+
+    /// <summary>
+    /// Reset patch version periodically for CalVer (monthly/weekly)
+    /// </summary>
+    public bool CalVerResetPatch { get; set; } = true;
+
+    /// <summary>
+    /// CalVer separator (default: .)
+    /// </summary>
+    public string CalVerSeparator { get; set; } = ".";
+
+    /// <summary>
     /// Gets or creates the static cache for the current repository
     /// </summary>
     private VersionCache GetOrCreateCache(string repoRoot, string currentHeadSha)
@@ -387,7 +412,12 @@ public class MonoRepoVersionTask : Task
                 BranchVersioningRules = BranchVersioningRules,
                 IncludeBranchInMetadata = IncludeBranchInMetadata,
                 ValidateTagAncestry = ValidateTagAncestry,
-                FetchDepth = FetchDepth
+                FetchDepth = FetchDepth,
+                VersionScheme = VersionScheme,
+                CalVerFormat = CalVerFormat,
+                CalVerStartDate = CalVerStartDate,
+                CalVerResetPatch = CalVerResetPatch,
+                CalVerSeparator = CalVerSeparator
             };
 
             // Calculate version
