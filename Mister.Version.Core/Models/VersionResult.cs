@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 
 namespace Mister.Version.Core.Models;
 
@@ -19,4 +20,19 @@ public class VersionResult
     public int CommitHeight { get; set; }
     public string PreviousVersion { get; set; }
     public string PreviousCommitSha { get; set; }
+
+    /// <summary>
+    /// Version bump type determined from commit analysis (Major, Minor, Patch, None)
+    /// </summary>
+    public VersionBumpType? BumpType { get; set; }
+
+    /// <summary>
+    /// Whether conventional commits analysis was used for this version calculation
+    /// </summary>
+    public bool ConventionalCommitsEnabled { get; set; }
+
+    /// <summary>
+    /// List of commit classifications analyzed (for detailed output)
+    /// </summary>
+    public List<CommitClassification> CommitClassifications { get; set; }
 }

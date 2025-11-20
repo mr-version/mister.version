@@ -57,6 +57,11 @@
 			IsPackable="$(IsPackable)"
 			PrereleaseType="$(MonoRepoPrereleaseType)"
 			ConfigFile="$(MonoRepoConfigFile)"
+			ConventionalCommitsEnabled="$(MonoRepoConventionalCommitsEnabled)"
+			MajorPatterns="$(MonoRepoMajorPatterns)"
+			MinorPatterns="$(MonoRepoMinorPatterns)"
+			PatchPatterns="$(MonoRepoPatchPatterns)"
+			IgnorePatterns="$(MonoRepoIgnorePatterns)"
 			Dependencies="@(_MonoRepoDependencies)">
 			<Output TaskParameter="Version" PropertyName="FullVersion" />
 			<Output TaskParameter="VersionChanged" PropertyName="VersionChanged" />
@@ -233,6 +238,11 @@
 			IsPackable="$(IsPackable)"
 			PrereleaseType="$(MonoRepoPrereleaseType)"
 			ConfigFile="$(MonoRepoConfigFile)"
+			ConventionalCommitsEnabled="$(MonoRepoConventionalCommitsEnabled)"
+			MajorPatterns="$(MonoRepoMajorPatterns)"
+			MinorPatterns="$(MonoRepoMinorPatterns)"
+			PatchPatterns="$(MonoRepoPatchPatterns)"
+			IgnorePatterns="$(MonoRepoIgnorePatterns)"
 			Dependencies="@(_MonoRepoDependencies)">
 			<Output TaskParameter="Version" PropertyName="FullVersion" />
 			<Output TaskParameter="VersionChanged" PropertyName="VersionChanged" />

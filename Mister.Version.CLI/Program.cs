@@ -664,7 +664,29 @@ namespace Mister.Version.CLI
                     commitHeight = projectInfo.Version?.CommitHeight,
                     isTestProject = projectInfo.IsTestProject,
                     isPackable = projectInfo.IsPackable,
-                    dependencies = projectInfo.DirectDependencies
+                    dependencies = projectInfo.DirectDependencies,
+                    conventionalCommits = projectInfo.Version?.ConventionalCommitsEnabled == true ? new
+                    {
+                        enabled = true,
+                        bumpType = projectInfo.Version.BumpType?.ToString(),
+                        commitsAnalyzed = projectInfo.Version.CommitClassifications?.Count ?? 0,
+                        majorChanges = projectInfo.Version.CommitClassifications?.Count(c => c.BumpType == VersionBumpType.Major) ?? 0,
+                        minorChanges = projectInfo.Version.CommitClassifications?.Count(c => c.BumpType == VersionBumpType.Minor) ?? 0,
+                        patchChanges = projectInfo.Version.CommitClassifications?.Count(c => c.BumpType == VersionBumpType.Patch) ?? 0,
+                        ignoredCommits = projectInfo.Version.CommitClassifications?.Count(c => c.ShouldIgnore) ?? 0,
+                        classifications = projectInfo.Version.CommitClassifications?.Select(c => new
+                        {
+                            sha = c.CommitSha,
+                            type = c.CommitType,
+                            scope = c.Scope,
+                            description = c.Description,
+                            bumpType = c.BumpType.ToString(),
+                            isBreakingChange = c.IsBreakingChange,
+                            breakingChangeDescription = c.BreakingChangeDescription,
+                            shouldIgnore = c.ShouldIgnore,
+                            reason = c.Reason
+                        }).ToList()
+                    } : null
                 };
 
                 var jsonOptions = new System.Text.Json.JsonSerializerOptions
@@ -685,9 +707,71 @@ namespace Mister.Version.CLI
                 {
                     Console.WriteLine($"Reason: {projectInfo.Version.ChangeReason}");
                     Console.WriteLine($"Branch: {projectInfo.Version.BranchName} ({projectInfo.Version.BranchType})");
-                    
+
+                    // Show conventional commits analysis if enabled
+                    if (projectInfo.Version.ConventionalCommitsEnabled && projectInfo.Version.BumpType.HasValue)
+                    {
+                        Console.WriteLine();
+                        Console.WriteLine("Conventional Commits Analysis:");
+                        Console.WriteLine($"  Bump Type: {projectInfo.Version.BumpType.Value}");
+
+                        if (projectInfo.Version.CommitClassifications != null && projectInfo.Version.CommitClassifications.Count > 0)
+                        {
+                            Console.WriteLine($"  Commits Analyzed: {projectInfo.Version.CommitClassifications.Count}");
+
+                            // Group commits by bump type
+                            var majorCommits = projectInfo.Version.CommitClassifications.Where(c => c.BumpType == VersionBumpType.Major).ToList();
+                            var minorCommits = projectInfo.Version.CommitClassifications.Where(c => c.BumpType == VersionBumpType.Minor).ToList();
+                            var patchCommits = projectInfo.Version.CommitClassifications.Where(c => c.BumpType == VersionBumpType.Patch).ToList();
+                            var ignoredCommits = projectInfo.Version.CommitClassifications.Where(c => c.ShouldIgnore).ToList();
+
+                            if (majorCommits.Any())
+                            {
+                                Console.WriteLine($"  Major changes: {majorCommits.Count}");
+                                foreach (var commit in majorCommits.Take(3))
+                                {
+                                    Console.WriteLine($"    - {commit.CommitSha}: {commit.Description}");
+                                    if (commit.IsBreakingChange)
+                                    {
+                                        Console.WriteLine($"      BREAKING: {commit.BreakingChangeDescription}");
+                                    }
+                                }
+                                if (majorCommits.Count > 3)
+                                    Console.WriteLine($"    ... and {majorCommits.Count - 3} more");
+                            }
+
+                            if (minorCommits.Any())
+                            {
+                                Console.WriteLine($"  Minor changes: {minorCommits.Count}");
+                                foreach (var commit in minorCommits.Take(3))
+                                {
+                                    Console.WriteLine($"    - {commit.CommitSha}: {commit.CommitType}: {commit.Description}");
+                                }
+                                if (minorCommits.Count > 3)
+                                    Console.WriteLine($"    ... and {minorCommits.Count - 3} more");
+                            }
+
+                            if (patchCommits.Any())
+                            {
+                                Console.WriteLine($"  Patch changes: {patchCommits.Count}");
+                                foreach (var commit in patchCommits.Take(3))
+                                {
+                                    Console.WriteLine($"    - {commit.CommitSha}: {commit.CommitType}: {commit.Description}");
+                                }
+                                if (patchCommits.Count > 3)
+                                    Console.WriteLine($"    ... and {patchCommits.Count - 3} more");
+                            }
+
+                            if (ignoredCommits.Any())
+                            {
+                                Console.WriteLine($"  Ignored commits: {ignoredCommits.Count} ({string.Join(", ", ignoredCommits.GroupBy(c => c.CommitType).Select(g => $"{g.Key}: {g.Count()}"))})");
+                            }
+                        }
+                    }
+
                     if (!string.IsNullOrEmpty(projectInfo.Version.CommitSha))
                     {
+                        Console.WriteLine();
                         Console.WriteLine($"Commit: {projectInfo.Version.CommitSha}");
                         Console.WriteLine($"Date: {projectInfo.Version.CommitDate:yyyy-MM-dd HH:mm:ss}");
                         Console.WriteLine($"Message: {projectInfo.Version.CommitMessage}");

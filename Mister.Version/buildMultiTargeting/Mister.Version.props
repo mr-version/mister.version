@@ -21,6 +21,16 @@
 		<MonoRepoSkipNonPackableProjects Condition="'$(MonoRepoSkipNonPackableProjects)'==''">true</MonoRepoSkipNonPackableProjects>
 		<MonoRepoPrereleaseType Condition="'$(MonoRepoPrereleaseType)'==''">alpha</MonoRepoPrereleaseType>
 		<MonoRepoConfigFile Condition="'$(MonoRepoConfigFile)'==''">$(MSBuildProjectDirectory)/mister-version.yml</MonoRepoConfigFile>
+		<!-- Enable conventional commits analysis for semantic version bump detection -->
+		<MonoRepoConventionalCommitsEnabled Condition="'$(MonoRepoConventionalCommitsEnabled)'==''">false</MonoRepoConventionalCommitsEnabled>
+		<!-- Commit patterns for major version bumps -->
+		<MonoRepoMajorPatterns Condition="'$(MonoRepoMajorPatterns)'==''">BREAKING CHANGE:;!:</MonoRepoMajorPatterns>
+		<!-- Commit patterns for minor version bumps -->
+		<MonoRepoMinorPatterns Condition="'$(MonoRepoMinorPatterns)'==''">feat:;feature:</MonoRepoMinorPatterns>
+		<!-- Commit patterns for patch version bumps -->
+		<MonoRepoPatchPatterns Condition="'$(MonoRepoPatchPatterns)'==''">fix:;bugfix:;perf:;refactor:</MonoRepoPatchPatterns>
+		<!-- Commit patterns to ignore for versioning -->
+		<MonoRepoIgnorePatterns Condition="'$(MonoRepoIgnorePatterns)'==''">chore:;docs:;style:;test:;ci:</MonoRepoIgnorePatterns>
 	</PropertyGroup>
 
 	<!-- Inject versioning into GenerateNuspec dependency chain -->

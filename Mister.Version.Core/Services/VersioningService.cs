@@ -77,6 +77,27 @@ namespace Mister.Version.Core.Services
                     baseValues, 
                     _logger);
 
+                // Create conventional commits configuration
+                ConventionalCommitConfig conventionalCommitsConfig = null;
+
+                // First priority: YAML configuration
+                if (config?.CommitConventions != null)
+                {
+                    conventionalCommitsConfig = config.CommitConventions;
+                }
+                // Second priority: MSBuild properties from request
+                else if (request.ConventionalCommitsEnabled)
+                {
+                    conventionalCommitsConfig = new ConventionalCommitConfig
+                    {
+                        Enabled = request.ConventionalCommitsEnabled,
+                        MajorPatterns = ParsePatternString(request.MajorPatterns),
+                        MinorPatterns = ParsePatternString(request.MinorPatterns),
+                        PatchPatterns = ParsePatternString(request.PatchPatterns),
+                        IgnorePatterns = ParsePatternString(request.IgnorePatterns)
+                    };
+                }
+
                 // Create version options
                 var versionOptions = new VersionOptions
                 {
@@ -94,7 +115,8 @@ namespace Mister.Version.Core.Services
                     IsTestProject = request.IsTestProject,
                     IsPackable = request.IsPackable,
                     PrereleaseType = configOverrides.PrereleaseType ?? request.PrereleaseType,
-                    BaseVersion = configOverrides.BaseVersion
+                    BaseVersion = configOverrides.BaseVersion,
+                    CommitConventions = conventionalCommitsConfig
                 };
 
                 // Calculate version
@@ -150,6 +172,24 @@ namespace Mister.Version.Core.Services
                 _logger);
         }
 
+        /// <summary>
+        /// Parses a semicolon-separated string into a list of patterns
+        /// </summary>
+        /// <param name="patternsString">Semicolon-separated pattern string</param>
+        /// <returns>List of patterns, or default list if string is null/empty</returns>
+        private List<string> ParsePatternString(string patternsString)
+        {
+            if (string.IsNullOrWhiteSpace(patternsString))
+            {
+                return new List<string>();
+            }
+
+            return patternsString.Split(new[] { ';' }, StringSplitOptions.RemoveEmptyEntries)
+                .Select(p => p.Trim())
+                .Where(p => !string.IsNullOrEmpty(p))
+                .ToList();
+        }
+
         public void Dispose()
         {
             if (!_disposed)
@@ -178,6 +218,13 @@ namespace Mister.Version.Core.Services
         public bool SkipNonPackableProjects { get; set; } = true;
         public bool IsTestProject { get; set; }
         public bool IsPackable { get; set; } = true;
+
+        // Conventional commits configuration
+        public bool ConventionalCommitsEnabled { get; set; } = false;
+        public string MajorPatterns { get; set; }
+        public string MinorPatterns { get; set; }
+        public string PatchPatterns { get; set; }
+        public string IgnorePatterns { get; set; }
     }
 
     /// <summary>

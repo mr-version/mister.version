@@ -1,13 +1,14 @@
 # Mister.Version
 
-![version](https://img.shields.io/badge/version-1.1.0-blue.svg)
+![version](https://img.shields.io/badge/version-2.3.0-blue.svg)
 ![.NET](https://img.shields.io/badge/.NET-8.0-purple.svg)
 ![License](https://img.shields.io/badge/license-MIT-green.svg)
 
 A sophisticated automatic versioning system for .NET monorepos built on MSBuild with enhanced support for development workflows and feature branches. Mister.Version (MR Version → MonoRepo Version) provides intelligent, change-based versioning that increases version numbers only when actual changes are detected in a project or its dependencies.
 
-## ✨ What's New in v1.1.0
+## ✨ What's New in v2.3.0
 
+- **🎯 Conventional Commits Support**: Automatic semantic version bump detection based on commit message conventions (BREAKING CHANGE → major, feat → minor, fix → patch)
 - **🏗️ Refactored Architecture**: Shared core library between MSBuild task and CLI tool
 - **🔧 Dev Branch Support**: Development branches now increment patch versions like main branches
 - **📊 Enhanced Feature Branches**: Feature branches include commit height in versioning (e.g., `v3.0.4-feature.1-{git-hash}`)
@@ -37,6 +38,7 @@ Mister.Version.CLI/           # Command-line tool
 
 ## Features
 
+- **Conventional Commits Support**: ✨ **NEW** - Intelligent semantic versioning based on commit message conventions
 - **Change-Based Versioning**: Version numbers only increment when actual code changes are detected
 - **Dependency-Aware**: Automatically bumps versions when dependencies change
 - **Enhanced Branch Support**: Different versioning strategies for main, dev, release, and feature branches
@@ -60,10 +62,117 @@ MonoRepo Versioning uses Git history to intelligently determine when to incremen
 
 ### Enhanced Versioning Rules
 
-- **Main Branch**: Commits to main increment the patch version (8.2.0 → 8.2.1)
+- **Main Branch**: Commits to main increment the patch version by default (8.2.0 → 8.2.1)
+  - With conventional commits enabled: Analyzes commit messages to determine bump type
 - **Dev Branch**: ✨ **NEW** - Dev branches also increment patch versions (8.2.0 → 8.2.1)
+  - With conventional commits enabled: Analyzes commit messages to determine bump type
 - **Release Branches**: Patch increments for changes in the branch (7.3.0 → 7.3.2)
 - **Feature Branches**: ✨ **ENHANCED** - Include commit height and hash (8.2.0-feature-name.3-abc1234)
+
+### Conventional Commits for Semantic Versioning
+
+✨ **NEW** - Mister.Version now supports automatic semantic version bump detection based on commit message conventions. When enabled, it analyzes commit messages to intelligently determine whether to bump major, minor, or patch versions.
+
+#### How It Works
+
+When conventional commits are enabled, the tool analyzes commit messages since the last version tag:
+
+```bash
+# These commits trigger MAJOR version bumps (1.0.0 → 2.0.0)
+git commit -m "feat!: remove deprecated API"
+git commit -m "fix: resolve bug
+
+BREAKING CHANGE: The authentication flow has changed."
+
+# These commits trigger MINOR version bumps (1.0.0 → 1.1.0)
+git commit -m "feat: add new dashboard feature"
+git commit -m "feature: implement user profiles"
+
+# These commits trigger PATCH version bumps (1.0.0 → 1.0.1)
+git commit -m "fix: resolve login bug"
+git commit -m "bugfix: patch security issue"
+git commit -m "perf: optimize database queries"
+git commit -m "refactor: clean up authentication code"
+
+# These commits are IGNORED for versioning
+git commit -m "chore: update dependencies"
+git commit -m "docs: update README"
+git commit -m "style: format code"
+git commit -m "test: add unit tests"
+git commit -m "ci: update pipeline"
+```
+
+#### Commit Message Format
+
+The tool supports the Angular conventional commits specification:
+
+```
+<type>[optional scope][optional !]: <description>
+
+[optional body]
+
+[optional footer(s)]
+```
+
+**Examples:**
+- `feat: add user authentication` → Minor version bump
+- `feat(api): add pagination support` → Minor version bump (with scope)
+- `fix: resolve memory leak` → Patch version bump
+- `feat!: redesign API` → Major version bump (breaking change indicator)
+- `fix: resolve bug\n\nBREAKING CHANGE: API changed` → Major version bump (breaking change footer)
+
+#### Default Patterns
+
+| Bump Type | Default Patterns | Example |
+|-----------|-----------------|---------|
+| **Major** | `BREAKING CHANGE:`, `!:` | `feat!: remove old API` |
+| **Minor** | `feat:`, `feature:` | `feat: add dashboard` |
+| **Patch** | `fix:`, `bugfix:`, `perf:`, `refactor:` | `fix: resolve bug` |
+| **None** | `chore:`, `docs:`, `style:`, `test:`, `ci:` | `chore: update deps` |
+
+#### Priority Rules
+
+When multiple commits exist, the highest priority bump type wins:
+1. **Major** (breaking changes) takes precedence over everything
+2. **Minor** (features) takes precedence over patch
+3. **Patch** (fixes) is the baseline
+4. **None** (ignored commits) doesn't affect versioning
+
+**Example:** If you have commits `fix: bug`, `feat: feature`, and `feat!: breaking`, the result is a **major** version bump.
+
+#### CLI Output
+
+The CLI tool shows detailed analysis when conventional commits are enabled:
+
+```bash
+$ mr-version version -p src/MyProject/MyProject.csproj -d
+
+Version: 2.0.0
+Previous Version: 1.2.3
+Version Changed: Yes
+Change Reason: Main branch: Incrementing major version (breaking change detected)
+
+Conventional Commits Analysis: Enabled
+Detected Bump Type: Major
+
+Analyzed Commits:
+  Major (1):
+    - abc1234: feat!: redesign authentication API
+      Breaking change detected (! indicator)
+
+  Minor (2):
+    - def5678: feat: add user profiles
+    - ghi9012: feature: implement dashboard
+
+  Patch (3):
+    - jkl3456: fix: resolve login bug
+    - mno7890: perf: optimize queries
+    - pqr1234: refactor: clean up code
+
+  Ignored (2):
+    - stu5678: chore: update dependencies
+    - vwx9012: docs: update README
+```
 
 ### Feature Branch Versioning
 
@@ -93,13 +202,13 @@ Where:
 #### Option 1: NuGet Package
 
 ```bash
-dotnet add package Mister.Version --version 1.1.0
+dotnet add package Mister.Version --version 2.3.0
 ```
 
 #### Option 2: CLI Tool
 
 ```bash
-dotnet tool install --global Mister.Version.CLI --version 1.1.0
+dotnet tool install --global Mister.Version.CLI --version 2.3.0
 ```
 
 ### Basic Setup
@@ -123,6 +232,39 @@ dotnet build
 ```
 
 The tool will automatically calculate and apply versions to your assemblies and packages.
+
+### Quick Start: Enable Conventional Commits
+
+To enable automatic semantic versioning based on commit messages:
+
+1. Add to your project file or Directory.Build.props:
+
+```xml
+<PropertyGroup>
+  <MonoRepoConventionalCommitsEnabled>true</MonoRepoConventionalCommitsEnabled>
+</PropertyGroup>
+```
+
+2. Use conventional commit messages:
+
+```bash
+# Minor version bump (new feature)
+git commit -m "feat: add user authentication"
+
+# Patch version bump (bug fix)
+git commit -m "fix: resolve login issue"
+
+# Major version bump (breaking change)
+git commit -m "feat!: redesign API"
+```
+
+3. Build and see semantic versioning in action:
+
+```bash
+dotnet build
+```
+
+The version will be automatically incremented based on your commit types!
 
 ## CLI Usage
 
@@ -334,6 +476,11 @@ Mister.Version can be configured using MSBuild properties or a YAML configuratio
 | `MonoRepoPrereleaseType` | Prerelease type for main/dev branches (none, alpha, beta, rc) | `none` |
 | `MonoRepoConfigFile` | Path to YAML configuration file | Empty |
 | `ForceVersion` | Force a specific version | Empty |
+| `MonoRepoConventionalCommitsEnabled` | ✨ Enable conventional commits analysis for semantic versioning | `false` |
+| `MonoRepoMajorPatterns` | ✨ Semicolon-separated patterns for major version bumps | `BREAKING CHANGE:;!:` |
+| `MonoRepoMinorPatterns` | ✨ Semicolon-separated patterns for minor version bumps | `feat:;feature:` |
+| `MonoRepoPatchPatterns` | ✨ Semicolon-separated patterns for patch version bumps | `fix:;bugfix:;perf:;refactor:` |
+| `MonoRepoIgnorePatterns` | ✨ Semicolon-separated patterns to ignore for versioning | `chore:;docs:;style:;test:;ci:` |
 
 #### Example MSBuild Configuration
 
@@ -342,6 +489,24 @@ Mister.Version can be configured using MSBuild properties or a YAML configuratio
   <MonoRepoDebug>true</MonoRepoDebug>
   <MonoRepoTagPrefix>release-</MonoRepoTagPrefix>
   <MonoRepoPrereleaseType>beta</MonoRepoPrereleaseType>
+
+  <!-- Enable conventional commits for semantic versioning -->
+  <MonoRepoConventionalCommitsEnabled>true</MonoRepoConventionalCommitsEnabled>
+</PropertyGroup>
+```
+
+#### Example: Custom Conventional Commit Patterns
+
+```xml
+<PropertyGroup>
+  <!-- Enable conventional commits -->
+  <MonoRepoConventionalCommitsEnabled>true</MonoRepoConventionalCommitsEnabled>
+
+  <!-- Custom patterns (semicolon-separated) -->
+  <MonoRepoMajorPatterns>BREAKING CHANGE:;breaking:;MAJOR:</MonoRepoMajorPatterns>
+  <MonoRepoMinorPatterns>feat:;feature:;add:</MonoRepoMinorPatterns>
+  <MonoRepoPatchPatterns>fix:;bugfix:;patch:;perf:;refactor:</MonoRepoPatchPatterns>
+  <MonoRepoIgnorePatterns>chore:;docs:;style:;test:;ci:;wip:</MonoRepoIgnorePatterns>
 </PropertyGroup>
 ```
 
@@ -362,6 +527,28 @@ prereleaseType: none  # Options: none, alpha, beta, rc
 tagPrefix: v
 skipTestProjects: true
 skipNonPackableProjects: true
+
+# ✨ Conventional commits configuration
+commitConventions:
+  enabled: true
+  majorPatterns:
+    - "BREAKING CHANGE:"
+    - "!:"
+    - "breaking:"
+  minorPatterns:
+    - "feat:"
+    - "feature:"
+  patchPatterns:
+    - "fix:"
+    - "bugfix:"
+    - "perf:"
+    - "refactor:"
+  ignorePatterns:
+    - "chore:"
+    - "docs:"
+    - "style:"
+    - "test:"
+    - "ci:"
 
 # Project-specific overrides
 projects:
