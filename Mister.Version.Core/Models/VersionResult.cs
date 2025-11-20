@@ -60,4 +60,14 @@ public class VersionResult
     /// CalVer configuration used (if CalVer scheme was used)
     /// </summary>
     public CalVerConfig CalVerConfig { get; set; }
+
+    /// <summary>
+    /// Validation result for this version (if validation was enabled)
+    /// </summary>
+    public ValidationResult ValidationResult { get; set; }
+
+    /// <summary>
+    /// Helper property to get calculated version string (same as Version)
+    /// </summary>
+    public string CalculatedVersion => Version;
 }

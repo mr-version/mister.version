@@ -76,4 +76,9 @@ public class VersionOptions
     /// CalVer configuration (only used when Scheme is CalVer)
     /// </summary>
     public CalVerConfig CalVer { get; set; }
+
+    /// <summary>
+    /// Version validation constraints
+    /// </summary>
+    public VersionConstraints Constraints { get; set; }
 }
