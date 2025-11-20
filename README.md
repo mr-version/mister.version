@@ -9,6 +9,7 @@ A sophisticated automatic versioning system for .NET monorepos built on MSBuild 
 ## ✨ What's New in v2.3.0
 
 - **🎯 Conventional Commits Support**: Automatic semantic version bump detection based on commit message conventions (BREAKING CHANGE → major, feat → minor, fix → patch)
+- **📝 Automatic Changelog Generation**: Generate beautiful changelogs from commit history in Markdown, Plain Text, or JSON formats
 - **🏗️ Refactored Architecture**: Shared core library between MSBuild task and CLI tool
 - **🔧 Dev Branch Support**: Development branches now increment patch versions like main branches
 - **📊 Enhanced Feature Branches**: Feature branches include commit height in versioning (e.g., `v3.0.4-feature.1-{git-hash}`)
@@ -39,6 +40,7 @@ Mister.Version.CLI/           # Command-line tool
 ## Features
 
 - **Conventional Commits Support**: ✨ **NEW** - Intelligent semantic versioning based on commit message conventions
+- **Automatic Changelog Generation**: ✨ **NEW** - Generate changelogs automatically from conventional commits
 - **Change-Based Versioning**: Version numbers only increment when actual code changes are detected
 - **Dependency-Aware**: Automatically bumps versions when dependencies change
 - **Enhanced Branch Support**: Different versioning strategies for main, dev, release, and feature branches
@@ -331,6 +333,148 @@ mr-version version -p src/MyProject/MyProject.csproj -d
 mr-version version -p src/MyProject/MyProject.csproj -j
 ```
 
+### Generate Changelog
+
+✨ **NEW** - Automatically generate changelogs from conventional commits:
+
+```bash
+# Generate changelog from last tag to HEAD
+mr-version changelog
+
+# Generate for specific version range
+mr-version changelog --from 2.2.0 --to 2.3.0
+
+# Output to file
+mr-version changelog --output-file CHANGELOG.md
+
+# Different output formats
+mr-version changelog --output markdown  # Default, GitHub-friendly
+mr-version changelog --output text      # Plain text
+mr-version changelog --output json      # Structured JSON
+
+# With repository URL for clickable links
+mr-version changelog --repo-url https://github.com/owner/repo
+
+# Customize output
+mr-version changelog --include-authors --include-commits --include-issues
+
+# For monorepo - specify project
+mr-version changelog --project MyProject
+```
+
+#### Changelog CLI Options
+
+| Option | Description | Default |
+|--------|-------------|---------|
+| `-r, --repo` | Repository root path | Current directory |
+| `-p, --project` | Project name for monorepo | None |
+| `-f, --from` | Start version tag | Previous tag |
+| `-t, --to` | End version tag | HEAD |
+| `-o, --output` | Output format (markdown, text, json) | `markdown` |
+| `--output-file` | Output file path | Console |
+| `--repo-url` | Repository URL for links | None |
+| `--include-authors` | Include commit authors | `false` |
+| `--include-commits` | Include commit links | `true` |
+| `--include-issues` | Include issue references | `true` |
+| `--include-prs` | Include PR references | `true` |
+| `--group-breaking` | Group breaking changes separately | `true` |
+
+#### Example Changelog Output
+
+**Markdown format:**
+
+```markdown
+## v2.3.0 (2025-11-20)
+
+**Minor release** - 15 commit(s) by 4 contributor(s)
+
+### 💥 Breaking Changes
+
+- **api:** remove deprecated endpoints [#42](https://github.com/owner/repo/issues/42) ([abc1234](https://github.com/owner/repo/commit/abc1234))
+  > ⚠️ **BREAKING:** The /v1/users endpoint has been removed. Use /v2/users instead.
+
+### 🚀 Features
+
+- **core:** add conventional commits support ([def5678](https://github.com/owner/repo/commit/def5678))
+- **cli:** add changelog generation (#45) ([ghi9012](https://github.com/owner/repo/commit/ghi9012))
+- **msbuild:** add version bump detection ([jkl3456](https://github.com/owner/repo/commit/jkl3456))
+
+### 🐛 Bug Fixes
+
+- **git:** resolve memory leak in git service #43 ([mno7890](https://github.com/owner/repo/commit/mno7890))
+- **cli:** fix JSON output formatting ([pqr1234](https://github.com/owner/repo/commit/pqr1234))
+
+### ⚡ Performance
+
+- **core:** optimize commit analysis ([stu5678](https://github.com/owner/repo/commit/stu5678))
+
+### 📝 Documentation
+
+- update README with new features ([vwx9012](https://github.com/owner/repo/commit/vwx9012))
+```
+
+**JSON format:**
+
+```json
+{
+  "version": "2.3.0",
+  "previousVersion": "2.2.0",
+  "date": "2025-11-20T10:30:00Z",
+  "projectName": null,
+  "totalCommits": 15,
+  "contributorCount": 4,
+  "contributors": ["Alice", "Bob", "Charlie", "Diana"],
+  "bumpType": "Minor",
+  "sections": [
+    {
+      "title": "Breaking Changes",
+      "emoji": "💥",
+      "order": 1,
+      "entries": [
+        {
+          "commitSha": "abc1234",
+          "type": "feat",
+          "scope": "api",
+          "description": "remove deprecated endpoints",
+          "isBreakingChange": true,
+          "breakingChangeDescription": "The /v1/users endpoint has been removed",
+          "issueReferences": ["42"],
+          "bumpType": "Major"
+        }
+      ]
+    }
+  ]
+}
+```
+
+**Plain text format:**
+
+```
+v2.3.0 (2025-11-20)
+============================================================
+
+MINOR release - 15 commit(s) by 4 contributor(s)
+
+Breaking Changes
+----------------
+
+  * [api] remove deprecated endpoints (#42) (abc1234)
+    WARNING: The /v1/users endpoint has been removed. Use /v2/users instead.
+
+Features
+--------
+
+  * [core] add conventional commits support (def5678)
+  * [cli] add changelog generation (#45) (ghi9012)
+  * [msbuild] add version bump detection (jkl3456)
+
+Bug Fixes
+---------
+
+  * [git] resolve memory leak in git service (#43) (mno7890)
+  * [cli] fix JSON output formatting (pqr1234)
+```
+
 ## Report Formats
 
 ### Dependency Graph Visualization
@@ -549,6 +693,40 @@ commitConventions:
     - "style:"
     - "test:"
     - "ci:"
+
+# ✨ Changelog generation configuration
+changelog:
+  enabled: true
+  outputFormat: markdown
+  outputPath: CHANGELOG.md
+  repositoryUrl: https://github.com/owner/repo
+  includeCommitLinks: true
+  includeIssueReferences: true
+  includePullRequestReferences: true
+  includeAuthors: false
+  groupBreakingChanges: true
+  includeScopes: true
+  sections:
+    - title: "Breaking Changes"
+      emoji: "💥"
+      commitTypes: ["breaking"]
+      order: 1
+    - title: "Features"
+      emoji: "🚀"
+      commitTypes: ["feat", "feature"]
+      order: 2
+    - title: "Bug Fixes"
+      emoji: "🐛"
+      commitTypes: ["fix", "bugfix"]
+      order: 3
+    - title: "Performance"
+      emoji: "⚡"
+      commitTypes: ["perf"]
+      order: 4
+    - title: "Documentation"
+      emoji: "📝"
+      commitTypes: ["docs"]
+      order: 5
 
 # Project-specific overrides
 projects:
