@@ -55,6 +55,11 @@ public class VersionConfig
     /// Change detection configuration for file pattern matching
     /// </summary>
     public ChangeDetectionConfig ChangeDetection { get; set; }
+
+    /// <summary>
+    /// Version policy configuration for coordinating versions across projects
+    /// </summary>
+    public VersionPolicyConfig VersionPolicy { get; set; }
 }
 
 /// <summary>

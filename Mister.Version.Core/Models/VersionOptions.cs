@@ -60,4 +60,9 @@ public class VersionOptions
     /// Changes in these directories will trigger version bumps according to file pattern rules.
     /// </summary>
     public List<string> AdditionalMonitorPaths { get; set; } = new List<string>();
+
+    /// <summary>
+    /// Version policy configuration for coordinating versions across projects
+    /// </summary>
+    public VersionPolicyConfig VersionPolicy { get; set; }
 }
