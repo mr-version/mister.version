@@ -2,61 +2,135 @@
 
 This directory contains a comprehensive suite of GitHub Actions for integrating Mister.Version into your CI/CD workflows, as well as testing actions for validating the tool across different platforms.
 
+## Architecture
+
+The production actions are implemented as **separate repositories** and referenced as **git submodules** in this directory. This architecture provides:
+
+- **Independent versioning**: Each action can be versioned and released separately
+- **Modular development**: Actions can be developed and tested independently
+- **Marketplace ready**: Each action can be published to GitHub Actions Marketplace
+- **Better separation**: Clear boundaries between action responsibilities
+
+### Action Repositories
+
+All production actions are hosted under the `mr-version` GitHub organization:
+
+| Action | Repository | Status |
+|--------|------------|--------|
+| **setup** | [mr-version/setup](https://github.com/mr-version/setup) | ✅ Implemented (TypeScript) |
+| **calculate** | [mr-version/calculate](https://github.com/mr-version/calculate) | ✅ Implemented (TypeScript) |
+| **report** | [mr-version/report](https://github.com/mr-version/report) | ✅ Implemented (TypeScript) |
+| **tag** | [mr-version/tag](https://github.com/mr-version/tag) | ✅ Implemented (TypeScript) |
+| **release** | [mr-version/release](https://github.com/mr-version/release) | ✅ Implemented (Composite) |
+| **changelog** | [mr-version/changelog](https://github.com/mr-version/changelog) | 🚧 Placeholder (needs implementation) |
+
+### Submodule Configuration
+
+The actions are referenced in `.gitmodules` with HTTPS URLs for broad accessibility:
+
+```
+[submodule ".github/actions/setup"]
+    path = .github/actions/setup
+    url = https://github.com/mr-version/setup.git
+```
+
+To initialize submodules after cloning:
+```bash
+git submodule update --init --recursive
+```
+
 ## Production Actions
 
-### 1. `setup-mister-version`
+> **Note:** These actions can be referenced using either the submodule path (`./.github/actions/setup`) when used within this repository, or the GitHub repository reference (`mr-version/setup@main`) when used externally.
+
+### 1. **setup** - Install Mister.Version CLI
+**Status:** ✅ Implemented
+**Repository:** [mr-version/setup](https://github.com/mr-version/setup)
+
 Sets up the Mister.Version CLI tool in your GitHub Actions workflow.
 
-**Basic Usage:**
+**Usage:**
 ```yaml
-- uses: ./.github/actions/setup-mister-version
+# Reference via submodule (within this repo)
+- uses: ./.github/actions/setup
+  with:
+    version: 'latest'
+
+# Reference via GitHub (external repos)
+- uses: mr-version/setup@main
   with:
     version: 'latest'
 ```
 
-### 2. `mister-version-calculate`
+### 2. **calculate** - Calculate Versions
+**Status:** ✅ Implemented
+**Repository:** [mr-version/calculate](https://github.com/mr-version/calculate)
+
 Calculates versions for multiple projects based on changes and dependencies.
 
-**Basic Usage:**
+**Usage:**
 ```yaml
-- uses: ./.github/actions/mister-version-calculate
+- uses: ./.github/actions/calculate
   with:
     projects: '**/*.csproj'
     prerelease-type: 'beta'
 ```
 
-### 3. `mister-version-report`
+### 3. **report** - Generate Version Reports
+**Status:** ✅ Implemented
+**Repository:** [mr-version/report](https://github.com/mr-version/report)
+
 Generates comprehensive version reports in multiple formats.
 
-**Basic Usage:**
+**Usage:**
 ```yaml
-- uses: ./.github/actions/mister-version-report
+- uses: ./.github/actions/report
   with:
     output-format: 'markdown'
     post-to-pr: true
 ```
 
-### 4. `mister-version-tag`
+### 4. **tag** - Create Git Tags
+**Status:** ✅ Implemented
+**Repository:** [mr-version/tag](https://github.com/mr-version/tag)
+
 Creates git tags for projects with version changes.
 
-**Basic Usage:**
+**Usage:**
 ```yaml
-- uses: ./.github/actions/mister-version-tag
+- uses: ./.github/actions/tag
   with:
     create-global-tags: true
     global-tag-strategy: 'major-only'
 ```
 
-### 5. `mister-version-release` (Composite)
-Complete release workflow that orchestrates all the above actions.
+### 5. **release** - Complete Release Workflow
+**Status:** ✅ Implemented (Composite Action)
+**Repository:** [mr-version/release](https://github.com/mr-version/release)
 
-**Basic Usage:**
+Complete release workflow that orchestrates all the above actions: setup → calculate → tag → report.
+
+**Usage:**
 ```yaml
-- uses: ./.github/actions/mister-version-release
+- uses: ./.github/actions/release
   with:
     create-tags: true
     generate-report: true
     post-report-to-pr: true
+```
+
+### 6. **changelog** - Generate Changelogs
+**Status:** 🚧 Placeholder (TypeScript wrapper needed)
+**Repository:** [mr-version/changelog](https://github.com/mr-version/changelog)
+
+Will generate changelogs from conventional commits. Currently a placeholder repository.
+
+**Planned Usage:**
+```yaml
+- uses: ./.github/actions/changelog
+  with:
+    output-format: 'markdown'
+    output-file: 'CHANGELOG.md'
 ```
 
 ## Testing Actions
@@ -89,6 +163,8 @@ Tests the versioning tool on Windows platforms using PowerShell scripts.
 
 ## Complete Workflow Examples
 
+> **Note:** These examples use submodule references (`./.github/actions/...`). For external repositories, replace with `mr-version/action-name@main`.
+
 ### Basic PR Validation
 ```yaml
 name: Version Check
@@ -103,8 +179,9 @@ jobs:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
-      
-      - uses: ./.github/actions/mister-version-release
+          submodules: recursive  # Initialize action submodules
+
+      - uses: ./.github/actions/release
         with:
           create-tags: false
           generate-report: true
@@ -126,8 +203,9 @@ jobs:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
-      
-      - uses: ./.github/actions/mister-version-release
+          submodules: recursive  # Initialize action submodules
+
+      - uses: ./.github/actions/release
         with:
           create-tags: true
           create-global-tags: true
@@ -158,32 +236,33 @@ jobs:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
-      
+          submodules: recursive  # Initialize action submodules
+
       - name: Setup Mister.Version
-        uses: ./.github/actions/setup-mister-version
-      
+        uses: ./.github/actions/setup
+
       - name: Calculate Versions
         id: versions
-        uses: ./.github/actions/mister-version-calculate
+        uses: ./.github/actions/calculate
         with:
           projects: 'src/**/*.csproj'
           prerelease-type: ${{ github.event.inputs.prerelease-type }}
           include-test-projects: false
-      
+
       - name: Create Tags
         if: steps.versions.outputs.has-changes == 'true'
-        uses: ./.github/actions/mister-version-tag
+        uses: ./.github/actions/tag
         with:
           projects: 'src/**/*.csproj'
           include-test-projects: false
           only-changed: true
       
       - name: Generate Report
-        uses: ./.github/actions/mister-version-report
+        uses: ./.github/actions/report
         with:
           output-format: 'json'
           output-file: 'version-report.json'
-      
+
       - name: Upload Report
         uses: actions/upload-artifact@v4
         with:
@@ -205,19 +284,20 @@ jobs:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
-      
-      - uses: ./.github/actions/setup-mister-version
-      
+          submodules: recursive  # Initialize action submodules
+
+      - uses: ./.github/actions/setup
+
       - name: Generate Markdown Report
-        uses: ./.github/actions/mister-version-report
+        uses: ./.github/actions/report
         with:
           output-format: 'markdown'
           output-file: 'reports/weekly-report.md'
           include-test-projects: true
           include-non-packable: true
-      
+
       - name: Generate CSV Report
-        uses: ./.github/actions/mister-version-report
+        uses: ./.github/actions/report
         with:
           output-format: 'csv'
           output-file: 'reports/weekly-report.csv'
@@ -225,7 +305,7 @@ jobs:
           include-non-packable: true
       
       - name: Generate JSON Report
-        uses: ./.github/actions/mister-version-report
+        uses: ./.github/actions/report
         with:
           output-format: 'json'
           output-file: 'reports/weekly-report.json'
@@ -293,20 +373,22 @@ The testing actions run comprehensive test scenarios:
 
 ## Best Practices
 
-1. **Always fetch full history**: Use `fetch-depth: 0` in checkout action for accurate version calculation
-2. **Use appropriate permissions**: Ensure your token has necessary permissions for tag creation and PR comments
-3. **Filter projects wisely**: Use filtering options to focus on relevant projects
-4. **Use dry-run for testing**: Test your workflow with `dry-run: true` before production use
-5. **Sign important tags**: Use `sign-tags: true` for release tags in production
+1. **Initialize submodules**: Use `submodules: recursive` in checkout action to initialize action submodules (when using local references)
+2. **Always fetch full history**: Use `fetch-depth: 0` in checkout action for accurate version calculation
+3. **Use appropriate permissions**: Ensure your token has necessary permissions for tag creation and PR comments
+4. **Filter projects wisely**: Use filtering options to focus on relevant projects
+5. **Use dry-run for testing**: Test your workflow with `dry-run: true` before production use
+6. **Sign important tags**: Use `sign-tags: true` for release tags in production
 
 ## Troubleshooting
 
 ### Common Issues
 
-1. **"No project files found"**: Check your `projects` glob pattern
-2. **"Permission denied"**: Ensure GitHub token has appropriate permissions
-3. **"Tag already exists"**: Use `fail-on-existing-tags: false` or clean up existing tags
-4. **"No changes detected"**: Verify that you have commits since the last tag
+1. **"Action not found"**: Ensure you've initialized submodules with `submodules: recursive` in your checkout action, or use the GitHub repository reference (`mr-version/action-name@main`) instead
+2. **"No project files found"**: Check your `projects` glob pattern
+3. **"Permission denied"**: Ensure GitHub token has appropriate permissions
+4. **"Tag already exists"**: Use `fail-on-existing-tags: false` or clean up existing tags
+5. **"No changes detected"**: Verify that you have commits since the last tag
 
 ### Debug Mode
 Enable Actions debug logging by setting the `ACTIONS_STEP_DEBUG` secret to `true` in your repository.
@@ -324,9 +406,22 @@ mr-version version --repo . --project MyProject/MyProject.csproj --json
 mr-version report --repo . --output markdown
 ```
 
-## Adding New Tests
+## Contributing
 
-To add a new test scenario:
+### Contributing to Production Actions
+
+The production actions are maintained in **separate repositories**. To contribute:
+
+1. Clone the specific action repository (e.g., `git clone https://github.com/mr-version/setup.git`)
+2. Update the TypeScript source files in the action's `src/` directory
+3. Run `npm install` and `npm run build` to compile the action
+4. Test with example workflows
+5. Submit a pull request to the specific action repository
+6. After merging, update the submodule reference in this repository if needed
+
+### Contributing to Testing Actions
+
+The testing actions (test-versioning-linux, test-versioning-windows) are maintained in this repository:
 
 1. Add the test function to both `test-functions.sh` and `test-functions.ps1`
 2. Add a new step in both `action.yml` files to call your test
@@ -334,21 +429,26 @@ To add a new test scenario:
    - Bash: `test_scenario_name`
    - PowerShell: `Test-ScenarioName`
 
-## Contributing
+### Updating Submodule References
 
-When modifying these actions:
+To update a submodule to the latest version from its repository:
 
-1. Update the TypeScript source files in each action's `src/` directory
-2. Run `npm run build` to compile the actions
-3. Test with the example workflows
-4. Update this documentation if needed
+```bash
+cd .github/actions/<action-name>
+git pull origin main
+cd ../../..
+git add .github/actions/<action-name>
+git commit -m "Update <action-name> submodule to latest version"
+```
 
-## Architecture
+## Technical Architecture
 
 ### Production Actions
+- **Separate repositories**: Each action is versioned independently
+- **Referenced as submodules**: Using HTTPS URLs for broad accessibility
 - **TypeScript-based**: Modern Node.js actions with proper type safety
 - **Modular design**: Each action has a specific responsibility
-- **Composable**: Actions can be used individually or together
+- **Composable**: Actions can be used individually or together (via the release composite action)
 - **Error handling**: Comprehensive error handling and reporting
 
 ### Testing Actions
