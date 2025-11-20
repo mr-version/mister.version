@@ -18,6 +18,22 @@ namespace Mister.Version.Core.Services
 
     public class ProjectAnalyzer : IProjectAnalyzer
     {
+        // Regex patterns for project file parsing
+        private const string PATTERN_PROJECT_REFERENCE = @"<ProjectReference\s+Include\s*=\s*""([^""]+)""";
+        private const string PATTERN_IS_TEST_PROJECT = @"<IsTestProject\s*>\s*true\s*</IsTestProject>";
+        private const string PATTERN_IS_PACKABLE = @"<IsPackable\s*>\s*(true|false)\s*</IsPackable>";
+        private const string PATTERN_PACKAGE_REFERENCE = @"<PackageReference[^>]+Include\s*=\s*""{0}""";
+
+        // Test framework names
+        private static readonly string[] TEST_FRAMEWORKS = new[]
+        {
+            "Microsoft.NET.Test.Sdk",
+            "xunit",
+            "NUnit",
+            "MSTest",
+            "MSTest.TestFramework"
+        };
+
         private readonly IVersionCalculator _versionCalculator;
         private readonly IGitService _gitService;
         private readonly Action<string, string> _logger;
@@ -168,8 +184,14 @@ namespace Mister.Version.Core.Services
                 var projectContent = File.ReadAllText(projectPath);
                 var projectDir = Path.GetDirectoryName(projectPath);
 
+                if (string.IsNullOrEmpty(projectDir))
+                {
+                    _logger("Error", $"Cannot determine directory for project: {projectPath}");
+                    return dependencies;
+                }
+
                 // Find ProjectReference elements
-                var matches = Regex.Matches(projectContent, @"<ProjectReference\s+Include\s*=\s*""([^""]+)""", RegexOptions.IgnoreCase);
+                var matches = Regex.Matches(projectContent, PATTERN_PROJECT_REFERENCE, RegexOptions.IgnoreCase);
                 
                 foreach (Match match in matches)
                 {
@@ -346,30 +368,20 @@ namespace Mister.Version.Core.Services
         private bool IsTestProject(string projectContent)
         {
             // Check for explicit test project marker
-            if (Regex.IsMatch(projectContent, @"<IsTestProject\s*>\s*true\s*</IsTestProject>", RegexOptions.IgnoreCase))
+            if (Regex.IsMatch(projectContent, PATTERN_IS_TEST_PROJECT, RegexOptions.IgnoreCase))
             {
                 return true;
             }
 
             // Check for common test frameworks
-            var testFrameworks = new[]
-            {
-                "Microsoft.NET.Test.Sdk",
-                "xunit",
-                "NUnit",
-                "MSTest",
-                "nunit",
-                "MSTest.TestFramework"
-            };
-
-            return testFrameworks.Any(framework => 
-                Regex.IsMatch(projectContent, $@"<PackageReference[^>]+Include\s*=\s*""{Regex.Escape(framework)}""", RegexOptions.IgnoreCase));
+            return TEST_FRAMEWORKS.Any(framework =>
+                Regex.IsMatch(projectContent, string.Format(PATTERN_PACKAGE_REFERENCE, Regex.Escape(framework)), RegexOptions.IgnoreCase));
         }
 
         private bool IsPackable(string projectContent)
         {
             // Check for explicit IsPackable setting
-            var isPackableMatch = Regex.Match(projectContent, @"<IsPackable\s*>\s*(true|false)\s*</IsPackable>", RegexOptions.IgnoreCase);
+            var isPackableMatch = Regex.Match(projectContent, PATTERN_IS_PACKABLE, RegexOptions.IgnoreCase);
             if (isPackableMatch.Success)
             {
                 return string.Equals(isPackableMatch.Groups[1].Value, "true", StringComparison.OrdinalIgnoreCase);
