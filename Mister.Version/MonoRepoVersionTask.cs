@@ -290,6 +290,53 @@ public class MonoRepoVersionTask : Task
     /// </summary>
     public string CalVerSeparator { get; set; } = ".";
 
+    // ========== Validation Constraints Properties ==========
+
+    /// <summary>
+    /// Enable version validation constraints
+    /// </summary>
+    public bool ValidationEnabled { get; set; } = false;
+
+    /// <summary>
+    /// Minimum version that cannot be violated
+    /// </summary>
+    public string MinimumVersion { get; set; }
+
+    /// <summary>
+    /// Maximum version that cannot be exceeded
+    /// </summary>
+    public string MaximumVersion { get; set; }
+
+    /// <summary>
+    /// Allowed version range pattern (e.g., "3.x.x", "2.1.x")
+    /// </summary>
+    public string AllowedVersionRange { get; set; }
+
+    /// <summary>
+    /// Validate dependency version compatibility
+    /// </summary>
+    public bool ValidateDependencyVersions { get; set; } = false;
+
+    /// <summary>
+    /// Require explicit approval for major version bumps
+    /// </summary>
+    public bool RequireMajorApproval { get; set; } = false;
+
+    /// <summary>
+    /// Semicolon-separated list of blocked/forbidden versions
+    /// </summary>
+    public string BlockedVersions { get; set; }
+
+    /// <summary>
+    /// Require monotonically increasing versions
+    /// </summary>
+    public bool RequireMonotonicIncrease { get; set; } = true;
+
+    /// <summary>
+    /// Whether major version bump has been explicitly approved
+    /// </summary>
+    public bool MajorVersionApproved { get; set; } = false;
+
     /// <summary>
     /// Gets or creates the static cache for the current repository
     /// </summary>
@@ -417,7 +464,16 @@ public class MonoRepoVersionTask : Task
                 CalVerFormat = CalVerFormat,
                 CalVerStartDate = CalVerStartDate,
                 CalVerResetPatch = CalVerResetPatch,
-                CalVerSeparator = CalVerSeparator
+                CalVerSeparator = CalVerSeparator,
+                ValidationEnabled = ValidationEnabled,
+                MinimumVersion = MinimumVersion,
+                MaximumVersion = MaximumVersion,
+                AllowedVersionRange = AllowedVersionRange,
+                ValidateDependencyVersions = ValidateDependencyVersions,
+                RequireMajorApproval = RequireMajorApproval,
+                BlockedVersions = BlockedVersions,
+                RequireMonotonicIncrease = RequireMonotonicIncrease,
+                MajorVersionApproved = MajorVersionApproved
             };
 
             // Calculate version

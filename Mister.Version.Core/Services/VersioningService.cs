@@ -210,7 +210,18 @@ namespace Mister.Version.Core.Services
                         StartDate = request.CalVerStartDate,
                         ResetPatchPeriodically = request.CalVerResetPatch,
                         Separator = request.CalVerSeparator ?? "."
-                    }
+                    },
+                    Constraints = request.ValidationEnabled ? new VersionConstraints
+                    {
+                        Enabled = request.ValidationEnabled,
+                        MinimumVersion = request.MinimumVersion,
+                        MaximumVersion = request.MaximumVersion,
+                        AllowedRange = request.AllowedVersionRange,
+                        ValidateDependencyVersions = request.ValidateDependencyVersions,
+                        RequireMajorApproval = request.RequireMajorApproval,
+                        BlockedVersions = ParsePatternString(request.BlockedVersions),
+                        RequireMonotonicIncrease = request.RequireMonotonicIncrease
+                    } : null
                 };
 
                 // Calculate version
@@ -361,6 +372,17 @@ namespace Mister.Version.Core.Services
         public string CalVerStartDate { get; set; }
         public bool CalVerResetPatch { get; set; } = true;
         public string CalVerSeparator { get; set; } = ".";
+
+        // Validation constraints configuration
+        public bool ValidationEnabled { get; set; } = false;
+        public string MinimumVersion { get; set; }
+        public string MaximumVersion { get; set; }
+        public string AllowedVersionRange { get; set; }
+        public bool ValidateDependencyVersions { get; set; } = false;
+        public bool RequireMajorApproval { get; set; } = false;
+        public string BlockedVersions { get; set; }
+        public bool RequireMonotonicIncrease { get; set; } = true;
+        public bool MajorVersionApproved { get; set; } = false;
     }
 
     /// <summary>

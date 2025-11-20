@@ -919,6 +919,25 @@ namespace Mister.Version.CLI
                             shouldIgnore = c.ShouldIgnore,
                             reason = c.Reason
                         }).ToList()
+                    } : null,
+                    validation = projectInfo.Version?.ValidationResult != null ? new
+                    {
+                        isValid = projectInfo.Version.ValidationResult.IsValid,
+                        summary = projectInfo.Version.ValidationResult.Summary,
+                        errors = projectInfo.Version.ValidationResult.Errors?.Select(e => new
+                        {
+                            message = e.Message,
+                            constraintName = e.ConstraintName,
+                            expected = e.Expected,
+                            actual = e.Actual,
+                            details = e.Details
+                        }).ToList(),
+                        warnings = projectInfo.Version.ValidationResult.Warnings?.Select(w => new
+                        {
+                            message = w.Message,
+                            ruleName = w.RuleName,
+                            details = w.Details
+                        }).ToList()
                     } : null
                 };
 
@@ -1010,6 +1029,49 @@ namespace Mister.Version.CLI
                             if (ignoredCommits.Any())
                             {
                                 Console.WriteLine($"  Ignored commits: {ignoredCommits.Count} ({string.Join(", ", ignoredCommits.GroupBy(c => c.CommitType).Select(g => $"{g.Key}: {g.Count()}"))})");
+                            }
+                        }
+                    }
+
+                    // Show validation results if validation was performed
+                    if (projectInfo.Version.ValidationResult != null)
+                    {
+                        Console.WriteLine();
+                        Console.WriteLine("Version Validation:");
+                        Console.WriteLine($"  Status: {(projectInfo.Version.ValidationResult.IsValid ? "✓ PASSED" : "✗ FAILED")}");
+
+                        if (projectInfo.Version.ValidationResult.Errors != null && projectInfo.Version.ValidationResult.Errors.Count > 0)
+                        {
+                            Console.WriteLine($"  Errors: {projectInfo.Version.ValidationResult.Errors.Count}");
+                            foreach (var error in projectInfo.Version.ValidationResult.Errors)
+                            {
+                                Console.WriteLine($"    ✗ {error.Message}");
+                                if (!string.IsNullOrEmpty(error.ConstraintName))
+                                {
+                                    Console.WriteLine($"      Constraint: {error.ConstraintName}");
+                                }
+                                if (!string.IsNullOrEmpty(error.Expected) && !string.IsNullOrEmpty(error.Actual))
+                                {
+                                    Console.WriteLine($"      Expected: {error.Expected}");
+                                    Console.WriteLine($"      Actual: {error.Actual}");
+                                }
+                                if (!string.IsNullOrEmpty(error.Details))
+                                {
+                                    Console.WriteLine($"      Details: {error.Details}");
+                                }
+                            }
+                        }
+
+                        if (projectInfo.Version.ValidationResult.Warnings != null && projectInfo.Version.ValidationResult.Warnings.Count > 0)
+                        {
+                            Console.WriteLine($"  Warnings: {projectInfo.Version.ValidationResult.Warnings.Count}");
+                            foreach (var warning in projectInfo.Version.ValidationResult.Warnings)
+                            {
+                                Console.WriteLine($"    ⚠ {warning.Message}");
+                                if (!string.IsNullOrEmpty(warning.Details))
+                                {
+                                    Console.WriteLine($"      Details: {warning.Details}");
+                                }
                             }
                         }
                     }

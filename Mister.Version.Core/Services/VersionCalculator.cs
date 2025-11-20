@@ -19,13 +19,15 @@ namespace Mister.Version.Core.Services
         private readonly IGitService _gitService;
         private readonly ICommitAnalyzer _commitAnalyzer;
         private readonly ICalVerCalculator _calVerCalculator;
+        private readonly IVersionValidator _versionValidator;
         private readonly Action<string, string> _logger;
 
-        public VersionCalculator(IGitService gitService, ICommitAnalyzer commitAnalyzer = null, ICalVerCalculator calVerCalculator = null, Action<string, string> logger = null)
+        public VersionCalculator(IGitService gitService, ICommitAnalyzer commitAnalyzer = null, ICalVerCalculator calVerCalculator = null, IVersionValidator versionValidator = null, Action<string, string> logger = null)
         {
             _gitService = gitService ?? throw new ArgumentNullException(nameof(gitService));
             _commitAnalyzer = commitAnalyzer ?? new ConventionalCommitAnalyzer(logger);
             _calVerCalculator = calVerCalculator ?? new CalVerCalculator();
+            _versionValidator = versionValidator ?? new VersionValidator();
             _logger = logger ?? ((level, message) => { }); // Default no-op logger
         }
 
@@ -158,10 +160,41 @@ namespace Mister.Version.Core.Services
             }
 
             _logger("Info", $"Calculated version: {result.Version} for {options.ProjectName}");
-            
+
             if (result.VersionChanged)
             {
                 _logger("Info", $"Version changed: {result.ChangeReason}");
+            }
+
+            // Validate the calculated version if constraints are configured
+            if (options.Constraints != null && options.Constraints.Enabled)
+            {
+                var bumpType = result.BumpType ?? VersionBumpType.Patch;
+                var validationResult = _versionValidator.ValidateVersion(
+                    result.Version,
+                    result.PreviousVersion,
+                    options.Constraints,
+                    bumpType,
+                    majorApproved: false); // TODO: Add majorApproved parameter to options if needed
+
+                result.ValidationResult = validationResult;
+
+                if (!validationResult.IsValid)
+                {
+                    _logger("Error", $"Version validation failed: {validationResult.Summary}");
+                    foreach (var error in validationResult.Errors)
+                    {
+                        _logger("Error", $"  - {error.Message}");
+                    }
+                }
+                else if (validationResult.Warnings.Any())
+                {
+                    _logger("Warning", $"Version validation warnings:");
+                    foreach (var warning in validationResult.Warnings)
+                    {
+                        _logger("Warning", $"  - {warning.Message}");
+                    }
+                }
             }
 
             return result;
