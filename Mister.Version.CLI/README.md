@@ -1,6 +1,6 @@
 # Mister.Version CLI
 
-![version](https://img.shields.io/badge/version-1.1.0-blue.svg)
+![version](https://img.shields.io/badge/version-3.0.0-blue.svg)
 ![.NET](https://img.shields.io/badge/.NET-8.0-purple.svg)
 ![License](https://img.shields.io/badge/license-MIT-green.svg)
 
@@ -8,24 +8,26 @@ Command-line tool for analyzing, reporting, and managing versions across your .N
 
 ## Features
 
-- Generate version reports in multiple formats (text, JSON, CSV, dependency graphs)
-- Calculate versions for individual projects
-- Visualize dependency graphs (Mermaid, DOT, ASCII)
-- Branch-aware versioning with detailed change tracking
+- **Version Reports**: Generate reports in multiple formats (text, JSON, CSV, dependency graphs)
+- **Version Calculation**: Calculate versions for individual projects with detailed reasoning
+- **Changelog Generation**: Automatically generate changelogs from conventional commits
+- **Dependency Visualization**: Visualize dependency graphs (Mermaid, DOT, ASCII)
+- **Conventional Commits**: Smart semantic versioning based on commit message conventions
+- **Branch-Aware Versioning**: Different strategies for main, dev, release, and feature branches
 
 ## Installation
 
 ### Global Tool
 
 ```bash
-dotnet tool install --global Mister.Version.CLI --version 1.1.0
+dotnet tool install --global Mister.Version.CLI --version 3.0.0
 ```
 
 ### Local Tool
 
 ```bash
 dotnet new tool-manifest  # if you don't have one already
-dotnet tool install --local Mister.Version.CLI --version 1.1.0
+dotnet tool install --local Mister.Version.CLI --version 3.0.0
 ```
 
 ## Quick Reference
@@ -63,6 +65,24 @@ mr-version version -p src/MyProject/MyProject.csproj -d
 
 # JSON output
 mr-version version -p src/MyProject/MyProject.csproj -j
+```
+
+### Generate Changelog
+
+```bash
+# Generate changelog from last tag to HEAD
+mr-version changelog
+
+# Generate for specific version range
+mr-version changelog --from 2.2.0 --to 2.3.0
+
+# Output to file
+mr-version changelog --output-file CHANGELOG.md
+
+# Different formats
+mr-version changelog --output markdown  # Markdown (default)
+mr-version changelog --output text      # Plain text
+mr-version changelog --output json      # JSON
 ```
 
 ### Common Options
