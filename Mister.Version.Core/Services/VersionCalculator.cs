@@ -186,8 +186,12 @@ namespace Mister.Version.Core.Services
             return globalTag;
         }
 
-        private VersionResult CalculateNewVersion(VersionTag baseVersionTag, VersionTag projectTag, 
-            VersionTag globalTag, string projectPath, string projectName, BranchType branchType, 
+        /// <summary>
+        /// Calculates the new version for a project based on changes and branch type.
+        /// This is the main orchestration method that coordinates version calculation.
+        /// </summary>
+        private VersionResult CalculateNewVersion(VersionTag baseVersionTag, VersionTag projectTag,
+            VersionTag globalTag, string projectPath, string projectName, BranchType branchType,
             string branchName, VersionOptions options)
         {
             var newVersion = baseVersionTag.SemVer.Clone();
@@ -200,50 +204,99 @@ namespace Mister.Version.Core.Services
             };
 
             // Handle forced version - overrides all other calculations
-            if (!string.IsNullOrEmpty(options.ForceVersion))
+            var forcedResult = TryHandleForcedVersion(options);
+            if (forcedResult != null)
             {
-                var forcedSemVer = _gitService.ParseSemVer(options.ForceVersion);
-                if (forcedSemVer != null)
-                {
-                    result.SemVer = forcedSemVer;
-                    result.VersionChanged = true;
-                    result.ChangeReason = $"Forced version: {options.ForceVersion}";
-                    _logger("Debug", $"Using forced version: {options.ForceVersion}");
-                    return result;
-                }
-                else
-                {
-                    _logger("Warning", $"Invalid forced version format: {options.ForceVersion}. Using calculated version instead.");
-                }
+                return forcedResult;
             }
 
-            // Check if the project has any changes since the base tag
+            // Determine if project has changes and handle initial repository scenarios
+            var changeDetection = DetermineChangeStatus(baseVersionTag, projectPath, projectName, options, result);
+            if (changeDetection.EarlyReturn != null)
+            {
+                return changeDetection.EarlyReturn;
+            }
+
+            bool hasChanges = changeDetection.HasChanges;
+            bool isInitialRepository = changeDetection.IsInitialRepository;
+            baseVersionTag = changeDetection.UpdatedBaseVersionTag ?? baseVersionTag;
+
+            // Populate commit information for current HEAD
+            PopulateCommitInfo(result);
+
+            if (hasChanges)
+            {
+                var earlyReturn = HandleChangesDetected(baseVersionTag, newVersion, branchType, branchName,
+                    options, result, isInitialRepository);
+                if (earlyReturn != null)
+                {
+                    return earlyReturn;
+                }
+            }
+            else
+            {
+                HandleNoChangesDetected(projectTag, globalTag, baseVersionTag, newVersion,
+                    branchType, result);
+            }
+
+            return result;
+        }
+
+        /// <summary>
+        /// Result of change detection including any early return values
+        /// </summary>
+        private class ChangeDetectionResult
+        {
+            public bool HasChanges { get; set; }
+            public bool IsInitialRepository { get; set; }
+            public VersionTag UpdatedBaseVersionTag { get; set; }
+            public VersionResult EarlyReturn { get; set; }
+        }
+
+        /// <summary>
+        /// Attempts to handle forced version if specified in options.
+        /// Returns a VersionResult if forced version is valid, null otherwise.
+        /// </summary>
+        private VersionResult TryHandleForcedVersion(VersionOptions options)
+        {
+            if (string.IsNullOrEmpty(options.ForceVersion))
+                return null;
+
+            var forcedSemVer = _gitService.ParseSemVer(options.ForceVersion);
+            if (forcedSemVer != null)
+            {
+                _logger("Debug", $"Using forced version: {options.ForceVersion}");
+                return new VersionResult
+                {
+                    SemVer = forcedSemVer,
+                    VersionChanged = true,
+                    ChangeReason = $"Forced version: {options.ForceVersion}"
+                };
+            }
+
+            _logger("Warning", $"Invalid forced version format: {options.ForceVersion}. Using calculated version instead.");
+            return null;
+        }
+
+        /// <summary>
+        /// Determines whether the project has changes since the base version.
+        /// Handles complex scenarios including initial repositories, config-based versions,
+        /// and existing tags. May return an early VersionResult in some cases.
+        /// </summary>
+        private ChangeDetectionResult DetermineChangeStatus(VersionTag baseVersionTag, string projectPath,
+            string projectName, VersionOptions options, VersionResult result)
+        {
             bool hasChanges = false;
             bool isInitialRepository = baseVersionTag.Commit == null;
-            
+            VersionTag updatedBaseVersionTag = null;
+
             // If using config baseVersion but repository has commits, it's not truly an initial repository
             // but we should NOT auto-increment - the first change should use the base version directly
             if (isInitialRepository && !string.IsNullOrEmpty(options.BaseVersion))
             {
-                // Check if there are any commits in the repository
-                try
-                {
-                    var head = _gitService.Repository.Head;
-                    var hasCommits = head?.Tip != null;
-                    if (hasCommits)
-                    {
-                        isInitialRepository = false;
-                        // Don't set hasChanges = true here! 
-                        // Let the normal change detection determine if there are changes
-                        _logger("Debug", "Config baseVersion with existing commits: treating as new release cycle");
-                    }
-                }
-                catch
-                {
-                    // If we can't check commits, fall back to original logic
-                }
+                isInitialRepository = CheckIfTrulyInitialRepository(isInitialRepository);
             }
-            
+
             if (isInitialRepository)
             {
                 // For initial repository with no tags, always consider it as having changes
@@ -252,198 +305,329 @@ namespace Mister.Version.Core.Services
             }
             else if (baseVersionTag.Commit == null && !string.IsNullOrEmpty(options.BaseVersion))
             {
-                // Using config baseVersion - check if this version already exists as a tag
-                var baseVersionString = baseVersionTag.SemVer.ToVersionString();
-                var tagName = $"{options.TagPrefix}{baseVersionString}";
-                
-                if (_gitService.TagExists(tagName))
+                // Using config baseVersion - complex change detection logic
+                var configResult = HandleConfigBasedVersionChanges(baseVersionTag, projectPath, projectName,
+                    options, result);
+                if (configResult.EarlyReturn != null)
                 {
-                    // The base version has already been used (tagged)
-                    // Find the actual tag and use it as the base for increments
-                    var existingTag = _gitService.Repository.Tags[tagName];
-                    if (existingTag != null)
+                    return new ChangeDetectionResult
                     {
-                        baseVersionTag = new VersionTag
-                        {
-                            Tag = existingTag,
-                            SemVer = baseVersionTag.SemVer,
-                            Commit = existingTag.Target as LibGit2Sharp.Commit,
-                            IsGlobal = true
-                        };
-                        _logger("Debug", $"Found existing tag for base version {baseVersionString}, using it for change detection");
-                        // Now let normal change detection work with the actual tag commit
-                        hasChanges = _gitService.ProjectHasChangedSinceTag(baseVersionTag.Commit, projectPath, 
-                            options.Dependencies, options.RepoRoot, options.Debug);
-                    }
-                    else
-                    {
-                        hasChanges = true;
-                        _logger("Debug", $"Base version {baseVersionString} tag name exists but couldn't find tag object");
-                    }
+                        EarlyReturn = configResult.EarlyReturn
+                    };
                 }
-                else
-                {
-                    // First use of this base version - check if the project itself has changes
-                    // We need to find the last commit that had a tag (any tag) to use as a baseline
-                    LibGit2Sharp.Commit lastTaggedCommit = null;
-                    
-                    // Try to find the most recent tag commit (global or project-specific)
-                    foreach (var tag in _gitService.Repository.Tags.OrderByDescending(t => (t.Target as LibGit2Sharp.Commit)?.Author.When))
-                    {
-                        var tagCommit = tag.Target as LibGit2Sharp.Commit;
-                        if (tagCommit != null)
-                        {
-                            lastTaggedCommit = tagCommit;
-                            break;
-                        }
-                    }
-                    
-                    if (lastTaggedCommit != null)
-                    {
-                        // Check if the project has changes since the last tagged commit
-                        hasChanges = _gitService.ProjectHasChangedSinceTag(lastTaggedCommit, projectPath, 
-                            options.Dependencies, options.RepoRoot, options.Debug);
-                        _logger("Debug", $"Checking changes since last tag for {projectName}: {hasChanges}");
-                    }
-                    else
-                    {
-                        // No tags at all in the repository - check if there are any commits
-                        var projectHasCommits = false;
-                        try
-                        {
-                            var filter = new LibGit2Sharp.CommitFilter
-                            {
-                                IncludeReachableFrom = _gitService.Repository.Head
-                            };
-                            var commits = _gitService.Repository.Commits.QueryBy(filter);
-                            projectHasCommits = commits.Any();
-                        }
-                        catch
-                        {
-                            projectHasCommits = true; // Assume there are commits if we can't check
-                        }
-                        
-                        if (!projectHasCommits)
-                        {
-                            // Truly initial repository, use base version as-is
-                            result.VersionChanged = true;
-                            result.ChangeReason = "New base version from configuration (initial repository)";
-                            result.SemVer = baseVersionTag.SemVer.Clone();
-                            result.Version = result.SemVer.ToVersionString();
-                            _logger("Debug", $"Using base version from config (initial): {result.Version}");
-                            return result;
-                        }
-                        else
-                        {
-                            // Has commits but no tags - consider it as having changes for initial version
-                            hasChanges = true;
-                            _logger("Debug", $"Repository has commits but no tags, treating as having changes");
-                        }
-                    }
-                }
+                hasChanges = configResult.HasChanges;
+                updatedBaseVersionTag = configResult.UpdatedBaseVersionTag;
             }
             else
             {
-                hasChanges = _gitService.ProjectHasChangedSinceTag(baseVersionTag.Commit, projectPath, 
+                hasChanges = _gitService.ProjectHasChangedSinceTag(baseVersionTag.Commit, projectPath,
                     options.Dependencies, options.RepoRoot, options.Debug);
             }
-            
-            // Get commit information for current HEAD
+
+            return new ChangeDetectionResult
+            {
+                HasChanges = hasChanges,
+                IsInitialRepository = isInitialRepository,
+                UpdatedBaseVersionTag = updatedBaseVersionTag
+            };
+        }
+
+        /// <summary>
+        /// Checks if the repository is truly initial (no commits) even with a config baseVersion
+        /// </summary>
+        private bool CheckIfTrulyInitialRepository(bool currentValue)
+        {
+            try
+            {
+                var head = _gitService.Repository.Head;
+                var hasCommits = head?.Tip != null;
+                if (hasCommits)
+                {
+                    // Don't set hasChanges = true here!
+                    // Let the normal change detection determine if there are changes
+                    _logger("Debug", "Config baseVersion with existing commits: treating as new release cycle");
+                    return false;
+                }
+            }
+            catch
+            {
+                // If we can't check commits, fall back to original logic
+            }
+            return currentValue;
+        }
+
+        /// <summary>
+        /// Handles change detection for config-based versions (versions without commits).
+        /// This includes checking if the config version has been tagged, finding last tagged commit,
+        /// and determining if the project has changes.
+        /// </summary>
+        private ChangeDetectionResult HandleConfigBasedVersionChanges(VersionTag baseVersionTag,
+            string projectPath, string projectName, VersionOptions options, VersionResult result)
+        {
+            var baseVersionString = baseVersionTag.SemVer.ToVersionString();
+            var tagName = $"{options.TagPrefix}{baseVersionString}";
+
+            if (_gitService.TagExists(tagName))
+            {
+                // The base version has already been used (tagged)
+                return HandleExistingConfigVersionTag(baseVersionTag, baseVersionString, tagName,
+                    projectPath, options);
+            }
+            else
+            {
+                // First use of this base version
+                return HandleNewConfigVersion(baseVersionTag, projectPath, projectName, options, result);
+            }
+        }
+
+        /// <summary>
+        /// Handles scenario where config baseVersion already exists as a tag
+        /// </summary>
+        private ChangeDetectionResult HandleExistingConfigVersionTag(VersionTag baseVersionTag,
+            string baseVersionString, string tagName, string projectPath, VersionOptions options)
+        {
+            var existingTag = _gitService.Repository.Tags[tagName];
+            if (existingTag != null)
+            {
+                var updatedTag = new VersionTag
+                {
+                    Tag = existingTag,
+                    SemVer = baseVersionTag.SemVer,
+                    Commit = existingTag.Target as LibGit2Sharp.Commit,
+                    IsGlobal = true
+                };
+                _logger("Debug", $"Found existing tag for base version {baseVersionString}, using it for change detection");
+
+                // Now let normal change detection work with the actual tag commit
+                bool hasChanges = _gitService.ProjectHasChangedSinceTag(updatedTag.Commit, projectPath,
+                    options.Dependencies, options.RepoRoot, options.Debug);
+
+                return new ChangeDetectionResult
+                {
+                    HasChanges = hasChanges,
+                    UpdatedBaseVersionTag = updatedTag
+                };
+            }
+            else
+            {
+                _logger("Debug", $"Base version {baseVersionString} tag name exists but couldn't find tag object");
+                return new ChangeDetectionResult
+                {
+                    HasChanges = true
+                };
+            }
+        }
+
+        /// <summary>
+        /// Handles scenario where config baseVersion is being used for the first time
+        /// </summary>
+        private ChangeDetectionResult HandleNewConfigVersion(VersionTag baseVersionTag, string projectPath,
+            string projectName, VersionOptions options, VersionResult result)
+        {
+            // Find the last commit that had a tag (any tag) to use as a baseline
+            LibGit2Sharp.Commit lastTaggedCommit = FindLastTaggedCommit();
+
+            if (lastTaggedCommit != null)
+            {
+                // Check if the project has changes since the last tagged commit
+                bool hasChanges = _gitService.ProjectHasChangedSinceTag(lastTaggedCommit, projectPath,
+                    options.Dependencies, options.RepoRoot, options.Debug);
+                _logger("Debug", $"Checking changes since last tag for {projectName}: {hasChanges}");
+
+                return new ChangeDetectionResult
+                {
+                    HasChanges = hasChanges
+                };
+            }
+            else
+            {
+                // No tags at all - check if repository has any commits
+                return HandleRepositoryWithNoTags(baseVersionTag, result);
+            }
+        }
+
+        /// <summary>
+        /// Finds the most recent commit that has a tag associated with it
+        /// </summary>
+        private LibGit2Sharp.Commit FindLastTaggedCommit()
+        {
+            foreach (var tag in _gitService.Repository.Tags.OrderByDescending(t => (t.Target as LibGit2Sharp.Commit)?.Author.When))
+            {
+                var tagCommit = tag.Target as LibGit2Sharp.Commit;
+                if (tagCommit != null)
+                {
+                    return tagCommit;
+                }
+            }
+            return null;
+        }
+
+        /// <summary>
+        /// Handles repository with no tags - checks if commits exist
+        /// </summary>
+        private ChangeDetectionResult HandleRepositoryWithNoTags(VersionTag baseVersionTag, VersionResult result)
+        {
+            bool projectHasCommits = CheckIfRepositoryHasCommits();
+
+            if (!projectHasCommits)
+            {
+                // Truly initial repository, use base version as-is
+                var earlyReturn = new VersionResult
+                {
+                    VersionChanged = true,
+                    ChangeReason = "New base version from configuration (initial repository)",
+                    SemVer = baseVersionTag.SemVer.Clone(),
+                    Version = baseVersionTag.SemVer.ToVersionString()
+                };
+                _logger("Debug", $"Using base version from config (initial): {earlyReturn.Version}");
+
+                return new ChangeDetectionResult
+                {
+                    EarlyReturn = earlyReturn
+                };
+            }
+            else
+            {
+                // Has commits but no tags - consider it as having changes for initial version
+                _logger("Debug", $"Repository has commits but no tags, treating as having changes");
+                return new ChangeDetectionResult
+                {
+                    HasChanges = true
+                };
+            }
+        }
+
+        /// <summary>
+        /// Checks if the repository has any commits
+        /// </summary>
+        private bool CheckIfRepositoryHasCommits()
+        {
+            try
+            {
+                var filter = new LibGit2Sharp.CommitFilter
+                {
+                    IncludeReachableFrom = _gitService.Repository.Head
+                };
+                var commits = _gitService.Repository.Commits.QueryBy(filter);
+                return commits.Any();
+            }
+            catch
+            {
+                return true; // Assume there are commits if we can't check
+            }
+        }
+
+        /// <summary>
+        /// Populates commit information (SHA, date, message) into the result
+        /// </summary>
+        private void PopulateCommitInfo(VersionResult result)
+        {
             if (_gitService.Repository?.Head?.Tip != null)
             {
                 result.CommitSha = _gitService.GetCommitShortHash(_gitService.Repository.Head.Tip);
                 result.CommitDate = _gitService.Repository.Head.Tip.Author.When.DateTime;
                 result.CommitMessage = _gitService.Repository.Head.Tip.MessageShort;
             }
+        }
 
-            if (hasChanges)
+        /// <summary>
+        /// Handles version calculation when changes are detected.
+        /// Checks for first use of config baseVersion and applies branch-specific versioning.
+        /// May return an early VersionResult if using baseVersion for the first time.
+        /// </summary>
+        private VersionResult HandleChangesDetected(VersionTag baseVersionTag, SemVer newVersion,
+            BranchType branchType, string branchName, VersionOptions options, VersionResult result,
+            bool isInitialRepository)
+        {
+            result.VersionChanged = true;
+
+            // If baseVersion from config is higher than existing project version,
+            // and this is the first change after setting the new baseVersion,
+            // use the baseVersion directly without incrementing
+            if (baseVersionTag.Commit == null && !string.IsNullOrEmpty(options.BaseVersion))
             {
-                result.VersionChanged = true;
-                
-                // If baseVersion from config is higher than existing project version,
-                // and this is the first change after setting the new baseVersion,
-                // use the baseVersion directly without incrementing
-                if (baseVersionTag.Commit == null && !string.IsNullOrEmpty(options.BaseVersion))
+                var baseVersionString = baseVersionTag.SemVer.ToVersionString();
+                var tagName = $"{options.TagPrefix}{baseVersionString}";
+
+                if (!_gitService.TagExists(tagName))
                 {
-                    // Check if the baseVersion tag already exists
-                    var baseVersionString = baseVersionTag.SemVer.ToVersionString();
-                    var tagName = $"{options.TagPrefix}{baseVersionString}";
-                    
-                    if (!_gitService.TagExists(tagName))
+                    // First use of this baseVersion - use it directly for projects with changes
+                    _logger("Debug", $"Using base version from config for first change: {baseVersionTag.SemVer.ToVersionString()}");
+                    return new VersionResult
                     {
-                        // First use of this baseVersion - use it directly for projects with changes
-                        result.SemVer = baseVersionTag.SemVer.Clone();
-                        result.Version = result.SemVer.ToVersionString();
-                        result.ChangeReason = "First change with new base version from configuration";
-                        _logger("Debug", $"Using base version from config for first change: {result.Version}");
-                        return result;
-                    }
-                    // If tag exists, continue to normal increment logic
+                        SemVer = baseVersionTag.SemVer.Clone(),
+                        Version = baseVersionTag.SemVer.ToVersionString(),
+                        VersionChanged = true,
+                        ChangeReason = "First change with new base version from configuration"
+                    };
                 }
+                // If tag exists, continue to normal increment logic
+            }
 
-                switch (branchType)
-                {
-                    case BranchType.Main:
-                        ApplyMainBranchVersioning(newVersion, baseVersionTag, options, result, isInitialRepository);
-                        break;
+            // Apply branch-specific versioning strategies
+            switch (branchType)
+            {
+                case BranchType.Main:
+                    ApplyMainBranchVersioning(newVersion, baseVersionTag, options, result, isInitialRepository);
+                    break;
 
-                    case BranchType.Dev:
-                        ApplyDevBranchVersioning(newVersion, baseVersionTag, options, result);
-                        break;
+                case BranchType.Dev:
+                    ApplyDevBranchVersioning(newVersion, baseVersionTag, options, result);
+                    break;
 
-                    case BranchType.Release:
-                        ApplyReleaseBranchVersioning(newVersion, baseVersionTag, branchName, options, result);
-                        break;
+                case BranchType.Release:
+                    ApplyReleaseBranchVersioning(newVersion, baseVersionTag, branchName, options, result);
+                    break;
 
-                    case BranchType.Feature:
-                        ApplyFeatureBranchVersioning(newVersion, baseVersionTag, branchName, options, result);
-                        break;
-                }
-                
-                // Set the final version string and SemVer after all modifications
-                result.Version = newVersion.ToVersionString();
-                result.SemVer = newVersion;
+                case BranchType.Feature:
+                    ApplyFeatureBranchVersioning(newVersion, baseVersionTag, branchName, options, result);
+                    break;
+            }
+
+            // Set the final version string and SemVer after all modifications
+            result.Version = newVersion.ToVersionString();
+            result.SemVer = newVersion;
+
+            return null; // No early return
+        }
+
+        /// <summary>
+        /// Handles version selection when no changes are detected.
+        /// Prefers existing project version, falls back to global version, then base version.
+        /// </summary>
+        private void HandleNoChangesDetected(VersionTag projectTag, VersionTag globalTag,
+            VersionTag baseVersionTag, SemVer newVersion, BranchType branchType, VersionResult result)
+        {
+            // No changes detected - use the existing project version if available
+            // Only use baseVersion for projects that actually have changes
+            if (projectTag != null && projectTag.Commit != null)
+            {
+                // Project has an existing version and no changes - keep the existing version
+                result.SemVer = projectTag.SemVer.Clone();
+                result.Version = result.SemVer.ToVersionString();
+                result.ChangeReason = "No changes detected, using existing project version";
+                _logger("Debug", $"No changes, keeping existing version: {result.Version}");
+            }
+            else if (globalTag != null && globalTag.Commit != null &&
+                     (baseVersionTag == null || baseVersionTag.Commit != null))
+            {
+                // No project tag, but there's a global tag with actual commits
+                // Use the global tag version (not the baseVersion from config)
+                result.SemVer = globalTag.SemVer.Clone();
+                result.Version = result.SemVer.ToVersionString();
+                result.ChangeReason = "No changes detected, using existing global version";
+                _logger("Debug", $"No changes, using global version: {result.Version}");
             }
             else
             {
-                // No changes detected - use the existing project version if available
-                // Only use baseVersion for projects that actually have changes
-                if (projectTag != null && projectTag.Commit != null)
-                {
-                    // Project has an existing version and no changes - keep the existing version
-                    result.SemVer = projectTag.SemVer.Clone();
-                    result.Version = result.SemVer.ToVersionString();
-                    result.ChangeReason = "No changes detected, using existing project version";
-                    _logger("Debug", $"No changes, keeping existing version: {result.Version}");
-                }
-                else if (globalTag != null && globalTag.Commit != null && 
-                         (baseVersionTag == null || baseVersionTag.Commit != null))
-                {
-                    // No project tag, but there's a global tag with actual commits
-                    // Use the global tag version (not the baseVersion from config)
-                    result.SemVer = globalTag.SemVer.Clone();
-                    result.Version = result.SemVer.ToVersionString();
-                    result.ChangeReason = "No changes detected, using existing global version";
-                    _logger("Debug", $"No changes, using global version: {result.Version}");
-                }
-                else
-                {
-                    // No existing tags or only config baseVersion - use the base version
-                    result.Version = newVersion.ToVersionString();
-                    result.SemVer = newVersion;
-                    if (branchType == BranchType.Feature)
-                    {
-                        result.ChangeReason = "Feature branch but no changes detected, using base version";
-                    }
-                    else
-                    {
-                        result.ChangeReason = "No changes detected, using base version";
-                    }
-                    _logger("Debug", result.ChangeReason);
-                }
+                // No existing tags or only config baseVersion - use the base version
+                result.Version = newVersion.ToVersionString();
+                result.SemVer = newVersion;
+                result.ChangeReason = branchType == BranchType.Feature
+                    ? "Feature branch but no changes detected, using base version"
+                    : "No changes detected, using base version";
+                _logger("Debug", result.ChangeReason);
             }
-            
-            return result;
         }
 
         private void LogVersionTagInfo(VersionTag globalTag, VersionTag projectTag, VersionTag baseTag)
