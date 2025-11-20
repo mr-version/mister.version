@@ -191,6 +191,31 @@ public class MonoRepoVersionTask : Task
     public bool SourceOnlyMode { get; set; } = false;
 
     /// <summary>
+    /// Enable automatic changelog generation during build
+    /// </summary>
+    public bool GenerateChangelog { get; set; } = false;
+
+    /// <summary>
+    /// Changelog output format (markdown, text, json)
+    /// </summary>
+    public string ChangelogFormat { get; set; } = "markdown";
+
+    /// <summary>
+    /// Changelog output file path
+    /// </summary>
+    public string ChangelogOutputPath { get; set; } = "CHANGELOG.md";
+
+    /// <summary>
+    /// Repository URL for generating links in changelog
+    /// </summary>
+    public string ChangelogRepositoryUrl { get; set; }
+
+    /// <summary>
+    /// Include commit authors in changelog
+    /// </summary>
+    public bool ChangelogIncludeAuthors { get; set; } = false;
+
+    /// <summary>
     /// Gets or creates the static cache for the current repository
     /// </summary>
     private VersionCache GetOrCreateCache(string repoRoot, string currentHeadSha)
