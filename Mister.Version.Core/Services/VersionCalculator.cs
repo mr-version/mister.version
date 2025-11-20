@@ -17,11 +17,13 @@ namespace Mister.Version.Core.Services
         private const int MAX_FEATURE_NAME_LENGTH = 50;
 
         private readonly IGitService _gitService;
+        private readonly ICommitAnalyzer _commitAnalyzer;
         private readonly Action<string, string> _logger;
 
-        public VersionCalculator(IGitService gitService, Action<string, string> logger = null)
+        public VersionCalculator(IGitService gitService, ICommitAnalyzer commitAnalyzer = null, Action<string, string> logger = null)
         {
             _gitService = gitService ?? throw new ArgumentNullException(nameof(gitService));
+            _commitAnalyzer = commitAnalyzer ?? new ConventionalCommitAnalyzer(logger);
             _logger = logger ?? ((level, message) => { }); // Default no-op logger
         }
 
@@ -703,10 +705,83 @@ namespace Mister.Version.Core.Services
         }
 
         /// <summary>
+        /// Determines the version increment type by analyzing commits using conventional commit patterns
+        /// </summary>
+        /// <param name="baseVersionTag">The base version tag to analyze commits from</param>
+        /// <param name="options">Version calculation options</param>
+        /// <returns>Increment type string (major, minor, or patch)</returns>
+        private string DetermineIncrementFromCommits(VersionTag baseVersionTag, VersionOptions options)
+        {
+            // If conventional commits is not enabled, use default increment
+            if (options.CommitConventions == null || !options.CommitConventions.Enabled)
+            {
+                return options.DefaultIncrement ?? "patch";
+            }
+
+            // Get commits between base tag and HEAD
+            System.Collections.Generic.IEnumerable<LibGit2Sharp.Commit> commits = null;
+
+            try
+            {
+                if (baseVersionTag?.Commit != null && _gitService.Repository?.Head?.Tip != null)
+                {
+                    var filter = new LibGit2Sharp.CommitFilter
+                    {
+                        IncludeReachableFrom = _gitService.Repository.Head.Tip,
+                        ExcludeReachableFrom = baseVersionTag.Commit,
+                        SortBy = LibGit2Sharp.CommitSortStrategies.Topological | LibGit2Sharp.CommitSortStrategies.Time
+                    };
+
+                    commits = _gitService.Repository.Commits.QueryBy(filter);
+                }
+                else if (_gitService.Repository?.Head?.Tip != null)
+                {
+                    // No base tag commit, get all commits
+                    var filter = new LibGit2Sharp.CommitFilter
+                    {
+                        IncludeReachableFrom = _gitService.Repository.Head.Tip
+                    };
+
+                    commits = _gitService.Repository.Commits.QueryBy(filter);
+                }
+
+                if (commits == null || !commits.Any())
+                {
+                    _logger("Debug", "No commits to analyze, using default increment");
+                    return options.DefaultIncrement ?? "patch";
+                }
+
+                // Analyze commits to determine bump type
+                var bumpType = _commitAnalyzer.AnalyzeBumpType(commits, options.CommitConventions);
+
+                // Convert VersionBumpType to string increment type
+                var incrementType = bumpType switch
+                {
+                    VersionBumpType.Major => "major",
+                    VersionBumpType.Minor => "minor",
+                    VersionBumpType.Patch => "patch",
+                    VersionBumpType.None => options.DefaultIncrement ?? "patch",
+                    _ => options.DefaultIncrement ?? "patch"
+                };
+
+                _logger("Info", $"Conventional commits analysis determined increment type: {incrementType} (bump type: {bumpType})");
+                return incrementType;
+            }
+            catch (Exception ex)
+            {
+                _logger("Warning", $"Error analyzing commits for conventional commit patterns: {ex.Message}. Falling back to default increment.");
+                return options.DefaultIncrement ?? "patch";
+            }
+        }
+
+        /// <summary>
         /// Calculates version for main branch
         /// </summary>
         private void ApplyMainBranchVersioning(SemVer newVersion, VersionTag baseVersionTag, VersionOptions options, VersionResult result, bool isInitialRepository)
         {
+            // Determine increment type from commits (or use default if conventional commits disabled)
+            var incrementType = DetermineIncrementFromCommits(baseVersionTag, options);
+
             // Check if the base version already has a prerelease
             if (!string.IsNullOrEmpty(baseVersionTag.SemVer.PreRelease))
             {
@@ -724,11 +799,10 @@ namespace Mister.Version.Core.Services
                 }
                 else
                 {
-                    // Unknown/malformed prerelease format, increment using defaultIncrement and remove prerelease
-                    ApplyVersionIncrement(newVersion, options.DefaultIncrement);
+                    // Unknown/malformed prerelease format, increment and remove prerelease
+                    ApplyVersionIncrement(newVersion, incrementType);
                     newVersion.PreRelease = null; // Remove malformed prerelease
                     var normalizedPrereleaseType = NormalizePrereleaseType(options.PrereleaseType);
-                    var incrementType = options.DefaultIncrement?.ToLowerInvariant() ?? "patch";
 
                     if (normalizedPrereleaseType != "none")
                     {
@@ -743,14 +817,13 @@ namespace Mister.Version.Core.Services
             }
             else
             {
-                // No prerelease, increment using defaultIncrement and add configured prerelease if not "none"
+                // No prerelease, increment and add configured prerelease if not "none"
                 if (!isInitialRepository)
                 {
-                    ApplyVersionIncrement(newVersion, options.DefaultIncrement);
+                    ApplyVersionIncrement(newVersion, incrementType);
                 }
 
                 var normalizedPrereleaseType = NormalizePrereleaseType(options.PrereleaseType);
-                var incrementType = options.DefaultIncrement?.ToLowerInvariant() ?? "patch";
 
                 if (normalizedPrereleaseType != "none")
                 {
@@ -774,8 +847,11 @@ namespace Mister.Version.Core.Services
         /// </summary>
         private void ApplyDevBranchVersioning(SemVer newVersion, VersionTag baseVersionTag, VersionOptions options, VersionResult result)
         {
-            // Dev branches use defaultIncrement and add dev prerelease
-            ApplyVersionIncrement(newVersion, options.DefaultIncrement);
+            // Determine increment type from commits (or use default if conventional commits disabled)
+            var incrementType = DetermineIncrementFromCommits(baseVersionTag, options);
+
+            // Dev branches increment version and add dev prerelease
+            ApplyVersionIncrement(newVersion, incrementType);
 
             // Calculate commit height from base tag
             var devCommitHeight = _gitService.GetCommitHeight(baseVersionTag.Commit);
@@ -783,11 +859,9 @@ namespace Mister.Version.Core.Services
             if (devCommitHeight < 0) devCommitHeight = 0;
             result.CommitHeight = devCommitHeight;
 
-            var devIncrementType = options.DefaultIncrement?.ToLowerInvariant() ?? "patch";
-
             // Format: 1.1.0-dev.1 where 1 is commit height
             newVersion.PreRelease = $"dev.{devCommitHeight}";
-            result.ChangeReason = $"Dev branch: Incrementing {devIncrementType} version with dev.{devCommitHeight}";
+            result.ChangeReason = $"Dev branch: Incrementing {incrementType} version with dev.{devCommitHeight}";
             _logger("Debug", $"Dev branch: Using version {newVersion.ToVersionString()}");
         }
 

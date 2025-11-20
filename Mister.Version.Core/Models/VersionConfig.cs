@@ -40,6 +40,11 @@ public class VersionConfig
     /// Project-specific configuration
     /// </summary>
     public Dictionary<string, ProjectVersionConfig> Projects { get; set; }
+
+    /// <summary>
+    /// Conventional commits configuration for semantic version bump detection
+    /// </summary>
+    public ConventionalCommitConfig CommitConventions { get; set; }
 }
 
 /// <summary>
@@ -51,9 +56,45 @@ public class ProjectVersionConfig
     /// Override prerelease type for this specific project
     /// </summary>
     public string PrereleaseType { get; set; }
-    
+
     /// <summary>
     /// Force a specific version for this project
     /// </summary>
     public string ForceVersion { get; set; }
+}
+
+/// <summary>
+/// Configuration for conventional commit parsing and semantic version bump detection
+/// </summary>
+public class ConventionalCommitConfig
+{
+    /// <summary>
+    /// Enable conventional commit analysis for automatic version bump detection
+    /// Default: false (uses legacy patch-only behavior)
+    /// </summary>
+    public bool Enabled { get; set; }
+
+    /// <summary>
+    /// Commit message patterns that trigger major version bumps
+    /// Default: ["BREAKING CHANGE:", "!:"]
+    /// </summary>
+    public List<string> MajorPatterns { get; set; } = new List<string> { "BREAKING CHANGE:", "!:" };
+
+    /// <summary>
+    /// Commit message patterns that trigger minor version bumps
+    /// Default: ["feat:", "feature:"]
+    /// </summary>
+    public List<string> MinorPatterns { get; set; } = new List<string> { "feat:", "feature:" };
+
+    /// <summary>
+    /// Commit message patterns that trigger patch version bumps
+    /// Default: ["fix:", "bugfix:", "perf:", "refactor:"]
+    /// </summary>
+    public List<string> PatchPatterns { get; set; } = new List<string> { "fix:", "bugfix:", "perf:", "refactor:" };
+
+    /// <summary>
+    /// Commit message patterns that should be ignored for versioning
+    /// Default: ["chore:", "docs:", "style:", "test:", "ci:"]
+    /// </summary>
+    public List<string> IgnorePatterns { get; set; } = new List<string> { "chore:", "docs:", "style:", "test:", "ci:" };
 }

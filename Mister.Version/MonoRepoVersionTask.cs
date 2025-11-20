@@ -136,6 +136,31 @@ public class MonoRepoVersionTask : Task
     public bool EnableCache { get; set; } = true;
 
     /// <summary>
+    /// Enable conventional commits analysis for semantic version bump detection
+    /// </summary>
+    public bool ConventionalCommitsEnabled { get; set; } = false;
+
+    /// <summary>
+    /// Semicolon-separated list of commit patterns for major version bumps
+    /// </summary>
+    public string MajorPatterns { get; set; }
+
+    /// <summary>
+    /// Semicolon-separated list of commit patterns for minor version bumps
+    /// </summary>
+    public string MinorPatterns { get; set; }
+
+    /// <summary>
+    /// Semicolon-separated list of commit patterns for patch version bumps
+    /// </summary>
+    public string PatchPatterns { get; set; }
+
+    /// <summary>
+    /// Semicolon-separated list of commit patterns to ignore for versioning
+    /// </summary>
+    public string IgnorePatterns { get; set; }
+
+    /// <summary>
     /// Gets or creates the static cache for the current repository
     /// </summary>
     private VersionCache GetOrCreateCache(string repoRoot, string currentHeadSha)
@@ -236,7 +261,12 @@ public class MonoRepoVersionTask : Task
                 SkipTestProjects = SkipTestProjects,
                 SkipNonPackableProjects = SkipNonPackableProjects,
                 IsTestProject = IsTestProject,
-                IsPackable = IsPackable
+                IsPackable = IsPackable,
+                ConventionalCommitsEnabled = ConventionalCommitsEnabled,
+                MajorPatterns = MajorPatterns,
+                MinorPatterns = MinorPatterns,
+                PatchPatterns = PatchPatterns,
+                IgnorePatterns = IgnorePatterns
             };
 
             // Calculate version

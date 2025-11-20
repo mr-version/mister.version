@@ -39,4 +39,9 @@ public class VersionOptions
     /// Default: patch
     /// </summary>
     public string DefaultIncrement { get; set; } = "patch";
+
+    /// <summary>
+    /// Conventional commits configuration for semantic version bump detection
+    /// </summary>
+    public ConventionalCommitConfig CommitConventions { get; set; }
 }
