@@ -718,17 +718,58 @@ namespace Mister.Version.Core.Services
             bumpType = null;
             commitClassifications = null;
 
-            // If conventional commits is not enabled, use default increment
-            if (options.CommitConventions == null || !options.CommitConventions.Enabled)
+            VersionBumpType commitBumpType = VersionBumpType.None;
+            VersionBumpType fileBumpType = VersionBumpType.None;
+
+            // Analyze conventional commits (if enabled)
+            if (options.CommitConventions != null && options.CommitConventions.Enabled)
+            {
+                commitBumpType = AnalyzeConventionalCommits(baseVersionTag, options, out commitClassifications);
+            }
+
+            // Analyze file patterns (if enabled)
+            if (options.ChangeDetection != null && options.ChangeDetection.Enabled)
+            {
+                fileBumpType = AnalyzeFilePatterns(baseVersionTag, options);
+            }
+
+            // Combine both analyses - use the higher bump type
+            var finalBumpType = (VersionBumpType)Math.Max((int)commitBumpType, (int)fileBumpType);
+            bumpType = finalBumpType;
+
+            // If neither is enabled, use default
+            if (!((options.CommitConventions?.Enabled ?? false) || (options.ChangeDetection?.Enabled ?? false)))
             {
                 return options.DefaultIncrement ?? "patch";
             }
 
-            // Get commits between base tag and HEAD
-            System.Collections.Generic.IEnumerable<LibGit2Sharp.Commit> commits = null;
+            // Convert VersionBumpType to string increment type
+            var incrementType = finalBumpType switch
+            {
+                VersionBumpType.Major => "major",
+                VersionBumpType.Minor => "minor",
+                VersionBumpType.Patch => "patch",
+                VersionBumpType.None => options.DefaultIncrement ?? "patch",
+                _ => options.DefaultIncrement ?? "patch"
+            };
+
+            _logger("Info", $"Version increment determined: {incrementType} (commits: {commitBumpType}, files: {fileBumpType}, final: {finalBumpType})");
+            return incrementType;
+        }
+
+        /// <summary>
+        /// Analyze conventional commits to determine bump type
+        /// </summary>
+        private VersionBumpType AnalyzeConventionalCommits(VersionTag baseVersionTag, VersionOptions options,
+            out System.Collections.Generic.List<CommitClassification> commitClassifications)
+        {
+            commitClassifications = null;
 
             try
             {
+                // Get commits between base tag and HEAD
+                System.Collections.Generic.IEnumerable<LibGit2Sharp.Commit> commits = null;
+
                 if (baseVersionTag?.Commit != null && _gitService.Repository?.Head?.Tip != null)
                 {
                     var filter = new LibGit2Sharp.CommitFilter
@@ -753,8 +794,8 @@ namespace Mister.Version.Core.Services
 
                 if (commits == null || !commits.Any())
                 {
-                    _logger("Debug", "No commits to analyze, using default increment");
-                    return options.DefaultIncrement ?? "patch";
+                    _logger("Debug", "No commits to analyze");
+                    return VersionBumpType.None;
                 }
 
                 // Classify all commits for detailed output
@@ -765,25 +806,64 @@ namespace Mister.Version.Core.Services
 
                 // Analyze commits to determine bump type
                 var determinedBumpType = _commitAnalyzer.AnalyzeBumpType(commits, options.CommitConventions);
-                bumpType = determinedBumpType;
 
-                // Convert VersionBumpType to string increment type
-                var incrementType = determinedBumpType switch
-                {
-                    VersionBumpType.Major => "major",
-                    VersionBumpType.Minor => "minor",
-                    VersionBumpType.Patch => "patch",
-                    VersionBumpType.None => options.DefaultIncrement ?? "patch",
-                    _ => options.DefaultIncrement ?? "patch"
-                };
-
-                _logger("Info", $"Conventional commits analysis determined increment type: {incrementType} (bump type: {determinedBumpType})");
-                return incrementType;
+                _logger("Info", $"Conventional commits analysis: {determinedBumpType}");
+                return determinedBumpType;
             }
             catch (Exception ex)
             {
-                _logger("Warning", $"Error analyzing commits for conventional commit patterns: {ex.Message}. Falling back to default increment.");
-                return options.DefaultIncrement ?? "patch";
+                _logger("Warning", $"Error analyzing commits: {ex.Message}");
+                return VersionBumpType.None;
+            }
+        }
+
+        /// <summary>
+        /// Analyze file patterns to determine bump type
+        /// </summary>
+        private VersionBumpType AnalyzeFilePatterns(VersionTag baseVersionTag, VersionOptions options)
+        {
+            try
+            {
+                // Classify changed files based on patterns
+                var classification = _gitService.ClassifyProjectChanges(
+                    baseVersionTag?.Commit,
+                    options.ProjectPath,
+                    options.Dependencies,
+                    options.RepoRoot,
+                    options.ChangeDetection);
+
+                if (classification.ShouldIgnore)
+                {
+                    _logger("Info", $"File pattern analysis: All changes ignored - {classification.Reason}");
+                    return VersionBumpType.None;
+                }
+
+                _logger("Info", $"File pattern analysis: {classification.RequiredBumpType} - {classification.Reason}");
+
+                // Log details about classified files
+                if (classification.MajorFiles.Count > 0)
+                {
+                    _logger("Debug", $"  Major files ({classification.MajorFiles.Count}): {string.Join(", ", classification.MajorFiles.Take(3))}");
+                }
+                if (classification.MinorFiles.Count > 0)
+                {
+                    _logger("Debug", $"  Minor files ({classification.MinorFiles.Count}): {string.Join(", ", classification.MinorFiles.Take(3))}");
+                }
+                if (classification.PatchFiles.Count > 0)
+                {
+                    _logger("Debug", $"  Patch files ({classification.PatchFiles.Count}): {string.Join(", ", classification.PatchFiles.Take(3))}");
+                }
+                if (classification.IgnoredFiles.Count > 0)
+                {
+                    _logger("Debug", $"  Ignored files ({classification.IgnoredFiles.Count}): {string.Join(", ", classification.IgnoredFiles.Take(3))}");
+                }
+
+                return classification.RequiredBumpType;
+            }
+            catch (Exception ex)
+            {
+                _logger("Warning", $"Error analyzing file patterns: {ex.Message}");
+                return VersionBumpType.None;
             }
         }
 

@@ -44,4 +44,9 @@ public class VersionOptions
     /// Conventional commits configuration for semantic version bump detection
     /// </summary>
     public ConventionalCommitConfig CommitConventions { get; set; }
+
+    /// <summary>
+    /// Change detection configuration for file pattern-based versioning
+    /// </summary>
+    public ChangeDetectionConfig ChangeDetection { get; set; }
 }

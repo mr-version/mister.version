@@ -50,6 +50,11 @@ public class VersionConfig
     /// Changelog generation configuration
     /// </summary>
     public ChangelogConfig Changelog { get; set; }
+
+    /// <summary>
+    /// Change detection configuration for file pattern matching
+    /// </summary>
+    public ChangeDetectionConfig ChangeDetection { get; set; }
 }
 
 /// <summary>

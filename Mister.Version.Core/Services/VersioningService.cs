@@ -98,6 +98,28 @@ namespace Mister.Version.Core.Services
                     };
                 }
 
+                // Create change detection configuration
+                ChangeDetectionConfig changeDetectionConfig = null;
+
+                // First priority: YAML configuration
+                if (config?.ChangeDetection != null)
+                {
+                    changeDetectionConfig = config.ChangeDetection;
+                }
+                // Second priority: MSBuild properties from request
+                else if (request.ChangeDetectionEnabled)
+                {
+                    changeDetectionConfig = new ChangeDetectionConfig
+                    {
+                        Enabled = request.ChangeDetectionEnabled,
+                        IgnorePatterns = ParsePatternString(request.IgnoreFilePatterns),
+                        MajorPatterns = ParsePatternString(request.MajorFilePatterns),
+                        MinorPatterns = ParsePatternString(request.MinorFilePatterns),
+                        PatchPatterns = ParsePatternString(request.PatchFilePatterns),
+                        SourceOnlyMode = request.SourceOnlyMode
+                    };
+                }
+
                 // Create version options
                 var versionOptions = new VersionOptions
                 {
@@ -116,7 +138,8 @@ namespace Mister.Version.Core.Services
                     IsPackable = request.IsPackable,
                     PrereleaseType = configOverrides.PrereleaseType ?? request.PrereleaseType,
                     BaseVersion = configOverrides.BaseVersion,
-                    CommitConventions = conventionalCommitsConfig
+                    CommitConventions = conventionalCommitsConfig,
+                    ChangeDetection = changeDetectionConfig
                 };
 
                 // Calculate version
@@ -225,6 +248,14 @@ namespace Mister.Version.Core.Services
         public string MinorPatterns { get; set; }
         public string PatchPatterns { get; set; }
         public string IgnorePatterns { get; set; }
+
+        // Change detection configuration
+        public bool ChangeDetectionEnabled { get; set; } = false;
+        public string IgnoreFilePatterns { get; set; }
+        public string MajorFilePatterns { get; set; }
+        public string MinorFilePatterns { get; set; }
+        public string PatchFilePatterns { get; set; }
+        public bool SourceOnlyMode { get; set; } = false;
     }
 
     /// <summary>
