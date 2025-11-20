@@ -59,7 +59,7 @@ namespace Mister.Version.Tests
         }
 
         [Fact]
-        public void CalculateVersion_YYYY_MM_PATCH_Format_SameMonth_IncrementsPatc()
+        public void CalculateVersion_YYYY_MM_PATCH_Format_SameMonth_KeepsPatch()
         {
             // Arrange
             var config = new CalVerConfig { Format = "YYYY.MM.PATCH" };
@@ -73,7 +73,7 @@ namespace Mister.Version.Tests
             Assert.NotNull(result);
             Assert.Equal(2025, result.Major);
             Assert.Equal(11, result.Minor);
-            Assert.Equal(4, result.Patch);
+            Assert.Equal(3, result.Patch); // Keeps same patch; VersionCalculator increments if changes detected
         }
 
         [Fact]
@@ -172,7 +172,7 @@ namespace Mister.Version.Tests
         }
 
         [Fact]
-        public void CalculateVersion_YYYY_WW_PATCH_Format_SameWeek_IncrementsPatc()
+        public void CalculateVersion_YYYY_WW_PATCH_Format_SameWeek_KeepsPatch()
         {
             // Arrange
             var config = new CalVerConfig { Format = "YYYY.WW.PATCH" };
@@ -187,7 +187,7 @@ namespace Mister.Version.Tests
             Assert.NotNull(result);
             Assert.Equal(2025, result.Major);
             Assert.Equal(weekNumber, result.Minor);
-            Assert.Equal(3, result.Patch);
+            Assert.Equal(2, result.Patch); // Keeps same patch; VersionCalculator increments if changes detected
         }
 
         [Fact]

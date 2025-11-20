@@ -173,6 +173,36 @@ public class SemVer : IComparable<SemVer>, IEquatable<SemVer>
         return left.CompareTo(right) >= 0;
     }
 
+    public static bool TryParse(string version, out SemVer result)
+    {
+        result = null;
+
+        if (string.IsNullOrEmpty(version))
+            return false;
+
+        // Handle semver with prerelease and build metadata
+        var match = Regex.Match(version, @"^(\d+)\.(\d+)(?:\.(\d+))?(?:-([0-9A-Za-z\-\.]+))?(?:\+([0-9A-Za-z\-\.]+))?$");
+        if (!match.Success)
+            return false;
+
+        try
+        {
+            result = new SemVer
+            {
+                Major = int.Parse(match.Groups[1].Value),
+                Minor = int.Parse(match.Groups[2].Value),
+                Patch = match.Groups.Count > 3 && match.Groups[3].Success ? int.Parse(match.Groups[3].Value) : 0,
+                PreRelease = match.Groups.Count > 4 && match.Groups[4].Success ? match.Groups[4].Value : null,
+                BuildMetadata = match.Groups.Count > 5 && match.Groups[5].Success ? match.Groups[5].Value : null
+            };
+            return true;
+        }
+        catch
+        {
+            return false;
+        }
+    }
+
     public static implicit operator SemVer(string version)
     {
         if (string.IsNullOrEmpty(version))

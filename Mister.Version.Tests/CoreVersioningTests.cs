@@ -245,25 +245,63 @@ namespace Mister.Version.Tests
         }
 
         // Implement other interface members as needed for testing
-        public virtual VersionTag GetGlobalVersionTag(BranchType branchType, VersionOptions options) => 
+        public virtual VersionTag GetGlobalVersionTag(BranchType branchType, VersionOptions options) =>
             GetGlobalVersionTagOverride?.Invoke(branchType, options) ?? GlobalVersionTagOverride;
-        public virtual VersionTag GetProjectVersionTag(string projectName, BranchType branchType, string tagPrefix) => ProjectVersionTagOverride;
+
+        public virtual VersionTag GetProjectVersionTag(string projectName, BranchType branchType, string tagPrefix, VersionOptions options = null) => ProjectVersionTagOverride;
+
         public virtual bool ProjectHasChangedSinceTag(LibGit2Sharp.Commit tagCommit, string projectPath, System.Collections.Generic.List<string> dependencies, string repoRoot, bool debug = false) => HasChangesOverride;
+
+        public virtual ChangeClassification ClassifyProjectChanges(LibGit2Sharp.Commit tagCommit, string projectPath, System.Collections.Generic.List<string> dependencies, string repoRoot, ChangeDetectionConfig config)
+        {
+            // Mock implementation - return basic classification
+            return new ChangeClassification
+            {
+                ShouldIgnore = !HasChangesOverride,
+                RequiredBumpType = HasChangesOverride ? VersionBumpType.Patch : VersionBumpType.None,
+                TotalFiles = HasChangesOverride ? 1 : 0,
+                Reason = HasChangesOverride ? "Mock changes detected" : "No changes"
+            };
+        }
+
         public virtual int GetCommitHeight(LibGit2Sharp.Commit fromCommit, LibGit2Sharp.Commit toCommit = null) => CommitHeightOverride;
+
         public string GetCommitShortHash(LibGit2Sharp.Commit commit) => "abcdef1";
+
+        public SemVer AddBranchMetadata(SemVer version, string branchName, GitIntegrationConfig config = null)
+        {
+            // Mock implementation - return version unchanged
+            return version;
+        }
+
         public System.Collections.Generic.List<ChangeInfo> GetChangesSinceCommit(LibGit2Sharp.Commit sinceCommit, string projectPath = null) => new();
+
         public bool CreateTag(string tagName, string message, bool isGlobalTag, string projectName = null, bool dryRun = false)
         {
             // Mock implementation - always succeeds for testing
             return true;
         }
-        
+
         public bool TagExists(string tagName)
         {
             // Use override if provided, otherwise no tags exist by default
             return TagExistsOverride?.Invoke(tagName) ?? false;
         }
-        
+
+        public bool HasSubmoduleChanges(LibGit2Sharp.Commit fromCommit, LibGit2Sharp.Commit toCommit = null)
+        {
+            // Mock implementation - no submodule changes by default
+            return false;
+        }
+
+        public bool IsCommitReachable(LibGit2Sharp.Commit fromCommit, LibGit2Sharp.Commit toCommit = null)
+        {
+            // Mock implementation - assume commits are reachable
+            return true;
+        }
+
+        public bool IsShallowClone => false;
+
         public void Dispose() { }
     }
 

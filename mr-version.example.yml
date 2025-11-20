@@ -3,7 +3,7 @@
 
 # Base global version used as fallback when no tags or versions are found
 # Applies to all projects including test projects and artifacts normally ignored
-baseVersion: "8.2.0"
+baseVersion: "3.0.0"
 
 # Global settings that apply to all projects
 prereleaseType: none  # Options: none, alpha, beta, rc
@@ -11,16 +11,179 @@ tagPrefix: v         # Prefix for version tags (default: v)
 skipTestProjects: true
 skipNonPackableProjects: true
 
+# ✨ NEW: Version scheme selection (SemVer or CalVer)
+versionScheme: semver  # Options: semver (default), calver
+
+# ✨ NEW: Calendar Versioning (CalVer) configuration
+calver:
+  format: "YYYY.MM.PATCH"  # Options: YYYY.MM.PATCH, YY.0M.PATCH, YYYY.WW.PATCH, YYYY.0M.PATCH
+  resetPatchPeriodically: true  # Reset patch to 0 each month/week
+  separator: "."  # Version separator
+  startDate: "2025-01-01"  # Optional: Starting date for versioning
+
+# ✨ NEW: Version policies for coordinating releases
+versionPolicy: independent  # Options: independent, lockstep, grouped
+
+# ✨ NEW: Version groups for grouped versioning strategy
+versionGroups:
+  core-libraries:
+    projects: [Mister.Version.Core, Mister.Version]
+    strategy: lockstep
+
+  tools:
+    projects: [Mister.Version.CLI]
+    strategy: independent
+
+# ✨ NEW: Conventional commits configuration for semantic versioning
+commitConventions:
+  enabled: true
+  majorPatterns:
+    - "BREAKING CHANGE:"
+    - "!:"
+    - "breaking:"
+  minorPatterns:
+    - "feat:"
+    - "feature:"
+  patchPatterns:
+    - "fix:"
+    - "bugfix:"
+    - "perf:"
+    - "refactor:"
+  ignorePatterns:
+    - "chore:"
+    - "docs:"
+    - "style:"
+    - "test:"
+    - "ci:"
+
+# ✨ NEW: File pattern-based change detection
+changeDetection:
+  enabled: true
+
+  # Ignore patterns (won't trigger version bumps)
+  ignorePatterns:
+    - "**/*.md"           # All markdown files
+    - "**/docs/**"        # Documentation folder
+    - "**/*.txt"          # Text files
+    - "**/.editorconfig"  # Editor config
+    - "**/.gitignore"     # Git ignore files
+
+  # Major version patterns (breaking changes)
+  majorPatterns:
+    - "**/PublicApi/**"   # Public API folder
+    - "**/Contracts/**"   # Contract definitions
+    - "**/Interfaces/**"  # Public interfaces
+
+  # Minor version patterns (new features)
+  minorPatterns:
+    - "**/Features/**"    # New features
+
+  # Patch version patterns (bug fixes)
+  patchPatterns:
+    - "**/Internal/**"    # Internal code
+    - "**/Utils/**"       # Utility code
+
+  # Source-only mode
+  sourceOnlyMode: false
+
+# ✨ NEW: Git integration configuration
+gitIntegration:
+  # Shallow clone support
+  shallowCloneSupport: true
+  shallowCloneFallbackVersion: "1.0.0"
+
+  # Submodule detection
+  submoduleSupport: true
+
+  # Tag ancestry validation
+  validateTagAncestry: true
+
+  # Branch metadata in versions
+  includeBranchInMetadata: true
+
+  # Custom tag patterns: ProjectName={name}-{prefix}{version}
+  customTagPatterns:
+    MyLib: "{name}_{prefix}{version}"
+    MyApp: "{name}/{prefix}{version}"
+
+# ✨ NEW: Changelog generation configuration
+changelog:
+  enabled: true
+  outputFormat: markdown  # Options: markdown, text, json
+  outputPath: CHANGELOG.md
+  repositoryUrl: https://github.com/mr-version/mister.version
+  includeCommitLinks: true
+  includeIssueReferences: true
+  includePullRequestReferences: true
+  includeAuthors: false
+  groupBreakingChanges: true
+  includeScopes: true
+  sections:
+    - title: "Breaking Changes"
+      emoji: "💥"
+      commitTypes: ["breaking"]
+      order: 1
+    - title: "Features"
+      emoji: "🚀"
+      commitTypes: ["feat", "feature"]
+      order: 2
+    - title: "Bug Fixes"
+      emoji: "🐛"
+      commitTypes: ["fix", "bugfix"]
+      order: 3
+    - title: "Performance"
+      emoji: "⚡"
+      commitTypes: ["perf"]
+      order: 4
+    - title: "Documentation"
+      emoji: "📝"
+      commitTypes: ["docs"]
+      order: 5
+
+# ✨ NEW: Version validation constraints
+constraints:
+  enabled: true
+  minimumVersion: "1.0.0"          # Never go below this version
+  maximumVersion: "10.0.0"         # Never exceed this version
+  allowedRange: "3.x.x"            # Stay within version range
+  requireMonotonicIncrease: true   # Versions must always increase
+  blockedVersions: []              # Skip specific versions
+  requireMajorApproval: false      # Prevent accidental major bumps
+  validateDependencyVersions: true # Validate dependency compatibility
+  customRules:
+    - name: "No 13 in version"
+      pattern: "^(?!.*13).*$"      # Regex pattern for validation
+      errorMessage: "Version cannot contain '13'"
+
 # Project-specific overrides
 projects:
   # Example: Force a specific project to use alpha prereleases
   MyLibrary:
     prereleaseType: alpha
-  
+
   # Example: Pin a specific project to a fixed version
   LegacyProject:
     forceVersion: 1.0.0
-  
+
   # Example: Project that should use beta prereleases
   ExperimentalFeature:
     prereleaseType: beta
+
+  # ✨ NEW: Project using CalVer instead of SemVer
+  MyOperatingSystem:
+    versionScheme: calver
+    calver:
+      format: "YY.0M.PATCH"
+      resetPatchPeriodically: true
+
+  # ✨ NEW: Project with additional directory monitoring
+  MyApi:
+    additionalMonitorPaths:
+      - "../shared/common"
+      - "../libs/authentication"
+
+  # ✨ NEW: Project with custom validation constraints
+  MyStableLibrary:
+    constraints:
+      minimumVersion: "2.0.0"
+      requireMajorApproval: true

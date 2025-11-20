@@ -609,7 +609,7 @@ Users must re-authenticate.";
 
         public override string Message => _message;
         public override string MessageShort => _message.Split('\n')[0];
-        public override string Sha => Guid.NewGuid().ToString("N").Substring(0, 40);
+        public override string Sha => Guid.NewGuid().ToString("N") + Guid.NewGuid().ToString("N").Substring(0, 8);
         public override Signature Author => new Signature(_authorName, $"{_authorName.Replace(" ", "")}@example.com", DateTimeOffset.Now);
     }
 }

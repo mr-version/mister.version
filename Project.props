@@ -2,10 +2,9 @@
 
 	<PropertyGroup>
 		<LangVersion>latest</LangVersion>
-		<Version>2.2.0</Version>
+		<Version>3.0.0-alpha.0</Version>
 		<License>MIT</License>
 		<PackageReadmeFile>README.md</PackageReadmeFile>
 		<PackageIcon>icon.png</PackageIcon>
-		<LangVersion>latest</LangVersion>
 	</PropertyGroup>
 </Project>

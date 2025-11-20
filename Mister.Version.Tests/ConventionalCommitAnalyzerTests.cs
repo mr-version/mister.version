@@ -584,7 +584,7 @@ Additional notes here.";
 
         public override string Message => _message;
         public override string MessageShort => _message.Split('\n')[0];
-        public override string Sha => Guid.NewGuid().ToString("N").Substring(0, 40);
+        public override string Sha => Guid.NewGuid().ToString("N") + Guid.NewGuid().ToString("N").Substring(0, 8);
         public override Signature Author => new Signature("Test Author", "test@example.com", DateTimeOffset.Now);
     }
 }

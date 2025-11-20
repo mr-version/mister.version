@@ -1,12 +1,12 @@
-<Project Sdk="Microsoft.NET.Sdk">
+﻿<Project Sdk="Microsoft.NET.Sdk">
 	<PropertyGroup>
-		<TargetFrameworks>net472;net8.0</TargetFrameworks>
+		<TargetFrameworks>net472;net8.0;net9.0;net10.0</TargetFrameworks>
 		<IsPackable>true</IsPackable>
 		<Title>Mister.Version</Title>
 		<Description>Generates versions independently for C# projects in a mono-repo with enhanced dev and feature branch support.</Description>
 		<PackageTags>versioning;git;monorepo;csharp;msbuild</PackageTags>
 		<CopyLocalLockFileAssemblies>true</CopyLocalLockFileAssemblies>
-		<RepositoryUrl>https://github.com/discrete-sharp/Mister.Version</RepositoryUrl>
+		<RepositoryUrl>https://github.com/mr-version/mister.version</RepositoryUrl>
 		<!-- This target will run when MSBuild is collecting the files to be packaged, and we'll implement it below. This property controls the dependency list for this packaging process, so by adding our custom property we hook ourselves into the process in a supported way. -->
 		<TargetsForTfmSpecificBuildOutput>
 			$(TargetsForTfmSpecificBuildOutput);CopyProjectReferencesToPackage
@@ -33,6 +33,7 @@
 		<PackageReference Include="Microsoft.Build.Utilities.Core" Version="17.13.9" PrivateAssets="all" ExcludeAssets="Runtime" />
 		<PackageReference Include="LibGit2Sharp" Version="0.31.0" PrivateAssets="all" />
 		<PackageReference Include="LibGit2Sharp.NativeBinaries" Version="2.0.323" PrivateAssets="all" ExcludeAssets="all" />
+		<PackageReference Include="Microsoft.Extensions.Logging.Abstractions" Version="8.0.0" PrivateAssets="all" />
 		<PackageReference Include="System.Text.Json" Version="8.0.5" PrivateAssets="all" />
 		<PackageReference Include="YamlDotNet" Version="13.7.1" PrivateAssets="all" />
 	</ItemGroup>
@@ -75,6 +76,7 @@
 			<BuildOutputInPackage Include="../libs/libgit2-3f4182d.so" TargetPath="libgit2-3f4182d.so">
 				<TargetFramework>net472</TargetFramework>
 			</BuildOutputInPackage>
+			
 			<BuildOutputInPackage Include="../libs/git2-3f4182d.dll" TargetPath="git2-3f4182d.dll">
 				<TargetFramework>net8.0</TargetFramework>
 			</BuildOutputInPackage>
@@ -83,6 +85,26 @@
 			</BuildOutputInPackage>
 			<BuildOutputInPackage Include="../libs/libgit2-3f4182d.so" TargetPath="libgit2-3f4182d.so">
 				<TargetFramework>net8.0</TargetFramework>
+			</BuildOutputInPackage>
+			
+			<BuildOutputInPackage Include="../libs/git2-3f4182d.dll" TargetPath="git2-3f4182d.dll">
+				<TargetFramework>net9.0</TargetFramework>
+			</BuildOutputInPackage>
+			<BuildOutputInPackage Include="../libs/libgit2-3f4182d.dylib" TargetPath="libgit2-3f4182d.dylib">
+				<TargetFramework>net9.0</TargetFramework>
+			</BuildOutputInPackage>
+			<BuildOutputInPackage Include="../libs/libgit2-3f4182d.so" TargetPath="libgit2-3f4182d.so">
+				<TargetFramework>net9.0</TargetFramework>
+			</BuildOutputInPackage>
+			
+			<BuildOutputInPackage Include="../libs/git2-3f4182d.dll" TargetPath="git2-3f4182d.dll">
+				<TargetFramework>net10.0</TargetFramework>
+			</BuildOutputInPackage>
+			<BuildOutputInPackage Include="../libs/libgit2-3f4182d.dylib" TargetPath="libgit2-3f4182d.dylib">
+				<TargetFramework>net10.0</TargetFramework>
+			</BuildOutputInPackage>
+			<BuildOutputInPackage Include="../libs/libgit2-3f4182d.so" TargetPath="libgit2-3f4182d.so">
+				<TargetFramework>net10.0</TargetFramework>
 			</BuildOutputInPackage>
 		</ItemGroup>
 	</Target>
@@ -114,6 +136,12 @@
 		<Content Include="../libs/git2-3f4182d.dll" PackagePath="tasks/net8.0/" />
 		<Content Include="../libs/libgit2-3f4182d.dylib" PackagePath="tasks/net8.0/" />
 		<Content Include="../libs/libgit2-3f4182d.so" PackagePath="tasks/net8.0/" />
+		<Content Include="../libs/git2-3f4182d.dll" PackagePath="tasks/net9.0/" />
+		<Content Include="../libs/libgit2-3f4182d.dylib" PackagePath="tasks/net9.0/" />
+		<Content Include="../libs/libgit2-3f4182d.so" PackagePath="tasks/net9.0/" />
+		<Content Include="../libs/git2-3f4182d.dll" PackagePath="tasks/net10.0/" />
+		<Content Include="../libs/libgit2-3f4182d.dylib" PackagePath="tasks/net10.0/" />
+		<Content Include="../libs/libgit2-3f4182d.so" PackagePath="tasks/net10.0/" />
 	</ItemGroup>
 
 	<ItemGroup>

@@ -16,7 +16,7 @@ namespace Mister.Version.Core.Services
 
         public VersionValidator(ILogger<VersionValidator> logger = null)
         {
-            _logger = logger ?? LoggerFactory.CreateLogger<VersionValidator>();
+            _logger = logger ?? Microsoft.Extensions.Logging.Abstractions.NullLogger<VersionValidator>.Instance;
         }
 
         /// <inheritdoc/>
@@ -179,7 +179,7 @@ namespace Mister.Version.Core.Services
 
             var version = versionResult.CalculatedVersion;
             var previousVersion = versionResult.PreviousVersion;
-            var bumpType = versionResult.BumpType;
+            var bumpType = versionResult.BumpType ?? VersionBumpType.Patch;
 
             return ValidateVersion(version, previousVersion, constraints, bumpType, majorApproved);
         }
@@ -383,8 +383,10 @@ namespace Mister.Version.Core.Services
 
         private void ValidateRangeRule(string version, ValidationRule rule, ValidationResult result)
         {
-            if (!rule.Config.TryGetValue("min", out string min) &&
-                !rule.Config.TryGetValue("max", out string max))
+            var hasMin = rule.Config.TryGetValue("min", out string min);
+            var hasMax = rule.Config.TryGetValue("max", out string max);
+
+            if (!hasMin && !hasMax)
             {
                 _logger.LogWarning($"Range rule '{rule.Name}' missing 'min' or 'max' config");
                 return;

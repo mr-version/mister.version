@@ -529,7 +529,7 @@ namespace Mister.Version.Tests
         #region CoordinateGroupVersion Tests
 
         [Fact]
-        public void CoordinateGroupVersion_UsesBas eVersion_WhenSpecified()
+        public void CoordinateGroupVersion_UsesBaseVersion_WhenSpecified()
         {
             // Arrange
             var group = new VersionGroup

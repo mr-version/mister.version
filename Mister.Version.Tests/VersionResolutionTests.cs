@@ -180,7 +180,7 @@ namespace Mister.Version.Tests
             };
 
             var gitService = CreateMockGitService(globalTag: globalTag, projectTag: projectTag);
-            var calculator = new VersionCalculator(gitService, (level, message) => logMessages.Add((level, message)));
+            var calculator = new VersionCalculator(gitService, logger: (level, message) => logMessages.Add((level, message)));
             
             var options = new VersionOptions
             {

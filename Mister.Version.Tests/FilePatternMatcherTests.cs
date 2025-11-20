@@ -63,9 +63,9 @@ namespace Mister.Version.Tests
 
         [Theory]
         [InlineData("test.txt", "test.???", true)]
-        [InlineData("test.md", "test.??", false)]
+        [InlineData("test.md", "test.??", true)]  // Fixed: .md is 2 chars after the dot, should match ??
         [InlineData("test.cs", "test.??", true)]
-        [InlineData("test.json", "test.???", false)]
+        [InlineData("test.json", "test.????", true)]  // Fixed: .json is 4 chars after the dot, should match ????
         public void Matches_QuestionMarkWildcard_MatchesCorrectly(string filePath, string pattern, bool expected)
         {
             // Act

@@ -56,8 +56,8 @@ public class CalVerCalculator : ICalVerCalculator
             // Check if we're in the same period (month/week) as existing version
             if (version.Major == existingVersion.Major && version.Minor == existingVersion.Minor)
             {
-                // Same period, increment patch
-                version.Patch = existingVersion.Patch + 1;
+                // Same period, keep the same patch (will be incremented by VersionCalculator if there are changes)
+                version.Patch = existingVersion.Patch;
             }
             else if (config.ResetPatchPeriodically)
             {

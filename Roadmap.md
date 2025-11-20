@@ -709,11 +709,18 @@ constraints:
 
 All planned roadmap priorities (1-8) and GitHub Actions are now complete. Future optional enhancements include:
 
+#### GitHub Actions
 - Publish actions to GitHub Actions Marketplace
 - Add integration tests for GitHub Actions workflows
 - Implement action versioning strategy (tags/releases)
 - Add telemetry/analytics for action usage
 - Create action badges and branding
+
+#### Core Features
+- Add `majorApproved` parameter to `VersionOptions` for programmatic major version approval control
+  - Currently validation uses `majorApproved: false` hardcoded in `VersionCalculator.cs:178`
+  - Would allow CLI/MSBuild to pass approval status from command-line flags or configuration
+  - Useful for CI/CD pipelines that require manual approval for major version bumps
 - Enhance documentation with more examples and use cases
 
 ---

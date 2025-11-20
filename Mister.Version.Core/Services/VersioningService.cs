@@ -37,7 +37,7 @@ namespace Mister.Version.Core.Services
                 _gitService = new GitService(repoRoot);
             }
 
-            _versionCalculator = new VersionCalculator(_gitService, _logger);
+            _versionCalculator = new VersionCalculator(_gitService, logger: _logger);
         }
 
         /// <summary>
@@ -282,7 +282,7 @@ namespace Mister.Version.Core.Services
         /// </summary>
         /// <param name="patternsString">Semicolon-separated pattern string</param>
         /// <returns>List of patterns, or default list if string is null/empty</returns>
-        private List<string> ParsePatternString(string patternsString)
+        internal static List<string> ParsePatternString(string patternsString)
         {
             if (string.IsNullOrWhiteSpace(patternsString))
             {

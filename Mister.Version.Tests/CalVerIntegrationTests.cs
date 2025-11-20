@@ -59,7 +59,7 @@ namespace Mister.Version.Tests
             Commands.Stage(_repo, "TestProject/TestProject.csproj");
             _repo.Commit("Add test project", _signature, _signature);
 
-            var gitService = new GitService(_repo);
+            var gitService = new GitService(_tempRepoPath);
             var calculator = new VersionCalculator(gitService);
 
             var options = new VersionOptions
@@ -107,7 +107,7 @@ namespace Mister.Version.Tests
 
             // Create a tag for the current month
             var now = DateTime.UtcNow;
-            var tagName = $"v/TestProject/{now.Year}.{now.Month:D2}.0";
+            var tagName = $"TestProject/v{now.Year}.{now.Month:D2}.0";
             _repo.Tags.Add(tagName, commit);
 
             // Make a change
@@ -115,7 +115,7 @@ namespace Mister.Version.Tests
             Commands.Stage(_repo, "TestProject/TestProject.csproj");
             _repo.Commit("Update project", _signature, _signature);
 
-            var gitService = new GitService(_repo);
+            var gitService = new GitService(_tempRepoPath);
             var calculator = new VersionCalculator(gitService);
 
             var options = new VersionOptions
@@ -137,11 +137,18 @@ namespace Mister.Version.Tests
 
             // Assert
             Assert.NotNull(result);
+
+            // Debug output
+            System.Console.WriteLine($"Version: {result.Version}");
+            System.Console.WriteLine($"VersionChanged: {result.VersionChanged}");
+            System.Console.WriteLine($"ChangeReason: {result.ChangeReason}");
+
             Assert.True(result.VersionChanged);
             Assert.Contains("CalVer", result.ChangeReason);
 
             // Verify patch was incremented
             var versionParts = result.Version.Split('.', '-', '+')[0..3];
+            System.Console.WriteLine($"Version parts: {string.Join(", ", versionParts)}");
             Assert.Equal($"{now.Year}", versionParts[0]);
             Assert.Equal($"{now.Month:D2}", versionParts[1]);
             Assert.Equal("1", versionParts[2]); // Patch should be 1 (incremented from 0)
@@ -158,7 +165,7 @@ namespace Mister.Version.Tests
             Commands.Stage(_repo, "TestProject/TestProject.csproj");
             _repo.Commit("Add test project", _signature, _signature);
 
-            var gitService = new GitService(_repo);
+            var gitService = new GitService(_tempRepoPath);
             var calculator = new VersionCalculator(gitService);
 
             var options = new VersionOptions
@@ -201,7 +208,7 @@ namespace Mister.Version.Tests
             Commands.Stage(_repo, "TestProject/TestProject.csproj");
             _repo.Commit("Add test project", _signature, _signature);
 
-            var gitService = new GitService(_repo);
+            var gitService = new GitService(_tempRepoPath);
             var calculator = new VersionCalculator(gitService);
 
             var options = new VersionOptions
@@ -241,7 +248,7 @@ namespace Mister.Version.Tests
             var featureBranch = _repo.CreateBranch("feature/calver-test");
             Commands.Checkout(_repo, featureBranch);
 
-            var gitService = new GitService(_repo);
+            var gitService = new GitService(_tempRepoPath);
             var calculator = new VersionCalculator(gitService);
 
             var options = new VersionOptions
@@ -283,12 +290,12 @@ namespace Mister.Version.Tests
 
             // Create a tag for the current month
             var now = DateTime.UtcNow;
-            var tagName = $"v/TestProject/{now.Year}.{now.Month:D2}.0";
+            var tagName = $"TestProject/v{now.Year}.{now.Month:D2}.0";
             _repo.Tags.Add(tagName, commit);
 
             // No changes made
 
-            var gitService = new GitService(_repo);
+            var gitService = new GitService(_tempRepoPath);
             var calculator = new VersionCalculator(gitService);
 
             var options = new VersionOptions
@@ -310,6 +317,12 @@ namespace Mister.Version.Tests
 
             // Assert
             Assert.NotNull(result);
+
+            // Debug output
+            System.Console.WriteLine($"Version: {result.Version}");
+            System.Console.WriteLine($"VersionChanged: {result.VersionChanged}");
+            System.Console.WriteLine($"ChangeReason: {result.ChangeReason}");
+
             Assert.False(result.VersionChanged);
             Assert.Contains("No changes", result.ChangeReason);
         }
@@ -325,7 +338,7 @@ namespace Mister.Version.Tests
             Commands.Stage(_repo, "TestProject/TestProject.csproj");
             _repo.Commit("Add test project", _signature, _signature);
 
-            var gitService = new GitService(_repo);
+            var gitService = new GitService(_tempRepoPath);
             var calculator = new VersionCalculator(gitService);
 
             var options = new VersionOptions
@@ -363,7 +376,7 @@ namespace Mister.Version.Tests
             Commands.Stage(_repo, "TestProject/TestProject.csproj");
             _repo.Commit("Add test project", _signature, _signature);
 
-            var gitService = new GitService(_repo);
+            var gitService = new GitService(_tempRepoPath);
             var calculator = new VersionCalculator(gitService);
 
             var options = new VersionOptions

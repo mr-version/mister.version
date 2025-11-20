@@ -103,5 +103,10 @@ namespace Mister.Version.Core.Models
         /// Reason for the classification
         /// </summary>
         public string Reason { get; set; }
+
+        /// <summary>
+        /// Whether there are any non-ignored changes
+        /// </summary>
+        public bool HasChanges => !ShouldIgnore && (RequiredBumpType != VersionBumpType.None || MajorFiles.Count > 0 || MinorFiles.Count > 0 || PatchFiles.Count > 0 || UnclassifiedFiles.Count > 0);
     }
 }

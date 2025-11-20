@@ -76,6 +76,11 @@ public class VersionConfig
     /// Version validation constraints
     /// </summary>
     public VersionConstraints Constraints { get; set; }
+
+    /// <summary>
+    /// Git integration configuration for advanced repository scenarios
+    /// </summary>
+    public GitIntegrationConfig GitIntegration { get; set; }
 }
 
 /// <summary>

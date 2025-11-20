@@ -1204,16 +1204,19 @@ namespace Mister.Version.Core.Services
                     if (!string.IsNullOrEmpty(relativeProjectPath))
                     {
                         var projectChanges = _gitService.ClassifyProjectChanges(
-                            projectVersionTag,
+                            projectVersionTag.Commit,
                             relativeProjectPath,
                             options.Dependencies ?? new System.Collections.Generic.List<string>(),
-                            options.ChangeDetection,
-                            options.AdditionalMonitorPaths);
+                            options.RepoRoot,
+                            options.ChangeDetection);
 
                         if (projectChanges.HasChanges)
                         {
                             hasChanges = true;
                             changeReason = $"CalVer - Changes detected in project (patch increment)";
+
+                            // Increment patch version for changes in the same period
+                            newVersion.Patch++;
                         }
                     }
                 }

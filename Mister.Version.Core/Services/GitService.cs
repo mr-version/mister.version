@@ -228,7 +228,7 @@ namespace Mister.Version.Core.Services
             if (branchType == BranchType.Release)
             {
                 // Check for detached HEAD state
-                if (_repository.Head.IsDetached)
+                if ((_repository.Head.Tip != null && _repository.Head.CanonicalName == "HEAD"))
                 {
                     _logger?.Invoke("Warning", "Repository is in detached HEAD state");
                     // Skip release branch filtering in detached HEAD state
@@ -408,7 +408,7 @@ namespace Mister.Version.Core.Services
             if (branchType == BranchType.Release)
             {
                 // Check for detached HEAD state
-                if (_repository.Head.IsDetached)
+                if ((_repository.Head.Tip != null && _repository.Head.CanonicalName == "HEAD"))
                 {
                     _logger?.Invoke("Warning", "Repository is in detached HEAD state");
                     // Skip release branch filtering in detached HEAD state

@@ -187,8 +187,7 @@ namespace Mister.Version.CLI
                 using var repo = new Repository(repoRoot);
 
                 // Load configuration
-                var configService = new VersionConfigService(options.Debug ? LoggerFactory.CreateReportLogger(true) : null);
-                var config = configService.LoadConfig(repoRoot, options.ConfigFile);
+                var config = ConfigurationService.LoadConfiguration(options.ConfigFile, repoRoot, options.Debug ? LoggerFactory.CreateReportLogger(true) : null);
 
                 // Get commit range
                 Commit fromCommit = null;
@@ -207,7 +206,7 @@ namespace Mister.Version.CLI
                 else
                 {
                     // Find the most recent tag
-                    var gitService = new GitService(repo, options.Debug ? LoggerFactory.CreateReportLogger(true) : null);
+                    var gitService = new GitService(repoRoot, null, options.Debug ? LoggerFactory.CreateReportLogger(true) : null);
                     var latestTag = repo.Tags
                         .Where(t => t.FriendlyName.StartsWith(options.TagPrefix))
                         .Select(t => new { Tag = t, Commit = t.Target as Commit })
@@ -554,7 +553,7 @@ namespace Mister.Version.CLI
 
             // Initialize services
             using var gitService = new GitService(gitRepoRoot);
-            var versionCalculator = new VersionCalculator(gitService, logger);
+            var versionCalculator = new VersionCalculator(gitService, logger: logger);
             var projectAnalyzer = new ProjectAnalyzer(versionCalculator, gitService, logger);
             var reportGenerator = new ReportGenerator();
 
