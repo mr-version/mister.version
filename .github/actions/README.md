@@ -18,11 +18,11 @@ All production actions are hosted under the `mr-version` GitHub organization:
 | Action | Repository | Status |
 |--------|------------|--------|
 | **setup** | [mr-version/setup](https://github.com/mr-version/setup) | ✅ Implemented (TypeScript) |
-| **calculate** | [mr-version/calculate](https://github.com/mr-version/calculate) | ✅ Implemented (TypeScript) |
+| **calculate** | [mr-version/calculate](https://github.com/mr-version/calculate) | ✅ Implemented (TypeScript) + Validation |
 | **report** | [mr-version/report](https://github.com/mr-version/report) | ✅ Implemented (TypeScript) |
 | **tag** | [mr-version/tag](https://github.com/mr-version/tag) | ✅ Implemented (TypeScript) |
-| **release** | [mr-version/release](https://github.com/mr-version/release) | ✅ Implemented (Composite) |
-| **changelog** | [mr-version/changelog](https://github.com/mr-version/changelog) | 🚧 Placeholder (needs implementation) |
+| **release** | [mr-version/release](https://github.com/mr-version/release) | ✅ Implemented (Composite) + Validation |
+| **changelog** | [mr-version/changelog](https://github.com/mr-version/changelog) | ✅ Implemented (TypeScript) |
 
 ### Submodule Configuration
 
@@ -120,17 +120,73 @@ Complete release workflow that orchestrates all the above actions: setup → cal
 ```
 
 ### 6. **changelog** - Generate Changelogs
-**Status:** 🚧 Placeholder (TypeScript wrapper needed)
+**Status:** ✅ Implemented
 **Repository:** [mr-version/changelog](https://github.com/mr-version/changelog)
 
-Will generate changelogs from conventional commits. Currently a placeholder repository.
+Generates changelogs from conventional commits with support for multiple output formats.
 
-**Planned Usage:**
+**Usage:**
 ```yaml
 - uses: ./.github/actions/changelog
   with:
     output-format: 'markdown'
     output-file: 'CHANGELOG.md'
+    from-version: '1.0.0'
+    to-version: '1.1.0'
+    include-authors: true
+    post-to-pr: true
+```
+
+**Key Features:**
+- Multiple output formats (markdown, text, json)
+- Conventional commit parsing with breaking change detection
+- Issue and PR reference linking
+- Post changelog directly to PR comments
+- Support for monorepo project filtering
+
+## Version Validation Support
+
+The **calculate** and **release** actions now include comprehensive version validation support:
+
+### Features
+- **Automatic Validation**: Version constraints configured in `mr-version.yml` are automatically validated
+- **GitHub Annotations**: Validation errors and warnings appear as annotations in PR checks
+- **Job Summary**: Validation results are included in the action summary
+- **Fail on Error**: Actions fail automatically when version constraints are violated
+
+### Validation Constraints
+Configure validation in your `mr-version.yml`:
+```yaml
+constraints:
+  minimumVersion: "2.0.0"          # Never go below this version
+  maximumVersion: "5.0.0"          # Never exceed this version
+  allowedRange: "3.x.x"            # Stay within version range
+  requireMonotonicIncrease: true   # Versions must always increase
+  blockedVersions: ["1.2.3"]       # Skip specific versions
+  requireMajorApproval: true       # Prevent accidental major bumps
+```
+
+### Validation Outputs
+Both **calculate** and **release** actions now provide:
+- `has-validation-errors`: Boolean indicating if any validation errors occurred
+- `has-validation-warnings`: Boolean indicating if any validation warnings occurred
+- `validation-errors-count`: Number of projects with validation errors
+- `validation-warnings-count`: Number of projects with validation warnings
+
+### Example Usage
+```yaml
+- name: Calculate Versions
+  id: calculate
+  uses: ./.github/actions/calculate
+  with:
+    projects: '**/*.csproj'
+
+- name: Check Validation
+  if: steps.calculate.outputs.has-validation-errors == 'true'
+  run: |
+    echo "❌ Version validation failed!"
+    echo "Projects with errors: ${{ steps.calculate.outputs.validation-errors-count }}"
+    exit 1
 ```
 
 ## Testing Actions
