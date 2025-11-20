@@ -38,7 +38,7 @@ namespace Mister.Version.CLI
                     Console.Error.WriteLine($"[DEBUG] About to parse arguments: {string.Join(" ", args)}");
                 }
                 
-                var result = parser.ParseArguments<ReportOptions, VersionOptions>(args);
+                var result = parser.ParseArguments<ReportOptions, VersionOptions, ChangelogOptions>(args);
                 
                 if (args.Contains("--debug"))
                 {
@@ -53,6 +53,10 @@ namespace Mister.Version.CLI
                         (VersionOptions opts) => {
                             if (args.Contains("--debug")) Console.Error.WriteLine($"[DEBUG] Running version command");
                             return RunVersionCommand(opts);
+                        },
+                        (ChangelogOptions opts) => {
+                            if (args.Contains("--debug")) Console.Error.WriteLine($"[DEBUG] Running changelog command");
+                            return RunChangelogCommand(opts);
                         },
                         errs => {
                             var errList = errs.ToList();
@@ -85,8 +89,9 @@ namespace Mister.Version.CLI
                                     Console.WriteLine("Usage: mr-version <command> [options]");
                                     Console.WriteLine();
                                     Console.WriteLine("Commands:");
-                                    Console.WriteLine("  report    Generate a version report for projects in the repository");
-                                    Console.WriteLine("  version   Calculate the version for a specific project");
+                                    Console.WriteLine("  report      Generate a version report for projects in the repository");
+                                    Console.WriteLine("  version     Calculate the version for a specific project");
+                                    Console.WriteLine("  changelog   Generate a changelog from commit history");
                                     Console.WriteLine();
                                     Console.WriteLine("Use 'mr-version <command> --help' for more information about a command.");
                                     Console.WriteLine();
@@ -148,6 +153,177 @@ namespace Mister.Version.CLI
                 
                 var calculator = new SingleProjectVersionCalculator(options);
                 return calculator.CalculateVersion();
+            }
+            catch (Exception ex)
+            {
+                Console.Error.WriteLine($"Error: {ex.Message}");
+                if (options.Debug)
+                {
+                    Console.Error.WriteLine($"Stack trace: {ex.StackTrace}");
+                }
+                return 1;
+            }
+        }
+
+        static int RunChangelogCommand(ChangelogOptions options)
+        {
+            try
+            {
+                if (options.Debug)
+                {
+                    Console.Error.WriteLine($"[DEBUG] RunChangelogCommand called");
+                    Console.Error.WriteLine($"[DEBUG] Repo path: {options.RepoPath}");
+                }
+
+                // Resolve repository root
+                var repoRoot = Path.GetFullPath(options.RepoPath);
+                if (!Directory.Exists(Path.Combine(repoRoot, ".git")))
+                {
+                    Console.Error.WriteLine($"Error: Not a git repository: {repoRoot}");
+                    return 1;
+                }
+
+                // Open repository
+                using var repo = new Repository(repoRoot);
+
+                // Load configuration
+                var configService = new VersionConfigService(options.Debug ? LoggerFactory.CreateReportLogger(true) : null);
+                var config = configService.LoadConfig(repoRoot, options.ConfigFile);
+
+                // Get commit range
+                Commit fromCommit = null;
+                Commit toCommit = repo.Head.Tip;
+
+                if (!string.IsNullOrEmpty(options.FromVersion))
+                {
+                    var fromTag = repo.Tags.FirstOrDefault(t => t.FriendlyName == options.TagPrefix + options.FromVersion);
+                    fromCommit = fromTag?.Target as Commit;
+                    if (fromCommit == null)
+                    {
+                        Console.Error.WriteLine($"Error: Could not find tag {options.TagPrefix}{options.FromVersion}");
+                        return 1;
+                    }
+                }
+                else
+                {
+                    // Find the most recent tag
+                    var gitService = new GitService(repo, options.Debug ? LoggerFactory.CreateReportLogger(true) : null);
+                    var latestTag = repo.Tags
+                        .Where(t => t.FriendlyName.StartsWith(options.TagPrefix))
+                        .Select(t => new { Tag = t, Commit = t.Target as Commit })
+                        .Where(x => x.Commit != null)
+                        .OrderByDescending(x => x.Commit.Author.When)
+                        .FirstOrDefault();
+
+                    fromCommit = latestTag?.Commit;
+                }
+
+                if (!string.IsNullOrEmpty(options.ToVersion))
+                {
+                    var toTag = repo.Tags.FirstOrDefault(t => t.FriendlyName == options.TagPrefix + options.ToVersion);
+                    toCommit = toTag?.Target as Commit;
+                    if (toCommit == null)
+                    {
+                        Console.Error.WriteLine($"Error: Could not find tag {options.TagPrefix}{options.ToVersion}");
+                        return 1;
+                    }
+                }
+
+                // Get commits in range
+                var commits = new List<Commit>();
+                if (fromCommit != null)
+                {
+                    var filter = new CommitFilter
+                    {
+                        IncludeReachableFrom = toCommit,
+                        ExcludeReachableFrom = fromCommit
+                    };
+                    commits = repo.Commits.QueryBy(filter).ToList();
+                }
+                else
+                {
+                    // No from commit, use all commits up to HEAD
+                    commits = repo.Commits.QueryBy(new CommitFilter { IncludeReachableFrom = toCommit }).ToList();
+                }
+
+                if (options.Debug)
+                {
+                    Console.Error.WriteLine($"[DEBUG] Found {commits.Count} commits");
+                }
+
+                // Determine versions
+                var fromVersion = fromCommit != null
+                    ? repo.Tags.FirstOrDefault(t => (t.Target as Commit)?.Sha == fromCommit.Sha)?.FriendlyName?.Replace(options.TagPrefix, "")
+                    : null;
+                var toVersion = repo.Tags.FirstOrDefault(t => (t.Target as Commit)?.Sha == toCommit?.Sha)?.FriendlyName?.Replace(options.TagPrefix, "")
+                    ?? "HEAD";
+
+                // Create changelog configuration
+                var changelogConfig = config?.Changelog ?? new ChangelogConfig
+                {
+                    Enabled = true,
+                    OutputFormat = options.OutputFormat,
+                    RepositoryUrl = options.RepositoryUrl,
+                    IncludeAuthors = options.IncludeAuthors,
+                    IncludeCommitLinks = options.IncludeCommitLinks,
+                    IncludeIssueReferences = options.IncludeIssueReferences,
+                    IncludePullRequestReferences = options.IncludePullRequestReferences,
+                    GroupBreakingChanges = options.GroupBreakingChanges
+                };
+
+                // Override with CLI options
+                changelogConfig.RepositoryUrl = options.RepositoryUrl ?? changelogConfig.RepositoryUrl;
+                changelogConfig.IncludeAuthors = options.IncludeAuthors;
+                changelogConfig.IncludeCommitLinks = options.IncludeCommitLinks;
+                changelogConfig.IncludeIssueReferences = options.IncludeIssueReferences;
+                changelogConfig.IncludePullRequestReferences = options.IncludePullRequestReferences;
+                changelogConfig.GroupBreakingChanges = options.GroupBreakingChanges;
+
+                // Get conventional commit config
+                var conventionalCommitConfig = config?.CommitConventions ?? new ConventionalCommitConfig { Enabled = true };
+
+                // Generate changelog
+                var generator = new ChangelogGenerator(new ConventionalCommitAnalyzer());
+                var changelog = generator.GenerateChangelog(
+                    commits,
+                    toVersion,
+                    fromVersion,
+                    changelogConfig,
+                    conventionalCommitConfig,
+                    options.ProjectName);
+
+                // Format output
+                string output;
+                switch (options.OutputFormat.ToLowerInvariant())
+                {
+                    case "markdown":
+                    case "md":
+                        output = generator.FormatAsMarkdown(changelog, changelogConfig);
+                        break;
+                    case "text":
+                    case "txt":
+                        output = generator.FormatAsText(changelog, changelogConfig);
+                        break;
+                    case "json":
+                        output = generator.FormatAsJson(changelog);
+                        break;
+                    default:
+                        Console.Error.WriteLine($"Error: Unknown output format: {options.OutputFormat}");
+                        return 1;
+                }
+
+                // Write output
+                if (!string.IsNullOrEmpty(options.OutputFile))
+                {
+                    File.WriteAllText(options.OutputFile, output);
+                    Console.WriteLine($"Changelog written to {options.OutputFile}");
+                }
+                else
+                {
+                    Console.WriteLine(output);
+                }
+
+                return 0;
             }
             catch (Exception ex)
             {
@@ -240,6 +416,55 @@ namespace Mister.Version.CLI
 
         [Option("config-file", Required = false, HelpText = "Path to mr-version.yml configuration file (auto-detected if not specified)")]
         public string ConfigFile { get; set; }
+    }
+
+    [Verb("changelog", HelpText = "Generate a changelog from commit history")]
+    public class ChangelogOptions
+    {
+        [Option('r', "repo", Required = false, HelpText = "Path to the Git repository root", Default = ".")]
+        public string RepoPath { get; set; }
+
+        [Option('p', "project", Required = false, HelpText = "Project name for monorepo scenarios")]
+        public string ProjectName { get; set; }
+
+        [Option('f', "from", Required = false, HelpText = "Start version tag (defaults to previous tag)")]
+        public string FromVersion { get; set; }
+
+        [Option('t', "to", Required = false, HelpText = "End version tag (defaults to HEAD)")]
+        public string ToVersion { get; set; }
+
+        [Option('o', "output", Required = false, HelpText = "Output format: markdown, text, json", Default = "markdown")]
+        public string OutputFormat { get; set; }
+
+        [Option("output-file", Required = false, HelpText = "Output file path (if not specified, outputs to console)")]
+        public string OutputFile { get; set; }
+
+        [Option("tag-prefix", Required = false, HelpText = "Prefix for version tags", Default = "v")]
+        public string TagPrefix { get; set; }
+
+        [Option("repo-url", Required = false, HelpText = "Repository URL for generating links (e.g., https://github.com/owner/repo)")]
+        public string RepositoryUrl { get; set; }
+
+        [Option("include-authors", Required = false, HelpText = "Include commit authors in changelog", Default = false)]
+        public bool IncludeAuthors { get; set; }
+
+        [Option("include-commits", Required = false, HelpText = "Include commit links", Default = true)]
+        public bool IncludeCommitLinks { get; set; }
+
+        [Option("include-issues", Required = false, HelpText = "Include issue references", Default = true)]
+        public bool IncludeIssueReferences { get; set; }
+
+        [Option("include-prs", Required = false, HelpText = "Include PR references", Default = true)]
+        public bool IncludePullRequestReferences { get; set; }
+
+        [Option("group-breaking", Required = false, HelpText = "Group breaking changes separately", Default = true)]
+        public bool GroupBreakingChanges { get; set; }
+
+        [Option("config-file", Required = false, HelpText = "Path to mr-version.yml configuration file (auto-detected if not specified)")]
+        public string ConfigFile { get; set; }
+
+        [Option("debug", Required = false, HelpText = "Enable debug output", Default = false)]
+        public bool Debug { get; set; }
     }
 
     public class VersionReporter
