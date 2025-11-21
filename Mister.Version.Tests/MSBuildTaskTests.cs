@@ -19,11 +19,11 @@ namespace Mister.Version.Tests
         {
             _testRepoRoot = Path.Combine(Path.GetTempPath(), "test-repo-" + Guid.NewGuid().ToString("N"));
             Directory.CreateDirectory(_testRepoRoot);
-            
+
             var projectDir = Path.Combine(_testRepoRoot, "src", "TestProject");
             Directory.CreateDirectory(projectDir);
             _testProjectPath = Path.Combine(projectDir, "TestProject.csproj");
-            
+
             // Create a minimal project file
             File.WriteAllText(_testProjectPath, @"<Project Sdk=""Microsoft.NET.Sdk"">
   <PropertyGroup>
