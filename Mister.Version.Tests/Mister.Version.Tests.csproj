@@ -11,11 +11,17 @@
   </PropertyGroup>
 
   <ItemGroup>
+    <!-- Force MSBuild 17.13.9 to be used, exclude all transitive dependencies -->
+    <PackageReference Include="Microsoft.Build.Framework" Version="17.13.9">
+      <ExcludeAssets>none</ExcludeAssets>
+    </PackageReference>
+    <PackageReference Include="Microsoft.Build.Utilities.Core" Version="17.13.9">
+      <ExcludeAssets>none</ExcludeAssets>
+    </PackageReference>
+
     <PackageReference Include="xunit" Version="2.9.3" />
     <PackageReference Include="xunit.runner.visualstudio" Version="3.*" />
     <PackageReference Include="Microsoft.NET.Test.Sdk" Version="17.11.1" />
-    <PackageReference Include="Microsoft.Build.Framework" Version="17.13.9" />
-    <PackageReference Include="Microsoft.Build.Utilities.Core" Version="17.13.9" />
     <PackageReference Include="YamlDotNet" Version="16.3.0" />
     <PackageReference Include="Moq" Version="4.20.72" />
     <PackageReference Include="coverlet.collector" Version="6.0.4">
