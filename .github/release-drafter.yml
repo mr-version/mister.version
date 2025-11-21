@@ -1,6 +1,15 @@
+# Release Drafter Configuration
+# This configuration is used when commits are pushed to main branch
+# It automatically generates release notes from merged PRs
+
 name-template: 'v$RESOLVED_VERSION'
 tag-template: 'v$RESOLVED_VERSION'
 version-template: '$MAJOR.$MINOR.$PATCH'
+
+# Disable references to PR events since we only run on push to main
+# This prevents warnings about pull_request_target webhooks
+prerelease: false
+prerelease-label: 'prerelease'
 
 categories:
   - title: '🚀 Features'
