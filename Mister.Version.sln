@@ -34,6 +34,24 @@ Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "workflows", "workflows", "{
 		.github\workflows\stale.yml = .github\workflows\stale.yml
 	EndProjectSection
 EndProject
+Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "actions", "actions", "{DAC7B4C6-9B52-4518-AED4-5D2329D3A3A2}"
+	ProjectSection(SolutionItems) = preProject
+		.github\actions\test-versioning-windows\action.yml = .github\actions\test-versioning-windows\action.yml
+		.github\actions\test-versioning-windows\test-functions.ps1 = .github\actions\test-versioning-windows\test-functions.ps1
+	EndProjectSection
+EndProject
+Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "test-versioning-windows", "test-versioning-windows", "{94C9D57A-06BB-4157-A6B3-E2440B82690D}"
+	ProjectSection(SolutionItems) = preProject
+		.github\actions\test-versioning-windows\action.yml = .github\actions\test-versioning-windows\action.yml
+		.github\actions\test-versioning-windows\test-functions.ps1 = .github\actions\test-versioning-windows\test-functions.ps1
+	EndProjectSection
+EndProject
+Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "test-versioning-linux", "test-versioning-linux", "{95994124-0408-4F35-9043-927DEF1F401C}"
+	ProjectSection(SolutionItems) = preProject
+		.github\actions\test-versioning-linux\action.yml = .github\actions\test-versioning-linux\action.yml
+		.github\actions\test-versioning-linux\test-functions.sh = .github\actions\test-versioning-linux\test-functions.sh
+	EndProjectSection
+EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		Debug|Any CPU = Debug|Any CPU
@@ -64,6 +82,9 @@ Global
 		{805876B3-0B41-4615-8CBF-378FBF6A4DF3} = {0AB3BF05-4346-4AA6-1389-037BE0695223}
 		{2768335A-6154-43A4-9FCE-98A43AF2DB8C} = {07CE9FE3-92A1-44C6-95FA-0687EED12D85}
 		{DB944B72-A159-4442-951B-3C8CB7D24EBE} = {2768335A-6154-43A4-9FCE-98A43AF2DB8C}
+		{DAC7B4C6-9B52-4518-AED4-5D2329D3A3A2} = {2768335A-6154-43A4-9FCE-98A43AF2DB8C}
+		{94C9D57A-06BB-4157-A6B3-E2440B82690D} = {DAC7B4C6-9B52-4518-AED4-5D2329D3A3A2}
+		{95994124-0408-4F35-9043-927DEF1F401C} = {DAC7B4C6-9B52-4518-AED4-5D2329D3A3A2}
 	EndGlobalSection
 	GlobalSection(ExtensibilityGlobals) = postSolution
 		SolutionGuid = {DE19AE64-576C-4387-855D-84526F8AF64A}
