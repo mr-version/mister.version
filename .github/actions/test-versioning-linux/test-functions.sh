@@ -596,26 +596,76 @@ test_config_rc() {
 test_yaml_config() {
     local test_name="YAML Configuration File"
     local repo_dir="$TEST_DIR/test11-yaml-config"
-    
+
     mkdir -p "$repo_dir"
     cd "$repo_dir"
     git init
     git config user.email "test@example.com"
     git config user.name "Test User"
-    
+
     create_test_project "TestProject" "src/TestProject"
-    
-    # Create YAML config file
-    cat > mister-version.yml << EOF
+
+    # Test 11a: Basic YAML config with beta prerelease
+    cat > mr-version.yml << EOF
 tagPrefix: "v"
 prereleaseType: "beta"
 EOF
-    
+
     git add .
     git commit -m "Initial commit with config"
-    
+
     # Should use beta from config file
-    run_versioning_tool "$repo_dir" "0.1.0-beta.1" "$test_name"
+    run_versioning_tool "$repo_dir" "0.1.0-beta.1" "$test_name - beta prerelease"
+
+    # Test 11b: YAML config with custom tag prefix
+    rm mr-version.yml
+    cat > mr-version.yml << EOF
+tagPrefix: "release-"
+prereleaseType: "none"
+EOF
+
+    git add .
+    git commit -m "Update config with custom prefix"
+    git tag release-1.0.0
+
+    echo "// Update" >> src/TestProject/Program.cs
+    git add .
+    git commit -m "Make changes"
+
+    run_versioning_tool "$repo_dir" "1.0.1" "$test_name - custom tag prefix"
+
+    # Test 11c: YAML config with baseVersion
+    rm mr-version.yml
+    cat > mr-version.yml << EOF
+baseVersion: "2.0.0"
+prereleaseType: "none"
+EOF
+
+    echo "// Another update" >> src/TestProject/Program.cs
+    git add .
+    git commit -m "Update with baseVersion config"
+
+    run_versioning_tool "$repo_dir" "2.0.0" "$test_name - baseVersion"
+
+    # Test 11d: Alternative YAML filename (mister-version.yaml)
+    cd "$TEST_DIR"
+    local repo_dir2="$TEST_DIR/test11d-yaml-alt-name"
+    mkdir -p "$repo_dir2"
+    cd "$repo_dir2"
+    git init
+    git config user.email "test@example.com"
+    git config user.name "Test User"
+
+    create_test_project "TestProject" "src/TestProject"
+
+    cat > mister-version.yaml << EOF
+prereleaseType: "alpha"
+EOF
+
+    git add .
+    git commit -m "Config with alternate filename"
+
+    run_versioning_tool "$repo_dir2" "0.1.0-alpha.1" "$test_name - alternate filename"
 }
 
 # Test 12: Force Version Tests
@@ -931,6 +981,296 @@ run_versioning_tool_with_dependencies() {
     fi
 }
 
+# Test 18: Concurrent branch modifications
+test_concurrent_branches() {
+    local test_name="Concurrent Branch Modifications"
+    local repo_dir="$TEST_DIR/test18-concurrent-branches"
+
+    mkdir -p "$repo_dir"
+    cd "$repo_dir"
+    git init
+    git config user.email "test@example.com"
+    git config user.name "Test User"
+
+    create_test_project "TestProject" "src/TestProject"
+
+    git add .
+    git commit -m "Initial commit"
+    git tag v1.0.0
+
+    # Test 18a: Multiple feature branches from same base
+    git checkout -b feature/feature-a
+    echo "// Feature A" >> src/TestProject/Program.cs
+    git add .
+    git commit -m "Add feature A"
+
+    git checkout main 2>/dev/null || git checkout master 2>/dev/null
+    git checkout -b feature/feature-b
+    echo "// Feature B" >> src/TestProject/Program.cs
+    git add .
+    git commit -m "Add feature B"
+
+    # Both branches should have same version since they diverged from same point
+    run_versioning_tool "$repo_dir" "1.0.1-feature-b.1" "$test_name - feature-b"
+
+    git checkout feature/feature-a
+    run_versioning_tool "$repo_dir" "1.0.1-feature-a.1" "$test_name - feature-a"
+
+    # Test 18b: Merge one branch, version the other
+    git checkout main 2>/dev/null || git checkout master 2>/dev/null
+    git merge --no-ff feature/feature-a -m "Merge feature A"
+    git tag v1.1.0
+
+    git checkout feature/feature-b
+    run_versioning_tool "$repo_dir" "1.1.1-feature-b.1" "$test_name - feature-b after merge"
+
+    # Test 18c: Release branch with concurrent hotfix
+    git checkout main 2>/dev/null || git checkout master 2>/dev/null
+    git checkout -b release/2.0
+    echo "// Release prep" >> src/TestProject/Program.cs
+    git add .
+    git commit -m "Prepare release 2.0"
+
+    git checkout main 2>/dev/null || git checkout master 2>/dev/null
+    git checkout -b hotfix/critical-fix
+    echo "// Hotfix" >> src/TestProject/Program.cs
+    git add .
+    git commit -m "Critical hotfix"
+
+    run_versioning_tool "$repo_dir" "1.1.1-critical-fix.1" "$test_name - hotfix"
+
+    git checkout release/2.0
+    run_versioning_tool "$repo_dir" "2.0.0" "$test_name - release branch"
+}
+
+# Test 19: Deep dependency chains (10+ levels)
+test_deep_dependency_chains() {
+    local test_name="Deep Dependency Chains"
+    local repo_dir="$TEST_DIR/test19-deep-deps"
+
+    mkdir -p "$repo_dir"
+    cd "$repo_dir"
+    git init
+    git config user.email "test@example.com"
+    git config user.name "Test User"
+
+    # Create chain: Base -> Level1 -> Level2 -> ... -> Level10
+    create_test_project "Base" "src/Base"
+
+    # Create 10 levels of dependencies
+    for level in {1..10}; do
+        local prev_level=$((level - 1))
+        local prev_project="Base"
+        if [ $prev_level -gt 0 ]; then
+            prev_project="Level$prev_level"
+        fi
+
+        mkdir -p "src/Level$level"
+        cat > "src/Level$level/Level$level.csproj" << EOF
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>net8.0</TargetFramework>
+    <IsPackable>true</IsPackable>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="../$prev_project/$prev_project.csproj" />
+  </ItemGroup>
+</Project>
+EOF
+
+        cat > "src/Level$level/Class$level.cs" << EOF
+namespace Level$level
+{
+    public class Class$level
+    {
+        public string GetLevel() => "Level $level";
+    }
+}
+EOF
+    done
+
+    git add .
+    git commit -m "Initial commit with 10-level dependency chain"
+    git tag v1.0.0
+
+    # Test 19a: Modify base project, all dependents should bump
+    echo "// Base update" >> src/Base/Program.cs
+    git add .
+    git commit -m "Update base project"
+
+    # Level10 should bump because Base changed (transitive dependency)
+    run_monorepo_versioning_tool "$repo_dir" "./src/Level10/Level10.csproj" "1.0.1" "$test_name - Level10 after Base change"
+
+    # Test 19b: Modify middle level, only downstream should bump
+    echo "// Level5 update" >> src/Level5/Class5.cs
+    git add .
+    git commit -m "Update Level5"
+
+    run_monorepo_versioning_tool "$repo_dir" "./src/Level10/Level10.csproj" "1.0.2" "$test_name - Level10 after Level5 change"
+    run_monorepo_versioning_tool "$repo_dir" "./src/Level3/Level3.csproj" "1.0.1" "$test_name - Level3 unaffected by Level5"
+}
+
+# Test 20: Ultra-large monorepo (100+ projects with performance check)
+test_large_monorepo() {
+    local test_name="Large Monorepo Performance"
+    local repo_dir="$TEST_DIR/test20-large-monorepo"
+
+    mkdir -p "$repo_dir"
+    cd "$repo_dir"
+    git init
+    git config user.email "test@example.com"
+    git config user.name "Test User"
+
+    print_status "$YELLOW" "Creating large monorepo with 100 projects..."
+
+    # Create 100 projects
+    for i in {1..100}; do
+        create_test_project "Project$i" "src/Project$i"
+    done
+
+    git add .
+    git commit -m "Initial commit with 100 projects"
+    git tag v1.0.0
+
+    # Test 20a: Version calculation on large repo
+    local start_time=$(date +%s%N)
+    run_monorepo_versioning_tool "$repo_dir" "./src/Project50/Project50.csproj" "1.0.0" "$test_name - Project50"
+    local end_time=$(date +%s%N)
+    local duration_ms=$(( (end_time - start_time) / 1000000 ))
+
+    print_status "$BLUE" "Version calculation took ${duration_ms}ms for 100-project repo"
+
+    # Test 20b: Modify one project in large repo
+    echo "// Update" >> src/Project75/Program.cs
+    git add .
+    git commit -m "Update Project75"
+
+    run_monorepo_versioning_tool "$repo_dir" "./src/Project75/Project75.csproj" "1.0.1" "$test_name - Project75 after change"
+
+    # Test 20c: Verify unaffected project doesn't bump
+    run_monorepo_versioning_tool "$repo_dir" "./src/Project25/Project25.csproj" "1.0.0" "$test_name - Project25 unaffected"
+}
+
+# Test 21: Tag operation edge cases
+test_tag_edge_cases() {
+    local test_name="Tag Operation Edge Cases"
+    local repo_dir="$TEST_DIR/test21-tag-edges"
+
+    mkdir -p "$repo_dir"
+    cd "$repo_dir"
+    git init
+    git config user.email "test@example.com"
+    git config user.name "Test User"
+
+    create_test_project "TestProject" "src/TestProject"
+
+    git add .
+    git commit -m "Initial commit"
+
+    # Test 21a: Lightweight vs annotated tags
+    git tag v1.0.0  # Lightweight tag
+    git tag -a v1.1.0 -m "Annotated tag for v1.1.0"  # Annotated tag
+
+    echo "// Change" >> src/TestProject/Program.cs
+    git add .
+    git commit -m "Make change"
+
+    run_versioning_tool "$repo_dir" "1.1.1" "$test_name - after annotated tag"
+
+    # Test 21b: Tag deletion and recreation
+    git tag v1.2.0
+    git tag -d v1.2.0  # Delete tag
+    git tag v1.2.0  # Recreate at same commit
+
+    run_versioning_tool "$repo_dir" "1.2.1" "$test_name - recreated tag"
+
+    # Test 21c: Multiple tags on same commit
+    git tag v2.0.0
+    git tag v2.0.0-rc.1
+    git tag release-2.0.0
+
+    run_versioning_tool "$repo_dir" "2.0.1" "$test_name - multiple tags same commit"
+
+    # Test 21d: Tag with special characters
+    git tag "v3.0.0+build.123"
+
+    echo "// Another change" >> src/TestProject/Program.cs
+    git add .
+    git commit -m "Another change"
+
+    run_versioning_tool "$repo_dir" "3.0.1" "$test_name - tag with build metadata"
+
+    # Test 21e: Very old tags (100+ commits ago)
+    for i in {1..50}; do
+        echo "// Commit $i" >> src/TestProject/Program.cs
+        git add .
+        git commit -m "Commit $i"
+    done
+
+    run_versioning_tool "$repo_dir" "3.0.51" "$test_name - many commits after tag"
+}
+
+# Test 22: Advanced git scenarios
+test_advanced_git_scenarios() {
+    local test_name="Advanced Git Scenarios"
+    local repo_dir="$TEST_DIR/test22-advanced-git"
+
+    mkdir -p "$repo_dir"
+    cd "$repo_dir"
+    git init
+    git config user.email "test@example.com"
+    git config user.name "Test User"
+
+    create_test_project "TestProject" "src/TestProject"
+
+    git add .
+    git commit -m "Initial commit"
+    git tag v1.0.0
+
+    # Test 22a: Cherry-pick scenario
+    git checkout -b feature/new-feature
+    echo "// Feature commit 1" >> src/TestProject/Program.cs
+    git add .
+    git commit -m "Feature commit 1"
+
+    echo "// Feature commit 2" >> src/TestProject/Program.cs
+    git add .
+    local cherry_commit=$(git add . && git commit -m "Feature commit 2" && git rev-parse HEAD)
+
+    git checkout main 2>/dev/null || git checkout master 2>/dev/null
+    git cherry-pick $cherry_commit
+
+    run_versioning_tool "$repo_dir" "1.0.1" "$test_name - after cherry-pick"
+
+    # Test 22b: Rebase scenario
+    git checkout feature/new-feature
+    git rebase main
+
+    run_versioning_tool "$repo_dir" "1.0.1-new-feature.1" "$test_name - after rebase"
+
+    # Test 22c: Merge commit
+    git checkout main 2>/dev/null || git checkout master 2>/dev/null
+    git merge --no-ff feature/new-feature -m "Merge feature branch"
+
+    run_versioning_tool "$repo_dir" "1.0.2" "$test_name - after merge"
+
+    # Test 22d: Squash merge
+    git checkout -b feature/squash-test
+    echo "// Squash 1" >> src/TestProject/Program.cs
+    git add .
+    git commit -m "Squash commit 1"
+
+    echo "// Squash 2" >> src/TestProject/Program.cs
+    git add .
+    git commit -m "Squash commit 2"
+
+    git checkout main 2>/dev/null || git checkout master 2>/dev/null
+    git merge --squash feature/squash-test
+    git commit -m "Squashed feature"
+
+    run_versioning_tool "$repo_dir" "1.0.3" "$test_name - after squash merge"
+}
+
 # Export test summary at the end
 export_test_summary() {
     echo "" >> $GITHUB_STEP_SUMMARY
@@ -947,6 +1287,217 @@ export_test_summary() {
         echo "❌ **Some tests failed!**" >> $GITHUB_STEP_SUMMARY
         exit 1
     fi
+}
+
+# Test 15: Detached HEAD scenarios
+test_detached_head() {
+    local test_name="Detached HEAD State"
+    local repo_dir="$TEST_DIR/test15-detached-head"
+
+    mkdir -p "$repo_dir"
+    cd "$repo_dir"
+    git init
+    git config user.email "test@example.com"
+    git config user.name "Test User"
+
+    create_test_project "TestProject" "src/TestProject"
+
+    git add .
+    git commit -m "Initial commit"
+    git tag v1.0.0
+
+    echo "// Feature 1" >> src/TestProject/Program.cs
+    git add .
+    git commit -m "Add feature 1"
+
+    echo "// Feature 2" >> src/TestProject/Program.cs
+    git add .
+    git commit -m "Add feature 2"
+    git tag v1.1.0
+
+    # Test 15a: Detached HEAD at a tagged commit
+    git checkout --detach v1.0.0
+
+    run_versioning_tool "$repo_dir" "1.0.0" "$test_name - at tagged commit"
+
+    # Test 15b: Detached HEAD at untagged commit (between tags)
+    git checkout --detach HEAD~1  # Go back to commit between v1.0.0 and v1.1.0
+
+    run_versioning_tool "$repo_dir" "1.0.1" "$test_name - between tags"
+
+    # Test 15c: Detached HEAD with new commits
+    echo "// Detached change" >> src/TestProject/Program.cs
+    git add .
+    git commit -m "Change in detached HEAD"
+
+    run_versioning_tool "$repo_dir" "1.1.1" "$test_name - with new commits"
+
+    # Test 15d: Detached HEAD at specific commit hash
+    git checkout main 2>/dev/null || git checkout master 2>/dev/null
+    local commit_hash=$(git rev-parse HEAD~1)
+    git checkout --detach "$commit_hash"
+
+    run_versioning_tool "$repo_dir" "1.1.1" "$test_name - at commit hash"
+}
+
+# Test 16: Shallow clone scenarios
+test_shallow_clone() {
+    local test_name="Shallow Clone"
+    local source_repo="$TEST_DIR/test16-shallow-source"
+    local shallow_repo="$TEST_DIR/test16-shallow-clone"
+
+    # Create source repository with history
+    mkdir -p "$source_repo"
+    cd "$source_repo"
+    git init
+    git config user.email "test@example.com"
+    git config user.name "Test User"
+
+    create_test_project "TestProject" "src/TestProject"
+
+    git add .
+    git commit -m "Initial commit"
+    git tag v1.0.0
+
+    # Create some history
+    for i in {1..5}; do
+        echo "// Change $i" >> src/TestProject/Program.cs
+        git add .
+        git commit -m "Change $i"
+    done
+    git tag v1.1.0
+
+    for i in {6..10}; do
+        echo "// Change $i" >> src/TestProject/Program.cs
+        git add .
+        git commit -m "Change $i"
+    done
+
+    # Test 16a: Shallow clone with depth 1
+    cd "$TEST_DIR"
+    git clone --depth 1 "file://$source_repo" "$shallow_repo-depth1"
+    cd "$shallow_repo-depth1"
+
+    run_versioning_tool "$shallow_repo-depth1" "1.1.1" "$test_name - depth 1"
+
+    # Test 16b: Shallow clone with depth 5
+    cd "$TEST_DIR"
+    git clone --depth 5 "file://$source_repo" "$shallow_repo-depth5"
+    cd "$shallow_repo-depth5"
+
+    run_versioning_tool "$shallow_repo-depth5" "1.1.1" "$test_name - depth 5"
+
+    # Test 16c: Shallow clone then fetch more history
+    cd "$TEST_DIR"
+    git clone --depth 1 "file://$source_repo" "$shallow_repo-unshallow"
+    cd "$shallow_repo-unshallow"
+
+    # Fetch more history
+    git fetch --depth=10
+
+    run_versioning_tool "$shallow_repo-unshallow" "1.1.1" "$test_name - after fetch depth"
+
+    # Test 16d: Unshallow the repository completely
+    git fetch --unshallow
+
+    run_versioning_tool "$shallow_repo-unshallow" "1.1.1" "$test_name - after unshallow"
+}
+
+# Test 17: Cross-platform path scenarios
+test_cross_platform_paths() {
+    local test_name="Cross-Platform Paths"
+
+    # Test 17a: Paths with spaces
+    local repo_dir="$TEST_DIR/test17 with spaces"
+
+    mkdir -p "$repo_dir"
+    cd "$repo_dir"
+    git init
+    git config user.email "test@example.com"
+    git config user.name "Test User"
+
+    # Create project in directory with spaces
+    mkdir -p "src/My Project"
+    cat > "src/My Project/MyProject.csproj" << EOF
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>net8.0</TargetFramework>
+    <IsPackable>true</IsPackable>
+  </PropertyGroup>
+</Project>
+EOF
+
+    cat > "src/My Project/Program.cs" << EOF
+namespace MyProject
+{
+    public class Program
+    {
+        public static void Main(string[] args)
+        {
+            Console.WriteLine("Hello from MyProject");
+        }
+    }
+}
+EOF
+
+    git add .
+    git commit -m "Initial commit"
+
+    run_monorepo_versioning_tool "$repo_dir" "./src/My Project/MyProject.csproj" "0.1.0" "$test_name - spaces in path"
+
+    # Test 17b: Long project names
+    cd "$TEST_DIR"
+    local repo_dir2="$TEST_DIR/test17b-long-names"
+
+    mkdir -p "$repo_dir2"
+    cd "$repo_dir2"
+    git init
+    git config user.email "test@example.com"
+    git config user.name "Test User"
+
+    local long_name="VeryLongProjectNameThatExceedsNormalLengthForTestingPurposes"
+    create_test_project "$long_name" "src/$long_name"
+
+    git add .
+    git commit -m "Initial commit"
+
+    run_monorepo_versioning_tool "$repo_dir2" "./src/$long_name/$long_name.csproj" "0.1.0" "$test_name - long project name"
+
+    # Test 17c: Nested directory structure (deep paths)
+    cd "$TEST_DIR"
+    local repo_dir3="$TEST_DIR/test17c-deep-paths"
+
+    mkdir -p "$repo_dir3"
+    cd "$repo_dir3"
+    git init
+    git config user.email "test@example.com"
+    git config user.name "Test User"
+
+    # Create deeply nested structure
+    local deep_path="src/level1/level2/level3/level4/DeepProject"
+    create_test_project "DeepProject" "$deep_path"
+
+    git add .
+    git commit -m "Initial commit"
+
+    run_monorepo_versioning_tool "$repo_dir3" "./$deep_path/DeepProject.csproj" "0.1.0" "$test_name - deep nested path"
+
+    # Test 17d: Special characters in project names (dashes, underscores, dots)
+    cd "$TEST_DIR"
+    local repo_dir4="$TEST_DIR/test17d-special-chars"
+
+    mkdir -p "$repo_dir4"
+    cd "$repo_dir4"
+    git init
+    git config user.email "test@example.com"
+    git config user.name "Test User"
+
+    create_test_project "My-Project_Name.Core" "src/My-Project_Name.Core"
+
+    git add .
+    git commit -m "Initial commit"
+
+    run_monorepo_versioning_tool "$repo_dir4" "./src/My-Project_Name.Core/My-Project_Name.Core.csproj" "0.1.0" "$test_name - special characters"
 }
 
 # Test global vs project tag priority scenarios
