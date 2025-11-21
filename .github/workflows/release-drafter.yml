@@ -4,20 +4,17 @@ on:
   push:
     branches:
       - main
-  pull_request:
-    types: [opened, reopened, synchronize]
+  # Only run on main branch pushes, not on PRs
+  # This prevents "invalid target_commitish" errors
   workflow_dispatch:
 
 permissions:
-  contents: read
-  pull-requests: write
+  contents: write
+  pull-requests: read
 
 jobs:
   update_release_draft:
     runs-on: ubuntu-latest
-    permissions:
-      contents: write
-      pull-requests: write
     steps:
       - name: Run Release Drafter
         uses: release-drafter/release-drafter@v6
