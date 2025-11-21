@@ -1,13 +1,13 @@
 ﻿
 Microsoft Visual Studio Solution File, Format Version 12.00
-# Visual Studio Version 17
-VisualStudioVersion = 17.5.2.0
+# Visual Studio Version 18
+VisualStudioVersion = 18.0.11205.157 d18.0
 MinimumVisualStudioVersion = 10.0.40219.1
 Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "Mister.Version", "Mister.Version\Mister.Version.csproj", "{D18C7204-BA1B-CE89-79EB-FC157FA8674B}"
 EndProject
 Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "Mister.Version.CLI", "Mister.Version.CLI\Mister.Version.CLI.csproj", "{29D6B5C8-8FC3-4753-A278-64B875B80712}"
 EndProject
-Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "Solution Items", "Solution Items", "{07CE9FE3-92A1-44C6-95FA-0687EED12D85}"
+Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "@root", "@root", "{07CE9FE3-92A1-44C6-95FA-0687EED12D85}"
 	ProjectSection(SolutionItems) = preProject
 		Project.props = Project.props
 	EndProjectSection
@@ -17,6 +17,22 @@ EndProject
 Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "Tests", "Tests", "{0AB3BF05-4346-4AA6-1389-037BE0695223}"
 EndProject
 Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "Mister.Version.Tests", "Mister.Version.Tests\Mister.Version.Tests.csproj", "{805876B3-0B41-4615-8CBF-378FBF6A4DF3}"
+EndProject
+Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = ".github", ".github", "{2768335A-6154-43A4-9FCE-98A43AF2DB8C}"
+EndProject
+Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "workflows", "workflows", "{DB944B72-A159-4442-951B-3C8CB7D24EBE}"
+	ProjectSection(SolutionItems) = preProject
+		.github\workflows\auto-merge.yml = .github\workflows\auto-merge.yml
+		.github\workflows\ci.yml = .github\workflows\ci.yml
+		.github\workflows\codeql.yml = .github\workflows\codeql.yml
+		.github\workflows\comprehensive-test.yml = .github\workflows\comprehensive-test.yml
+		.github\workflows\labeler.yml = .github\workflows\labeler.yml
+		.github\workflows\nuget-publish.yml = .github\workflows\nuget-publish.yml
+		.github\workflows\pr-size-labeler.yml = .github\workflows\pr-size-labeler.yml
+		.github\workflows\release-drafter.yml = .github\workflows\release-drafter.yml
+		.github\workflows\smoke-test.yml = .github\workflows\smoke-test.yml
+		.github\workflows\stale.yml = .github\workflows\stale.yml
+	EndProjectSection
 EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
@@ -46,6 +62,8 @@ Global
 	EndGlobalSection
 	GlobalSection(NestedProjects) = preSolution
 		{805876B3-0B41-4615-8CBF-378FBF6A4DF3} = {0AB3BF05-4346-4AA6-1389-037BE0695223}
+		{2768335A-6154-43A4-9FCE-98A43AF2DB8C} = {07CE9FE3-92A1-44C6-95FA-0687EED12D85}
+		{DB944B72-A159-4442-951B-3C8CB7D24EBE} = {2768335A-6154-43A4-9FCE-98A43AF2DB8C}
 	EndGlobalSection
 	GlobalSection(ExtensibilityGlobals) = postSolution
 		SolutionGuid = {DE19AE64-576C-4387-855D-84526F8AF64A}
