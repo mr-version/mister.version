@@ -43,9 +43,9 @@ runs:
         
         # Set tool path (make it absolute)
         $workDir = (Get-Location).Path
-        $toolPath = Join-Path $workDir "Mister.Version.CLI\bin\Debug\net10.0\mr-version.exe"
+        $toolPath = Join-Path $workDir "Mister.Version.CLI\bin\Debug\net8.0\mr-version.exe"
         if (-not (Test-Path $toolPath)) {
-          $toolPath = Join-Path $workDir "Mister.Version.CLI\bin\Debug\net10.0\mr-version"
+          $toolPath = Join-Path $workDir "Mister.Version.CLI\bin\Debug\net8.0\mr-version"
         }
 
         # Verify tool exists
