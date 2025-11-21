@@ -55,7 +55,7 @@ runs:
         fi
 
         # Set tool path (make it absolute)
-        TOOL_DIR="$(cd "${{ inputs.working-directory }}" && pwd)/Mister.Version.CLI/bin/Debug/${TARGET_FX}"
+        TOOL_DIR="$(cd "${{ inputs.working-directory }}")/Mister.Version.CLI/bin/Debug/${TARGET_FX}"
 
         # Check what files are in the output directory
         echo "Files in output directory:"
