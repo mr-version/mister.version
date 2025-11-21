@@ -41,7 +41,7 @@ runs:
         dotnet build ./Mister.Version.CLI/Mister.Version.CLI.csproj -c Debug
 
         # Set tool path (make it absolute)
-        TOOL_DIR="${{ inputs.working-directory }}/Mister.Version.CLI/bin/Debug/net8.0"
+        TOOL_DIR="$(cd "${{ inputs.working-directory }}" && pwd)/Mister.Version.CLI/bin/Debug/net8.0"
 
         # Check what files are in the output directory
         echo "Files in output directory:"
