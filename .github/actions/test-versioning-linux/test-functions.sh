@@ -596,26 +596,76 @@ test_config_rc() {
 test_yaml_config() {
     local test_name="YAML Configuration File"
     local repo_dir="$TEST_DIR/test11-yaml-config"
-    
+
     mkdir -p "$repo_dir"
     cd "$repo_dir"
     git init
     git config user.email "test@example.com"
     git config user.name "Test User"
-    
+
     create_test_project "TestProject" "src/TestProject"
-    
-    # Create YAML config file
-    cat > mister-version.yml << EOF
+
+    # Test 11a: Basic YAML config with beta prerelease
+    cat > mr-version.yml << EOF
 tagPrefix: "v"
 prereleaseType: "beta"
 EOF
-    
+
     git add .
     git commit -m "Initial commit with config"
-    
+
     # Should use beta from config file
-    run_versioning_tool "$repo_dir" "0.1.0-beta.1" "$test_name"
+    run_versioning_tool "$repo_dir" "0.1.0-beta.1" "$test_name - beta prerelease"
+
+    # Test 11b: YAML config with custom tag prefix
+    rm mr-version.yml
+    cat > mr-version.yml << EOF
+tagPrefix: "release-"
+prereleaseType: "none"
+EOF
+
+    git add .
+    git commit -m "Update config with custom prefix"
+    git tag release-1.0.0
+
+    echo "// Update" >> src/TestProject/Program.cs
+    git add .
+    git commit -m "Make changes"
+
+    run_versioning_tool "$repo_dir" "1.0.1" "$test_name - custom tag prefix"
+
+    # Test 11c: YAML config with baseVersion
+    rm mr-version.yml
+    cat > mr-version.yml << EOF
+baseVersion: "2.0.0"
+prereleaseType: "none"
+EOF
+
+    echo "// Another update" >> src/TestProject/Program.cs
+    git add .
+    git commit -m "Update with baseVersion config"
+
+    run_versioning_tool "$repo_dir" "2.0.0" "$test_name - baseVersion"
+
+    # Test 11d: Alternative YAML filename (mister-version.yaml)
+    cd "$TEST_DIR"
+    local repo_dir2="$TEST_DIR/test11d-yaml-alt-name"
+    mkdir -p "$repo_dir2"
+    cd "$repo_dir2"
+    git init
+    git config user.email "test@example.com"
+    git config user.name "Test User"
+
+    create_test_project "TestProject" "src/TestProject"
+
+    cat > mister-version.yaml << EOF
+prereleaseType: "alpha"
+EOF
+
+    git add .
+    git commit -m "Config with alternate filename"
+
+    run_versioning_tool "$repo_dir2" "0.1.0-alpha.1" "$test_name - alternate filename"
 }
 
 # Test 12: Force Version Tests
@@ -947,6 +997,217 @@ export_test_summary() {
         echo "❌ **Some tests failed!**" >> $GITHUB_STEP_SUMMARY
         exit 1
     fi
+}
+
+# Test 15: Detached HEAD scenarios
+test_detached_head() {
+    local test_name="Detached HEAD State"
+    local repo_dir="$TEST_DIR/test15-detached-head"
+
+    mkdir -p "$repo_dir"
+    cd "$repo_dir"
+    git init
+    git config user.email "test@example.com"
+    git config user.name "Test User"
+
+    create_test_project "TestProject" "src/TestProject"
+
+    git add .
+    git commit -m "Initial commit"
+    git tag v1.0.0
+
+    echo "// Feature 1" >> src/TestProject/Program.cs
+    git add .
+    git commit -m "Add feature 1"
+
+    echo "// Feature 2" >> src/TestProject/Program.cs
+    git add .
+    git commit -m "Add feature 2"
+    git tag v1.1.0
+
+    # Test 15a: Detached HEAD at a tagged commit
+    git checkout --detach v1.0.0
+
+    run_versioning_tool "$repo_dir" "1.0.0" "$test_name - at tagged commit"
+
+    # Test 15b: Detached HEAD at untagged commit (between tags)
+    git checkout --detach HEAD~1  # Go back to commit between v1.0.0 and v1.1.0
+
+    run_versioning_tool "$repo_dir" "1.0.1" "$test_name - between tags"
+
+    # Test 15c: Detached HEAD with new commits
+    echo "// Detached change" >> src/TestProject/Program.cs
+    git add .
+    git commit -m "Change in detached HEAD"
+
+    run_versioning_tool "$repo_dir" "1.1.1" "$test_name - with new commits"
+
+    # Test 15d: Detached HEAD at specific commit hash
+    git checkout main 2>/dev/null || git checkout master 2>/dev/null
+    local commit_hash=$(git rev-parse HEAD~1)
+    git checkout --detach "$commit_hash"
+
+    run_versioning_tool "$repo_dir" "1.1.1" "$test_name - at commit hash"
+}
+
+# Test 16: Shallow clone scenarios
+test_shallow_clone() {
+    local test_name="Shallow Clone"
+    local source_repo="$TEST_DIR/test16-shallow-source"
+    local shallow_repo="$TEST_DIR/test16-shallow-clone"
+
+    # Create source repository with history
+    mkdir -p "$source_repo"
+    cd "$source_repo"
+    git init
+    git config user.email "test@example.com"
+    git config user.name "Test User"
+
+    create_test_project "TestProject" "src/TestProject"
+
+    git add .
+    git commit -m "Initial commit"
+    git tag v1.0.0
+
+    # Create some history
+    for i in {1..5}; do
+        echo "// Change $i" >> src/TestProject/Program.cs
+        git add .
+        git commit -m "Change $i"
+    done
+    git tag v1.1.0
+
+    for i in {6..10}; do
+        echo "// Change $i" >> src/TestProject/Program.cs
+        git add .
+        git commit -m "Change $i"
+    done
+
+    # Test 16a: Shallow clone with depth 1
+    cd "$TEST_DIR"
+    git clone --depth 1 "file://$source_repo" "$shallow_repo-depth1"
+    cd "$shallow_repo-depth1"
+
+    run_versioning_tool "$shallow_repo-depth1" "1.1.1" "$test_name - depth 1"
+
+    # Test 16b: Shallow clone with depth 5
+    cd "$TEST_DIR"
+    git clone --depth 5 "file://$source_repo" "$shallow_repo-depth5"
+    cd "$shallow_repo-depth5"
+
+    run_versioning_tool "$shallow_repo-depth5" "1.1.1" "$test_name - depth 5"
+
+    # Test 16c: Shallow clone then fetch more history
+    cd "$TEST_DIR"
+    git clone --depth 1 "file://$source_repo" "$shallow_repo-unshallow"
+    cd "$shallow_repo-unshallow"
+
+    # Fetch more history
+    git fetch --depth=10
+
+    run_versioning_tool "$shallow_repo-unshallow" "1.1.1" "$test_name - after fetch depth"
+
+    # Test 16d: Unshallow the repository completely
+    git fetch --unshallow
+
+    run_versioning_tool "$shallow_repo-unshallow" "1.1.1" "$test_name - after unshallow"
+}
+
+# Test 17: Cross-platform path scenarios
+test_cross_platform_paths() {
+    local test_name="Cross-Platform Paths"
+
+    # Test 17a: Paths with spaces
+    local repo_dir="$TEST_DIR/test17 with spaces"
+
+    mkdir -p "$repo_dir"
+    cd "$repo_dir"
+    git init
+    git config user.email "test@example.com"
+    git config user.name "Test User"
+
+    # Create project in directory with spaces
+    mkdir -p "src/My Project"
+    cat > "src/My Project/MyProject.csproj" << EOF
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>net8.0</TargetFramework>
+    <IsPackable>true</IsPackable>
+  </PropertyGroup>
+</Project>
+EOF
+
+    cat > "src/My Project/Program.cs" << EOF
+namespace MyProject
+{
+    public class Program
+    {
+        public static void Main(string[] args)
+        {
+            Console.WriteLine("Hello from MyProject");
+        }
+    }
+}
+EOF
+
+    git add .
+    git commit -m "Initial commit"
+
+    run_monorepo_versioning_tool "$repo_dir" "./src/My Project/MyProject.csproj" "0.1.0" "$test_name - spaces in path"
+
+    # Test 17b: Long project names
+    cd "$TEST_DIR"
+    local repo_dir2="$TEST_DIR/test17b-long-names"
+
+    mkdir -p "$repo_dir2"
+    cd "$repo_dir2"
+    git init
+    git config user.email "test@example.com"
+    git config user.name "Test User"
+
+    local long_name="VeryLongProjectNameThatExceedsNormalLengthForTestingPurposes"
+    create_test_project "$long_name" "src/$long_name"
+
+    git add .
+    git commit -m "Initial commit"
+
+    run_monorepo_versioning_tool "$repo_dir2" "./src/$long_name/$long_name.csproj" "0.1.0" "$test_name - long project name"
+
+    # Test 17c: Nested directory structure (deep paths)
+    cd "$TEST_DIR"
+    local repo_dir3="$TEST_DIR/test17c-deep-paths"
+
+    mkdir -p "$repo_dir3"
+    cd "$repo_dir3"
+    git init
+    git config user.email "test@example.com"
+    git config user.name "Test User"
+
+    # Create deeply nested structure
+    local deep_path="src/level1/level2/level3/level4/DeepProject"
+    create_test_project "DeepProject" "$deep_path"
+
+    git add .
+    git commit -m "Initial commit"
+
+    run_monorepo_versioning_tool "$repo_dir3" "./$deep_path/DeepProject.csproj" "0.1.0" "$test_name - deep nested path"
+
+    # Test 17d: Special characters in project names (dashes, underscores, dots)
+    cd "$TEST_DIR"
+    local repo_dir4="$TEST_DIR/test17d-special-chars"
+
+    mkdir -p "$repo_dir4"
+    cd "$repo_dir4"
+    git init
+    git config user.email "test@example.com"
+    git config user.name "Test User"
+
+    create_test_project "My-Project_Name.Core" "src/My-Project_Name.Core"
+
+    git add .
+    git commit -m "Initial commit"
+
+    run_monorepo_versioning_tool "$repo_dir4" "./src/My-Project_Name.Core/My-Project_Name.Core.csproj" "0.1.0" "$test_name - special characters"
 }
 
 # Test global vs project tag priority scenarios

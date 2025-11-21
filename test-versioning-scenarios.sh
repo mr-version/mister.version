@@ -87,10 +87,13 @@ main() {
     test_config_alpha
     test_config_beta
     test_config_rc
-    # test_yaml_config  # TODO: Write tests for YAML configuration (ConfigurationService.cs)
+    test_yaml_config
     test_force_version
     test_tag_prefix
     test_dependency_tracking
+    test_detached_head
+    test_shallow_clone
+    test_cross_platform_paths
     test_global_vs_project_tags
     test_new_release_cycle_detection
     test_config_baseversion_scenarios
