@@ -219,8 +219,26 @@
 		<Message Importance="High" Text="[Cache] Current git HEAD: $(_CurrentGitHeadSha)" Condition="'$(MonoRepoExtraDebug)' == 'true' and '$(_CurrentGitHeadSha)' != ''" />
 
 		<!-- STEP 3: Try to import cached version (will set PackageVersion and MisterVersion_CachedGitHeadSha) -->
-		<Import Project="$(_CachedVersionPropsPath)"
-		        Condition="'$(_CacheFileExists)' == 'true'" />
+		<!-- NOTE: Import cannot be used inside Target elements - cache functionality disabled for now -->
+		<!-- <Import Project="$(_CachedVersionPropsPath)"
+		        Condition="'$(_CacheFileExists)' == 'true'" /> -->
+
+		<!-- Read cached properties using XmlPeek task instead -->
+		<XmlPeek XmlInputPath="$(_CachedVersionPropsPath)"
+		         Query="/Project/PropertyGroup/MisterVersion_CachedGitHeadSha/text()"
+		         Condition="'$(_CacheFileExists)' == 'true'">
+			<Output TaskParameter="Result" ItemName="_CachedGitHeadShaItem" />
+		</XmlPeek>
+		<XmlPeek XmlInputPath="$(_CachedVersionPropsPath)"
+		         Query="/Project/PropertyGroup/PackageVersion/text()"
+		         Condition="'$(_CacheFileExists)' == 'true'">
+			<Output TaskParameter="Result" ItemName="_CachedPackageVersionItem" />
+		</XmlPeek>
+
+		<PropertyGroup Condition="'$(_CacheFileExists)' == 'true'">
+			<MisterVersion_CachedGitHeadSha>@(_CachedGitHeadShaItem)</MisterVersion_CachedGitHeadSha>
+			<PackageVersion>@(_CachedPackageVersionItem)</PackageVersion>
+		</PropertyGroup>
 
 		<!-- STEP 4: Validate cache - check if git HEAD matches -->
 		<PropertyGroup Condition="'$(_CacheFileExists)' == 'true'">
