@@ -33,7 +33,7 @@ jobs:
       run: dotnet build --no-restore --configuration Release
 
     - name: Run Unit Tests
-      run: dotnet test --no-build --configuration Release --verbosity normal --logger "trx;LogFileName=test-results.trx"
+      run: dotnet test --no-build --configuration Release --verbosity normal
     
     - name: Upload Test Results
       if: always()
