@@ -13,7 +13,6 @@ jobs:
     strategy:
       matrix:
         os: [ubuntu-latest, windows-latest] # disabled for now: , macos-latest]
-        dotnet-version: ['10.0.x']
 
     steps:
     - name: Checkout Code
@@ -24,7 +23,7 @@ jobs:
     - name: Setup .NET
       uses: actions/setup-dotnet@v4
       with:
-        dotnet-version: ${{ matrix.dotnet-version }}
+        dotnet-version: 10.0.x
 
     - name: Restore Dependencies
       run: dotnet restore
@@ -39,7 +38,7 @@ jobs:
       if: always()
       uses: actions/upload-artifact@v4
       with:
-        name: test-results-${{ matrix.os }}-dotnet-${{ matrix.dotnet-version }}
+        name: test-results-${{ matrix.os }}-dotnet-10.0.x
         path: "**/*.trx"
 
   versioning-scenarios:
@@ -59,26 +58,19 @@ jobs:
     - name: Setup .NET
       uses: actions/setup-dotnet@v4
       with:
-        dotnet-version: ${{ matrix.dotnet-version }}
+        dotnet-version: 10.0.x
 
     - name: Run Versioning Tests (Linux)
       if: runner.os != 'Windows'
       uses: ./.github/actions/test-versioning-linux
-      with:
-        dotnet-version: ${{ matrix.dotnet-version }}
 
     - name: Run Versioning Tests (Windows)
       if: runner.os == 'Windows'
       uses: ./.github/actions/test-versioning-windows
-      with:
-        dotnet-version: ${{ matrix.dotnet-version }}
 
   regression-tests:
     runs-on: ubuntu-latest
     needs: build-and-test
-    strategy:
-      matrix:
-        dotnet-version: ['10.0.x']
 
     steps:
     - name: Checkout Code
@@ -89,7 +81,7 @@ jobs:
     - name: Setup .NET
       uses: actions/setup-dotnet@v4
       with:
-        dotnet-version: ${{ matrix.dotnet-version }}
+        dotnet-version: 10.0.x
 
     - name: Restore Dependencies
       run: dotnet restore
@@ -119,7 +111,7 @@ jobs:
     - name: Setup .NET
       uses: actions/setup-dotnet@v4
       with:
-        dotnet-version: ${{ matrix.dotnet-version }}
+        dotnet-version: 10.0.x
 
     - name: Restore Dependencies
       run: dotnet restore

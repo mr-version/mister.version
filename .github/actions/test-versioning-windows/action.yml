@@ -1,10 +1,6 @@
 name: 'Test Versioning Scenarios - Windows'
 description: 'Run versioning tests on Windows with mock git repositories'
 inputs:
-  dotnet-version:
-    description: '.NET SDK version to use'
-    required: false
-    default: '10.0.x'
   working-directory:
     description: 'Working directory for the tests'
     required: false
@@ -44,22 +40,12 @@ runs:
       run: |
         Write-Host "Building Mister.Version CLI tool..."
         dotnet build .\Mister.Version.CLI\Mister.Version.CLI.csproj -c Debug
-
-        # Determine target framework based on .NET version
-        $dotnetVersion = "${{ inputs.dotnet-version }}"
-        if ($dotnetVersion -eq "8.0.x") {
-          $targetFx = "net8.0"
-        } elseif ($dotnetVersion -eq "9.0.x") {
-          $targetFx = "net9.0"
-        } elseif ($dotnetVersion -eq "10.0.x") {
-          $targetFx = "net10.0"
-        }
-
+        
         # Set tool path (make it absolute)
         $workDir = (Get-Location).Path
-        $toolPath = Join-Path $workDir "Mister.Version.CLI\bin\Debug\$targetFx\mr-version.exe"
+        $toolPath = Join-Path $workDir "Mister.Version.CLI\bin\Debug\net10.0\mr-version.exe"
         if (-not (Test-Path $toolPath)) {
-          $toolPath = Join-Path $workDir "Mister.Version.CLI\bin\Debug\$targetFx\mr-version"
+          $toolPath = Join-Path $workDir "Mister.Version.CLI\bin\Debug\net10.0\mr-version"
         }
 
         # Verify tool exists

@@ -1,10 +1,6 @@
 name: 'Test Versioning Scenarios - Linux'
 description: 'Run versioning tests on Linux with mock git repositories'
 inputs:
-  dotnet-version:
-    description: '.NET SDK version to use'
-    required: false
-    default: '10.0.x'
   working-directory:
     description: 'Working directory for the tests'
     required: false
@@ -44,18 +40,8 @@ runs:
         echo "Building Mister.Version CLI tool..."
         dotnet build ./Mister.Version.CLI/Mister.Version.CLI.csproj -c Debug
 
-        # Determine target framework based on .NET version
-        DOTNET_VERSION="${{ inputs.dotnet-version }}"
-        if [[ "$DOTNET_VERSION" == "8.0.x" ]]; then
-          TARGET_FX="net8.0"
-        elif [[ "$DOTNET_VERSION" == "9.0.x" ]]; then
-          TARGET_FX="net9.0"
-        elif [[ "$DOTNET_VERSION" == "10.0.x" ]]; then
-          TARGET_FX="net10.0"
-        fi
-
         # Set tool path (make it absolute)
-        TOOL_DIR="${{ inputs.working-directory }}/Mister.Version.CLI/bin/Debug/${TARGET_FX}"
+        TOOL_DIR="${{ inputs.working-directory }}/Mister.Version.CLI/bin/Debug/net10.0"
 
         # Check what files are in the output directory
         echo "Files in output directory:"
