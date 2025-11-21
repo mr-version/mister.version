@@ -138,7 +138,7 @@ jobs:
       run: dotnet build --no-restore --configuration Debug
 
     - name: Test with Coverage
-      run: dotnet test --no-build --configuration Debug --collect:"XPlat Code Coverage" --results-directory ./coverage
+      run: dotnet test --no-build --configuration Debug --results-directory ./coverage
 
     - name: Upload Coverage to Codecov
       uses: codecov/codecov-action@v3
