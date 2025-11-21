@@ -39,25 +39,3 @@ updates:
     commit-message:
       prefix: "ci"
       include: "scope"
-
-  # Enable version updates for npm (for GitHub Actions with Node.js)
-  - package-ecosystem: "npm"
-    directory: "/.github/actions/changelog"
-    schedule:
-      interval: "weekly"
-      day: "monday"
-      time: "09:00"
-    open-pull-requests-limit: 10
-    reviewers:
-      - "maintainers"
-    labels:
-      - "dependencies"
-      - "npm"
-    commit-message:
-      prefix: "chore"
-      include: "scope"
-    versioning-strategy: increase
-    ignore:
-      # Ignore patch updates for dev dependencies
-      - dependency-name: "*"
-        update-types: ["version-update:semver-patch"]
