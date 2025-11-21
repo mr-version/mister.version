@@ -38,7 +38,7 @@ jobs:
     - name: Run Version Resolution Regression Tests
       run: |
         echo "Running specific version resolution tests..."
-        dotnet test --no-build --configuration Release --filter "FullyQualifiedName~VersionResolutionTests" --verbosity normal
+        dotnet test --no-build --configuration Release --filter-class Mister.Version.Tests.VersionResolutionTests --verbosity normal
         if [ $? -ne 0 ]; then
           echo "❌ Version resolution tests failed! Build will not proceed."
           exit 1
