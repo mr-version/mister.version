@@ -1,0 +1,67 @@
+# Auto-labeler configuration for pull requests
+# Labels are automatically applied based on file changes
+
+# Documentation changes
+documentation:
+  - changed-files:
+    - any-glob-to-any-file: ['**/*.md', 'docs/**/*', '**/*.txt']
+
+# CI/CD changes
+ci:
+  - changed-files:
+    - any-glob-to-any-file: ['.github/**/*', '*.yml', '*.yaml']
+
+# Core library changes
+core:
+  - changed-files:
+    - any-glob-to-any-file: ['Mister.Version.Core/**/*']
+
+# CLI changes
+cli:
+  - changed-files:
+    - any-glob-to-any-file: ['Mister.Version.CLI/**/*']
+
+# Test changes
+tests:
+  - changed-files:
+    - any-glob-to-any-file: ['**/*Tests/**/*', '**/*.Tests/**/*', '**/test-*.sh', '**/test-*.ps1']
+
+# Dependencies
+dependencies:
+  - changed-files:
+    - any-glob-to-any-file: ['**/*.csproj', '**/packages.lock.json', '**/package-lock.json']
+
+# GitHub Actions
+github-actions:
+  - changed-files:
+    - any-glob-to-any-file: ['.github/actions/**/*', '.github/workflows/**/*']
+
+# Bug fixes
+bug:
+  - head-branch: ['^fix/', '^bugfix/', '^hotfix/']
+  - title: ['^fix:', '^bugfix:', '^hotfix:']
+
+# Features
+feature:
+  - head-branch: ['^feat/', '^feature/']
+  - title: ['^feat:', '^feature:']
+
+# Refactoring
+refactor:
+  - head-branch: ['^refactor/']
+  - title: ['^refactor:']
+
+# Performance improvements
+performance:
+  - head-branch: ['^perf/']
+  - title: ['^perf:']
+
+# Chore/maintenance
+chore:
+  - head-branch: ['^chore/']
+  - title: ['^chore:']
+
+# Breaking changes
+breaking-change:
+  - title: ['BREAKING CHANGE', '!:']
+  - body: ['BREAKING CHANGE']

@@ -1,0 +1,8 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Ask a Question
+    url: https://github.com/mister-version/mister.version/discussions
+    about: Ask questions and discuss ideas with the community
+  - name: Documentation
+    url: https://github.com/mister-version/mister.version#readme
+    about: Read the documentation for usage guides and examples

@@ -1,0 +1,63 @@
+version: 2
+updates:
+  # Enable version updates for NuGet packages
+  - package-ecosystem: "nuget"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+      time: "09:00"
+    open-pull-requests-limit: 10
+    reviewers:
+      - "maintainers"
+    labels:
+      - "dependencies"
+      - "nuget"
+    commit-message:
+      prefix: "chore"
+      include: "scope"
+    ignore:
+      # Ignore major version updates for stable packages
+      - dependency-name: "Microsoft.Extensions.*"
+        update-types: ["version-update:semver-major"]
+      - dependency-name: "System.Text.Json"
+        update-types: ["version-update:semver-major"]
+
+  # Enable version updates for GitHub Actions
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+      time: "09:00"
+    open-pull-requests-limit: 5
+    reviewers:
+      - "maintainers"
+    labels:
+      - "dependencies"
+      - "github-actions"
+    commit-message:
+      prefix: "ci"
+      include: "scope"
+
+  # Enable version updates for npm (for GitHub Actions with Node.js)
+  - package-ecosystem: "npm"
+    directory: "/.github/actions/changelog"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+      time: "09:00"
+    open-pull-requests-limit: 10
+    reviewers:
+      - "maintainers"
+    labels:
+      - "dependencies"
+      - "npm"
+    commit-message:
+      prefix: "chore"
+      include: "scope"
+    versioning-strategy: increase
+    ignore:
+      # Ignore patch updates for dev dependencies
+      - dependency-name: "*"
+        update-types: ["version-update:semver-patch"]

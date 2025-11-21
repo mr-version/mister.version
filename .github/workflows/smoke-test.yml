@@ -10,7 +10,10 @@ jobs:
     name: Quick Validation Tests
     runs-on: ubuntu-latest
     timeout-minutes: 10
-    
+    strategy:
+      matrix:
+        dotnet-version: ['8.0.x', '9.0.x', '10.0.x']
+
     steps:
     - name: Checkout Code
       uses: actions/checkout@v4
@@ -20,7 +23,7 @@ jobs:
     - name: Setup .NET
       uses: actions/setup-dotnet@v4
       with:
-        dotnet-version: '8.0.x'
+        dotnet-version: ${{ matrix.dotnet-version }}
 
     - name: Restore Dependencies
       run: dotnet restore
@@ -59,43 +62,53 @@ jobs:
       run: |
         echo "Running quick integration test..."
         cd mister.version
-        
+
+        # Determine target framework based on .NET version
+        DOTNET_VERSION="${{ matrix.dotnet-version }}"
+        if [[ "$DOTNET_VERSION" == "8.0.x" ]]; then
+          TARGET_FX="net8.0"
+        elif [[ "$DOTNET_VERSION" == "9.0.x" ]]; then
+          TARGET_FX="net9.0"
+        elif [[ "$DOTNET_VERSION" == "10.0.x" ]]; then
+          TARGET_FX="net10.0"
+        fi
+
         # Create a simple test repo
         TEST_DIR=$(mktemp -d)
         cd $TEST_DIR
-        
+
         # Initialize git
         git init
         git config user.email "test@example.com"
         git config user.name "Test User"
-        
+
         # Create a test project
         mkdir -p src/TestProject
         cat > src/TestProject/TestProject.csproj << EOF
         <Project Sdk="Microsoft.NET.Sdk">
           <PropertyGroup>
-            <TargetFramework>net8.0</TargetFramework>
+            <TargetFramework>${TARGET_FX}</TargetFramework>
           </PropertyGroup>
         </Project>
         EOF
-        
+
         echo "namespace TestProject { public class Program { } }" > src/TestProject/Program.cs
-        
+
         # Commit
         git add .
         git commit -m "Initial commit"
-        
+
         # Test version calculation
-        TOOL_PATH="$GITHUB_WORKSPACE/mister.version/Mister.Version.CLI/bin/Release/net8.0/mr-version.dll"
+        TOOL_PATH="$GITHUB_WORKSPACE/mister.version/Mister.Version.CLI/bin/Release/${TARGET_FX}/mr-version.dll"
         VERSION=$(dotnet "$TOOL_PATH" version --repo . --project ./src/TestProject/TestProject.csproj | grep "^Version:" | cut -d' ' -f2)
-        
+
         if [ "$VERSION" != "0.1.0" ]; then
           echo "❌ CRITICAL: Expected version 0.1.0 but got $VERSION"
           exit 1
         fi
-        
+
         echo "✅ Quick integration test passed!"
-        
+
         # Cleanup
         cd /
         rm -rf $TEST_DIR

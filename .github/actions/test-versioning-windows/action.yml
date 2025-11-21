@@ -44,14 +44,24 @@ runs:
       run: |
         Write-Host "Building Mister.Version CLI tool..."
         dotnet build .\Mister.Version.CLI\Mister.Version.CLI.csproj -c Debug
-        
+
+        # Determine target framework based on .NET version
+        $dotnetVersion = "${{ inputs.dotnet-version }}"
+        if ($dotnetVersion -eq "8.0.x") {
+          $targetFx = "net8.0"
+        } elseif ($dotnetVersion -eq "9.0.x") {
+          $targetFx = "net9.0"
+        } elseif ($dotnetVersion -eq "10.0.x") {
+          $targetFx = "net10.0"
+        }
+
         # Set tool path (make it absolute)
         $workDir = (Get-Location).Path
-        $toolPath = Join-Path $workDir "Mister.Version.CLI\bin\Debug\net8.0\mr-version.exe"
+        $toolPath = Join-Path $workDir "Mister.Version.CLI\bin\Debug\$targetFx\mr-version.exe"
         if (-not (Test-Path $toolPath)) {
-          $toolPath = Join-Path $workDir "Mister.Version.CLI\bin\Debug\net8.0\mr-version"
+          $toolPath = Join-Path $workDir "Mister.Version.CLI\bin\Debug\$targetFx\mr-version"
         }
-        
+
         # Verify tool exists
         if (-not (Test-Path $toolPath)) {
           Write-Error "CLI tool not found at $toolPath"

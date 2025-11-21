@@ -1,0 +1,60 @@
+name: Stale Issues and PRs
+
+on:
+  schedule:
+    - cron: '0 0 * * *' # Run daily at midnight UTC
+  workflow_dispatch:
+
+permissions:
+  issues: write
+  pull-requests: write
+
+jobs:
+  stale:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Mark Stale Issues and PRs
+        uses: actions/stale@v9
+        with:
+          # Stale issues configuration
+          stale-issue-message: |
+            This issue has been automatically marked as stale because it has not had recent activity.
+            It will be closed in 7 days if no further activity occurs.
+
+            If this issue is still relevant, please:
+            - Add a comment to keep it open
+            - Add the `keep-open` label
+
+            Thank you for your contributions!
+          close-issue-message: |
+            This issue has been automatically closed due to inactivity.
+            If you believe this is still relevant, please reopen it or create a new issue with updated information.
+          days-before-issue-stale: 60
+          days-before-issue-close: 7
+          stale-issue-label: 'stale'
+          exempt-issue-labels: 'keep-open,bug,critical,security,help-wanted,good-first-issue'
+
+          # Stale PRs configuration
+          stale-pr-message: |
+            This pull request has been automatically marked as stale because it has not had recent activity.
+            It will be closed in 14 days if no further activity occurs.
+
+            If this PR is still being worked on, please:
+            - Add a comment with an update
+            - Add the `keep-open` label
+            - Rebase on the latest main branch
+
+            Thank you for your contributions!
+          close-pr-message: |
+            This pull request has been automatically closed due to inactivity.
+            If you'd like to continue working on this, please reopen it or create a new PR.
+          days-before-pr-stale: 45
+          days-before-pr-close: 14
+          stale-pr-label: 'stale'
+          exempt-pr-labels: 'keep-open,wip,in-progress,dependencies'
+
+          # General configuration
+          operations-per-run: 100
+          remove-stale-when-updated: true
+          exempt-all-milestones: true
+          ascending: true

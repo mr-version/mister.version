@@ -1,0 +1,28 @@
+# Code Owners for Mister.Version
+# These owners will be requested for review when someone opens a pull request.
+
+# Default owners for everything in the repo
+* @maintainers
+
+# Core library
+/Mister.Version.Core/ @maintainers @core-team
+
+# CLI tool
+/Mister.Version.CLI/ @maintainers @cli-team
+
+# Tests
+/Mister.Version.Tests/ @maintainers @qa-team
+
+# GitHub Actions and CI/CD
+/.github/ @maintainers @devops-team
+/.github/workflows/ @maintainers @devops-team
+
+# Documentation
+*.md @maintainers @docs-team
+/docs/ @maintainers @docs-team
+
+# Configuration files
+*.yml @maintainers
+*.yaml @maintainers
+*.json @maintainers
+*.csproj @maintainers

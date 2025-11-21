@@ -43,14 +43,24 @@ runs:
       run: |
         echo "Building Mister.Version CLI tool..."
         dotnet build ./Mister.Version.CLI/Mister.Version.CLI.csproj -c Debug
-        
+
+        # Determine target framework based on .NET version
+        DOTNET_VERSION="${{ inputs.dotnet-version }}"
+        if [[ "$DOTNET_VERSION" == "8.0.x" ]]; then
+          TARGET_FX="net8.0"
+        elif [[ "$DOTNET_VERSION" == "9.0.x" ]]; then
+          TARGET_FX="net9.0"
+        elif [[ "$DOTNET_VERSION" == "10.0.x" ]]; then
+          TARGET_FX="net10.0"
+        fi
+
         # Set tool path (make it absolute)
-        TOOL_DIR="$(cd "${{ inputs.working-directory }}" && pwd)/Mister.Version.CLI/bin/Debug/net8.0"
-        
+        TOOL_DIR="$(cd "${{ inputs.working-directory }}" && pwd)/Mister.Version.CLI/bin/Debug/${TARGET_FX}"
+
         # Check what files are in the output directory
         echo "Files in output directory:"
         ls -la "$TOOL_DIR"
-        
+
         # Check if we have an executable or need to use the .dll
         if [ -f "$TOOL_DIR/mr-version" ] && [ -x "$TOOL_DIR/mr-version" ]; then
           TOOL_PATH="$TOOL_DIR/mr-version"
@@ -64,7 +74,7 @@ runs:
           echo "Error: CLI tool not found in $TOOL_DIR"
           exit 1
         fi
-        
+
         echo "TOOL_PATH=$TOOL_PATH" >> $GITHUB_ENV
 
     - name: Test - Initial Repository (No Tags)

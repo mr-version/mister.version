@@ -11,14 +11,17 @@ jobs:
   unit-tests:
     name: Unit Tests
     runs-on: ubuntu-latest
-    
+    strategy:
+      matrix:
+        dotnet-version: ['8.0.x', '9.0.x', '10.0.x']
+
     steps:
     - uses: actions/checkout@v4
-    
+
     - name: Setup .NET
       uses: actions/setup-dotnet@v4
       with:
-        dotnet-version: 8.0.x
+        dotnet-version: ${{ matrix.dotnet-version }}
     
     - name: Restore dependencies
       run: dotnet restore
@@ -33,28 +36,31 @@ jobs:
       uses: actions/upload-artifact@v4
       if: always()
       with:
-        name: unit-test-results
+        name: unit-test-results-dotnet-${{ matrix.dotnet-version }}
         path: "**/*.trx"
-        
+
     - name: Upload Coverage Reports
       uses: actions/upload-artifact@v4
       if: always()
       with:
-        name: coverage-reports
+        name: coverage-reports-dotnet-${{ matrix.dotnet-version }}
         path: "**/coverage.cobertura.xml"
 
   integration-tests:
-    name: Integration Tests  
+    name: Integration Tests
     runs-on: ubuntu-latest
     needs: unit-tests
-    
+    strategy:
+      matrix:
+        dotnet-version: ['8.0.x', '9.0.x', '10.0.x']
+
     steps:
     - uses: actions/checkout@v4
-    
+
     - name: Setup .NET
       uses: actions/setup-dotnet@v4
       with:
-        dotnet-version: 8.0.x
+        dotnet-version: ${{ matrix.dotnet-version }}
     
     - name: Restore dependencies
       run: dotnet restore
@@ -74,16 +80,17 @@ jobs:
       uses: actions/upload-artifact@v4
       if: always()
       with:
-        name: integration-test-results
+        name: integration-test-results-dotnet-${{ matrix.dotnet-version }}
         path: "${{ runner.temp }}/test-results.txt"
 
   regression-tests:
     name: Regression Tests
     runs-on: ubuntu-latest
     needs: [unit-tests, integration-tests]
-    
+
     strategy:
       matrix:
+        dotnet-version: ['8.0.x', '9.0.x', '10.0.x']
         scenario:
           - basic-versioning
           - monorepo-dependencies
@@ -91,14 +98,14 @@ jobs:
           - global-vs-project-tags
           - new-release-cycles
           - config-baseversion
-    
+
     steps:
     - uses: actions/checkout@v4
-    
+
     - name: Setup .NET
       uses: actions/setup-dotnet@v4
       with:
-        dotnet-version: 8.0.x
+        dotnet-version: ${{ matrix.dotnet-version }}
     
     - name: Restore dependencies
       run: dotnet restore
@@ -142,19 +149,22 @@ jobs:
     permissions:
       security-events: write
       contents: read
-    
+    strategy:
+      matrix:
+        dotnet-version: ['8.0.x', '9.0.x', '10.0.x']
+
     steps:
     - uses: actions/checkout@v4
-    
+
     - name: Initialize CodeQL
       uses: github/codeql-action/init@v3
       with:
         languages: csharp
-        
+
     - name: Setup .NET
       uses: actions/setup-dotnet@v4
       with:
-        dotnet-version: 8.0.x
+        dotnet-version: ${{ matrix.dotnet-version }}
     
     - name: Restore dependencies
       run: dotnet restore
@@ -171,14 +181,17 @@ jobs:
     name: Performance Test
     runs-on: ubuntu-latest
     needs: unit-tests
-    
+    strategy:
+      matrix:
+        dotnet-version: ['8.0.x', '9.0.x', '10.0.x']
+
     steps:
     - uses: actions/checkout@v4
-    
+
     - name: Setup .NET
       uses: actions/setup-dotnet@v4
       with:
-        dotnet-version: 8.0.x
+        dotnet-version: ${{ matrix.dotnet-version }}
     
     - name: Restore dependencies
       run: dotnet restore
@@ -193,36 +206,46 @@ jobs:
         export TEST_DIR=/tmp/perf-test
         mkdir -p $TEST_DIR/large-monorepo
         cd $TEST_DIR/large-monorepo
-        
+
         # Initialize git
         git init
         git config user.email "test@example.com"
         git config user.name "Test User"
-        
+
+        # Determine target framework based on .NET version
+        DOTNET_VERSION="${{ matrix.dotnet-version }}"
+        if [[ "$DOTNET_VERSION" == "8.0.x" ]]; then
+          TARGET_FX="net8.0"
+        elif [[ "$DOTNET_VERSION" == "9.0.x" ]]; then
+          TARGET_FX="net9.0"
+        elif [[ "$DOTNET_VERSION" == "10.0.x" ]]; then
+          TARGET_FX="net10.0"
+        fi
+
         # Create 50 projects to test performance
         for i in {1..50}; do
           mkdir -p "src/Project$i"
           cat > "src/Project$i/Project$i.csproj" << EOF
         <Project Sdk="Microsoft.NET.Sdk">
           <PropertyGroup>
-            <TargetFramework>net8.0</TargetFramework>
+            <TargetFramework>${TARGET_FX}</TargetFramework>
           </PropertyGroup>
         </Project>
         EOF
           echo "namespace Project$i { public class Class$i { } }" > "src/Project$i/Class$i.cs"
         done
-        
+
         git add .
         git commit -m "Initial large monorepo"
         git tag v1.0.0
-        
+
         # Test version calculation performance
         echo "Testing performance with 50 projects..."
-        time dotnet "$GITHUB_WORKSPACE/Mister.Version.CLI/bin/Release/net8.0/mr-version.dll" report --repo . --include-dependencies
-        
+        time dotnet "$GITHUB_WORKSPACE/Mister.Version.CLI/bin/Release/${TARGET_FX}/mr-version.dll" report --repo . --include-dependencies
+
         # Also test dependency graph generation performance
         echo "Testing dependency graph generation..."
-        time dotnet "$GITHUB_WORKSPACE/Mister.Version.CLI/bin/Release/net8.0/mr-version.dll" report --repo . -o graph --graph-format mermaid > /dev/null
+        time dotnet "$GITHUB_WORKSPACE/Mister.Version.CLI/bin/Release/${TARGET_FX}/mr-version.dll" report --repo . -o graph --graph-format mermaid > /dev/null
 
   comprehensive-report:
     name: Generate Comprehensive Report
