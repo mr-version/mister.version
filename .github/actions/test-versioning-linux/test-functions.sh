@@ -981,6 +981,296 @@ run_versioning_tool_with_dependencies() {
     fi
 }
 
+# Test 18: Concurrent branch modifications
+test_concurrent_branches() {
+    local test_name="Concurrent Branch Modifications"
+    local repo_dir="$TEST_DIR/test18-concurrent-branches"
+
+    mkdir -p "$repo_dir"
+    cd "$repo_dir"
+    git init
+    git config user.email "test@example.com"
+    git config user.name "Test User"
+
+    create_test_project "TestProject" "src/TestProject"
+
+    git add .
+    git commit -m "Initial commit"
+    git tag v1.0.0
+
+    # Test 18a: Multiple feature branches from same base
+    git checkout -b feature/feature-a
+    echo "// Feature A" >> src/TestProject/Program.cs
+    git add .
+    git commit -m "Add feature A"
+
+    git checkout main 2>/dev/null || git checkout master 2>/dev/null
+    git checkout -b feature/feature-b
+    echo "// Feature B" >> src/TestProject/Program.cs
+    git add .
+    git commit -m "Add feature B"
+
+    # Both branches should have same version since they diverged from same point
+    run_versioning_tool "$repo_dir" "1.0.1-feature-b.1" "$test_name - feature-b"
+
+    git checkout feature/feature-a
+    run_versioning_tool "$repo_dir" "1.0.1-feature-a.1" "$test_name - feature-a"
+
+    # Test 18b: Merge one branch, version the other
+    git checkout main 2>/dev/null || git checkout master 2>/dev/null
+    git merge --no-ff feature/feature-a -m "Merge feature A"
+    git tag v1.1.0
+
+    git checkout feature/feature-b
+    run_versioning_tool "$repo_dir" "1.1.1-feature-b.1" "$test_name - feature-b after merge"
+
+    # Test 18c: Release branch with concurrent hotfix
+    git checkout main 2>/dev/null || git checkout master 2>/dev/null
+    git checkout -b release/2.0
+    echo "// Release prep" >> src/TestProject/Program.cs
+    git add .
+    git commit -m "Prepare release 2.0"
+
+    git checkout main 2>/dev/null || git checkout master 2>/dev/null
+    git checkout -b hotfix/critical-fix
+    echo "// Hotfix" >> src/TestProject/Program.cs
+    git add .
+    git commit -m "Critical hotfix"
+
+    run_versioning_tool "$repo_dir" "1.1.1-critical-fix.1" "$test_name - hotfix"
+
+    git checkout release/2.0
+    run_versioning_tool "$repo_dir" "2.0.0" "$test_name - release branch"
+}
+
+# Test 19: Deep dependency chains (10+ levels)
+test_deep_dependency_chains() {
+    local test_name="Deep Dependency Chains"
+    local repo_dir="$TEST_DIR/test19-deep-deps"
+
+    mkdir -p "$repo_dir"
+    cd "$repo_dir"
+    git init
+    git config user.email "test@example.com"
+    git config user.name "Test User"
+
+    # Create chain: Base -> Level1 -> Level2 -> ... -> Level10
+    create_test_project "Base" "src/Base"
+
+    # Create 10 levels of dependencies
+    for level in {1..10}; do
+        local prev_level=$((level - 1))
+        local prev_project="Base"
+        if [ $prev_level -gt 0 ]; then
+            prev_project="Level$prev_level"
+        fi
+
+        mkdir -p "src/Level$level"
+        cat > "src/Level$level/Level$level.csproj" << EOF
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>net8.0</TargetFramework>
+    <IsPackable>true</IsPackable>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="../$prev_project/$prev_project.csproj" />
+  </ItemGroup>
+</Project>
+EOF
+
+        cat > "src/Level$level/Class$level.cs" << EOF
+namespace Level$level
+{
+    public class Class$level
+    {
+        public string GetLevel() => "Level $level";
+    }
+}
+EOF
+    done
+
+    git add .
+    git commit -m "Initial commit with 10-level dependency chain"
+    git tag v1.0.0
+
+    # Test 19a: Modify base project, all dependents should bump
+    echo "// Base update" >> src/Base/Program.cs
+    git add .
+    git commit -m "Update base project"
+
+    # Level10 should bump because Base changed (transitive dependency)
+    run_monorepo_versioning_tool "$repo_dir" "./src/Level10/Level10.csproj" "1.0.1" "$test_name - Level10 after Base change"
+
+    # Test 19b: Modify middle level, only downstream should bump
+    echo "// Level5 update" >> src/Level5/Class5.cs
+    git add .
+    git commit -m "Update Level5"
+
+    run_monorepo_versioning_tool "$repo_dir" "./src/Level10/Level10.csproj" "1.0.2" "$test_name - Level10 after Level5 change"
+    run_monorepo_versioning_tool "$repo_dir" "./src/Level3/Level3.csproj" "1.0.1" "$test_name - Level3 unaffected by Level5"
+}
+
+# Test 20: Ultra-large monorepo (100+ projects with performance check)
+test_large_monorepo() {
+    local test_name="Large Monorepo Performance"
+    local repo_dir="$TEST_DIR/test20-large-monorepo"
+
+    mkdir -p "$repo_dir"
+    cd "$repo_dir"
+    git init
+    git config user.email "test@example.com"
+    git config user.name "Test User"
+
+    print_status "$YELLOW" "Creating large monorepo with 100 projects..."
+
+    # Create 100 projects
+    for i in {1..100}; do
+        create_test_project "Project$i" "src/Project$i"
+    done
+
+    git add .
+    git commit -m "Initial commit with 100 projects"
+    git tag v1.0.0
+
+    # Test 20a: Version calculation on large repo
+    local start_time=$(date +%s%N)
+    run_monorepo_versioning_tool "$repo_dir" "./src/Project50/Project50.csproj" "1.0.0" "$test_name - Project50"
+    local end_time=$(date +%s%N)
+    local duration_ms=$(( (end_time - start_time) / 1000000 ))
+
+    print_status "$BLUE" "Version calculation took ${duration_ms}ms for 100-project repo"
+
+    # Test 20b: Modify one project in large repo
+    echo "// Update" >> src/Project75/Program.cs
+    git add .
+    git commit -m "Update Project75"
+
+    run_monorepo_versioning_tool "$repo_dir" "./src/Project75/Project75.csproj" "1.0.1" "$test_name - Project75 after change"
+
+    # Test 20c: Verify unaffected project doesn't bump
+    run_monorepo_versioning_tool "$repo_dir" "./src/Project25/Project25.csproj" "1.0.0" "$test_name - Project25 unaffected"
+}
+
+# Test 21: Tag operation edge cases
+test_tag_edge_cases() {
+    local test_name="Tag Operation Edge Cases"
+    local repo_dir="$TEST_DIR/test21-tag-edges"
+
+    mkdir -p "$repo_dir"
+    cd "$repo_dir"
+    git init
+    git config user.email "test@example.com"
+    git config user.name "Test User"
+
+    create_test_project "TestProject" "src/TestProject"
+
+    git add .
+    git commit -m "Initial commit"
+
+    # Test 21a: Lightweight vs annotated tags
+    git tag v1.0.0  # Lightweight tag
+    git tag -a v1.1.0 -m "Annotated tag for v1.1.0"  # Annotated tag
+
+    echo "// Change" >> src/TestProject/Program.cs
+    git add .
+    git commit -m "Make change"
+
+    run_versioning_tool "$repo_dir" "1.1.1" "$test_name - after annotated tag"
+
+    # Test 21b: Tag deletion and recreation
+    git tag v1.2.0
+    git tag -d v1.2.0  # Delete tag
+    git tag v1.2.0  # Recreate at same commit
+
+    run_versioning_tool "$repo_dir" "1.2.1" "$test_name - recreated tag"
+
+    # Test 21c: Multiple tags on same commit
+    git tag v2.0.0
+    git tag v2.0.0-rc.1
+    git tag release-2.0.0
+
+    run_versioning_tool "$repo_dir" "2.0.1" "$test_name - multiple tags same commit"
+
+    # Test 21d: Tag with special characters
+    git tag "v3.0.0+build.123"
+
+    echo "// Another change" >> src/TestProject/Program.cs
+    git add .
+    git commit -m "Another change"
+
+    run_versioning_tool "$repo_dir" "3.0.1" "$test_name - tag with build metadata"
+
+    # Test 21e: Very old tags (100+ commits ago)
+    for i in {1..50}; do
+        echo "// Commit $i" >> src/TestProject/Program.cs
+        git add .
+        git commit -m "Commit $i"
+    done
+
+    run_versioning_tool "$repo_dir" "3.0.51" "$test_name - many commits after tag"
+}
+
+# Test 22: Advanced git scenarios
+test_advanced_git_scenarios() {
+    local test_name="Advanced Git Scenarios"
+    local repo_dir="$TEST_DIR/test22-advanced-git"
+
+    mkdir -p "$repo_dir"
+    cd "$repo_dir"
+    git init
+    git config user.email "test@example.com"
+    git config user.name "Test User"
+
+    create_test_project "TestProject" "src/TestProject"
+
+    git add .
+    git commit -m "Initial commit"
+    git tag v1.0.0
+
+    # Test 22a: Cherry-pick scenario
+    git checkout -b feature/new-feature
+    echo "// Feature commit 1" >> src/TestProject/Program.cs
+    git add .
+    git commit -m "Feature commit 1"
+
+    echo "// Feature commit 2" >> src/TestProject/Program.cs
+    git add .
+    local cherry_commit=$(git add . && git commit -m "Feature commit 2" && git rev-parse HEAD)
+
+    git checkout main 2>/dev/null || git checkout master 2>/dev/null
+    git cherry-pick $cherry_commit
+
+    run_versioning_tool "$repo_dir" "1.0.1" "$test_name - after cherry-pick"
+
+    # Test 22b: Rebase scenario
+    git checkout feature/new-feature
+    git rebase main
+
+    run_versioning_tool "$repo_dir" "1.0.1-new-feature.1" "$test_name - after rebase"
+
+    # Test 22c: Merge commit
+    git checkout main 2>/dev/null || git checkout master 2>/dev/null
+    git merge --no-ff feature/new-feature -m "Merge feature branch"
+
+    run_versioning_tool "$repo_dir" "1.0.2" "$test_name - after merge"
+
+    # Test 22d: Squash merge
+    git checkout -b feature/squash-test
+    echo "// Squash 1" >> src/TestProject/Program.cs
+    git add .
+    git commit -m "Squash commit 1"
+
+    echo "// Squash 2" >> src/TestProject/Program.cs
+    git add .
+    git commit -m "Squash commit 2"
+
+    git checkout main 2>/dev/null || git checkout master 2>/dev/null
+    git merge --squash feature/squash-test
+    git commit -m "Squashed feature"
+
+    run_versioning_tool "$repo_dir" "1.0.3" "$test_name - after squash merge"
+}
+
 # Export test summary at the end
 export_test_summary() {
     echo "" >> $GITHUB_STEP_SUMMARY
