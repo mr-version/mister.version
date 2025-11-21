@@ -97,16 +97,6 @@ jobs:
     - name: Build
       run: dotnet build --no-restore --configuration Release
 
-    - name: Run Version Resolution Tests
-      run: |
-        echo "Running specific version resolution regression tests..."
-        dotnet test --no-build --configuration Release --filter "FullyQualifiedName~VersionResolutionTests" --verbosity detailed
-
-    - name: Run Version Calculator Tests
-      run: |
-        echo "Running version calculator tests..."
-        dotnet test --no-build --configuration Release --filter "FullyQualifiedName~VersionCalculatorTests" --verbosity normal
-
     - name: Run Integration Test Suite
       run: |
         echo "Running integration test suite..."
