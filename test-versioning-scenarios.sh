@@ -94,6 +94,11 @@ main() {
     test_detached_head
     test_shallow_clone
     test_cross_platform_paths
+    test_concurrent_branches
+    test_deep_dependency_chains
+    test_large_monorepo
+    test_tag_edge_cases
+    test_advanced_git_scenarios
     test_global_vs_project_tags
     test_new_release_cycle_detection
     test_config_baseversion_scenarios
