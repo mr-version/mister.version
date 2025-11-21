@@ -29,8 +29,14 @@
   </ItemGroup>
 
   <ItemGroup>
-    <ProjectReference Include="..\Mister.Version.Core\Mister.Version.Core.csproj" />
-    <ProjectReference Include="..\Mister.Version\Mister.Version.csproj" />
+    <ProjectReference Include="..\Mister.Version.Core\Mister.Version.Core.csproj">
+      <ReferenceOutputAssembly>true</ReferenceOutputAssembly>
+      <ExcludeAssets>none</ExcludeAssets>
+    </ProjectReference>
+    <ProjectReference Include="..\Mister.Version\Mister.Version.csproj">
+      <ReferenceOutputAssembly>true</ReferenceOutputAssembly>
+      <PrivateAssets>none</PrivateAssets>
+    </ProjectReference>
   </ItemGroup>
 
 </Project>
