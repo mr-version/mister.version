@@ -81,4 +81,18 @@ public class VersionOptions
     /// Version validation constraints
     /// </summary>
     public VersionConstraints Constraints { get; set; }
+
+    /// <summary>
+    /// Enable file-based caching of version results.
+    /// When enabled, version results are stored in .mrversion/[git-sha]/[project-name]/version.props
+    /// This allows for fast version lookups when the git SHA hasn't changed.
+    /// Default: false
+    /// </summary>
+    public bool EnableFileCache { get; set; } = false;
+
+    /// <summary>
+    /// Custom path for the file cache directory.
+    /// If not specified, defaults to .mrversion in the repository root.
+    /// </summary>
+    public string FileCachePath { get; set; }
 }
