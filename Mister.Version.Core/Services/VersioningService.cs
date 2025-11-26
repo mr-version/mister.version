@@ -349,6 +349,7 @@ namespace Mister.Version.Core.Services
             catch (IOException ioEx)
             {
                 _logger("Warning", $"Failed to save to file cache due to IO error: {ioEx.Message}");
+            }
             catch (UnauthorizedAccessException uaEx)
             {
                 _logger("Warning", $"Failed to save to file cache due to lack of access: {uaEx.Message}");
@@ -356,7 +357,6 @@ namespace Mister.Version.Core.Services
             catch (InvalidOperationException invOpEx)
             {
                 _logger("Warning", $"Failed to save to file cache due to invalid operation: {invOpEx.Message}");
-            }
             }
         }
 

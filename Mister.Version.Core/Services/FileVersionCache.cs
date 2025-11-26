@@ -471,7 +471,11 @@ namespace Mister.Version.Core.Services
 
                 return semver;
             }
-            catch
+            catch (FormatException)
+            {
+                return null;
+            }
+            catch (ArgumentException)
             {
                 return null;
             }
