@@ -1191,6 +1191,10 @@ test_tag_edge_cases() {
     git tag -d v1.2.0  # Delete tag
     git tag v1.2.0  # Recreate at same commit
 
+    echo "// After tag recreation" >> src/TestProject/Program.cs
+    git add .
+    git commit -m "Change after tag recreation"
+
     run_versioning_tool "$repo_dir" "1.2.1" "$test_name - recreated tag"
 
     # Test 21c: Multiple tags on same commit
