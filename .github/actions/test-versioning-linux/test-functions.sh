@@ -1021,8 +1021,13 @@ test_concurrent_branches() {
     git merge --no-ff feature/feature-a -m "Merge feature A"
     git tag v1.1.0
 
+    # feature-b doesn't see v1.1.0 because it diverged before the merge
     git checkout feature/feature-b
-    run_versioning_tool "$repo_dir" "1.1.1-feature-b.1" "$test_name - feature-b after merge"
+    run_versioning_tool "$repo_dir" "1.0.1-feature-b.1" "$test_name - feature-b before seeing merge"
+
+    # After rebasing feature-b on main, it will see v1.1.0
+    git rebase main
+    run_versioning_tool "$repo_dir" "1.1.1-feature-b.1" "$test_name - feature-b after rebase"
 
     # Test 18c: Release branch with concurrent hotfix
     git checkout main 2>/dev/null || git checkout master 2>/dev/null
