@@ -1270,10 +1270,11 @@ test_advanced_git_scenarios() {
     run_versioning_tool "$repo_dir" "1.0.1-new-feature.2" "$test_name - after rebase"
 
     # Test 22c: Merge commit
+    # Version stays at 1.0.1 - semantic versioning increments patch once for changes since tag
     git checkout main 2>/dev/null || git checkout master 2>/dev/null
     git merge --no-ff feature/new-feature -m "Merge feature branch"
 
-    run_versioning_tool "$repo_dir" "1.0.2" "$test_name - after merge"
+    run_versioning_tool "$repo_dir" "1.0.1" "$test_name - after merge"
 
     # Test 22d: Squash merge
     git checkout -b feature/squash-test
@@ -1289,7 +1290,8 @@ test_advanced_git_scenarios() {
     git merge --squash feature/squash-test
     git commit -m "Squashed feature"
 
-    run_versioning_tool "$repo_dir" "1.0.3" "$test_name - after squash merge"
+    # Still 1.0.1 - all changes since v1.0.0 result in single patch increment
+    run_versioning_tool "$repo_dir" "1.0.1" "$test_name - after squash merge"
 }
 
 # Export test summary at the end
