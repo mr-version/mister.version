@@ -3,7 +3,7 @@
 	<PropertyGroup>
 		<LangVersion>latest</LangVersion>
 		<Version>3.0.0-alpha.3</Version>
-		<License>MIT</License>
+		<PackageLicenseExpression>MIT</PackageLicenseExpression>
 		<PackageReadmeFile>README.md</PackageReadmeFile>
 		<PackageIcon>icon.png</PackageIcon>
 	</PropertyGroup>
