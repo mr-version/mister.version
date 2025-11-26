@@ -1006,7 +1006,8 @@ test_concurrent_branches() {
 
     git checkout main 2>/dev/null || git checkout master 2>/dev/null
     git checkout -b feature/feature-b
-    echo "// Feature B" >> src/TestProject/Program.cs
+    # Modify a different file to avoid rebase conflicts later
+    echo "// Feature B" >> src/TestProject/FeatureB.cs
     git add .
     git commit -m "Add feature B"
 
@@ -1032,13 +1033,13 @@ test_concurrent_branches() {
     # Test 18c: Release branch with concurrent hotfix
     git checkout main 2>/dev/null || git checkout master 2>/dev/null
     git checkout -b release/2.0
-    echo "// Release prep" >> src/TestProject/Program.cs
+    echo "// Release prep" >> src/TestProject/Release.cs
     git add .
     git commit -m "Prepare release 2.0"
 
     git checkout main 2>/dev/null || git checkout master 2>/dev/null
     git checkout -b hotfix/critical-fix
-    echo "// Hotfix" >> src/TestProject/Program.cs
+    echo "// Hotfix" >> src/TestProject/Hotfix.cs
     git add .
     git commit -m "Critical hotfix"
 
