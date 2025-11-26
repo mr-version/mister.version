@@ -32,7 +32,7 @@ jobs:
       run: dotnet build --no-restore --configuration Release
 
     - name: Run Unit Tests
-      run: dotnet test --no-build --configuration Release --verbosity normal
+      run: dotnet test --no-build --configuration Release --verbosity normal --report-trx --report-trx-filename "test-results.trx"
     
     - name: Upload Test Results
       if: always()
@@ -89,6 +89,16 @@ jobs:
     - name: Build
       run: dotnet build --no-restore --configuration Release
 
+    - name: Run Version Resolution Tests
+      run: |
+        echo "Running specific version resolution regression tests..."
+        dotnet test --no-build --configuration Release --filter-class "Mister.Version.Tests.VersionResolutionTests" --verbosity detailed
+
+    - name: Run Version Calculator Tests
+      run: |
+        echo "Running version calculator tests..."
+        dotnet test --no-build --configuration Release --filter-class "Mister.Version.Tests.VersionCalculatorTests" --verbosity normal
+
     - name: Run Integration Test Suite
       run: |
         echo "Running integration test suite..."
@@ -120,7 +130,7 @@ jobs:
       run: dotnet build --no-restore --configuration Debug
 
     - name: Test with Coverage
-      run: dotnet test --no-build --configuration Debug --results-directory ./coverage
+      run: dotnet test --no-build --configuration Debug --coverage --coverage-output ./coverage --coverage-output-format cobertura
 
     - name: Upload Coverage to Codecov
       uses: codecov/codecov-action@v3

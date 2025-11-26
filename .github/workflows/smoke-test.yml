@@ -36,21 +36,21 @@ jobs:
         echo "Running critical unit tests..."
         
         # Run VersionResolutionTests (new critical tests)
-        dotnet test --no-build --configuration Release --filter "FullyQualifiedName~VersionResolutionTests" --verbosity minimal
+        dotnet test --no-build --configuration Release --filter-class "Mister.Version.Tests.VersionResolutionTests" --verbosity minimal
         if [ $? -ne 0 ]; then
           echo "❌ CRITICAL: Version resolution tests failed!"
           exit 1
         fi
         
         # Run VersionCalculatorTests
-        dotnet test --no-build --configuration Release --filter "FullyQualifiedName~VersionCalculatorTests" --verbosity minimal
+        dotnet test --no-build --configuration Release --filter-class "Mister.Version.Tests.VersionCalculatorTests" --verbosity minimal
         if [ $? -ne 0 ]; then
           echo "❌ CRITICAL: Version calculator tests failed!"
           exit 1
         fi
         
         # Run SemVerTests
-        dotnet test --no-build --configuration Release --filter "FullyQualifiedName~SemVerTests" --verbosity minimal
+        dotnet test --no-build --configuration Release --filter-class "Mister.Version.Tests.SemVerTests" --verbosity minimal
         if [ $? -ne 0 ]; then
           echo "❌ CRITICAL: SemVer tests failed!"
           exit 1
