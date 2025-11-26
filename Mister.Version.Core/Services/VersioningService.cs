@@ -305,9 +305,17 @@ namespace Mister.Version.Core.Services
                     };
                 }
             }
-            catch (Exception ex)
+            catch (IOException ioEx)
             {
-                _logger("Warning", $"Failed to read from file cache: {ex.Message}");
+                _logger("Warning", $"Failed to read from file cache due to IO error: {ioEx.Message}");
+            }
+            catch (UnauthorizedAccessException uaEx)
+            {
+                _logger("Warning", $"Failed to read from file cache due to lack of access: {uaEx.Message}");
+            }
+            catch (InvalidOperationException invOpEx)
+            {
+                _logger("Warning", $"Failed to read from file cache due to invalid operation: {invOpEx.Message}");
             }
 
             return null;
@@ -338,9 +346,17 @@ namespace Mister.Version.Core.Services
                     fileCache.CleanupOldCache(10);
                 }
             }
-            catch (Exception ex)
+            catch (IOException ioEx)
             {
-                _logger("Warning", $"Failed to save to file cache: {ex.Message}");
+                _logger("Warning", $"Failed to save to file cache due to IO error: {ioEx.Message}");
+            catch (UnauthorizedAccessException uaEx)
+            {
+                _logger("Warning", $"Failed to save to file cache due to lack of access: {uaEx.Message}");
+            }
+            catch (InvalidOperationException invOpEx)
+            {
+                _logger("Warning", $"Failed to save to file cache due to invalid operation: {invOpEx.Message}");
+            }
             }
         }
 
