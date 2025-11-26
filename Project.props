@@ -2,10 +2,11 @@
 
 	<PropertyGroup>
 		<LangVersion>latest</LangVersion>
-		<Version>3.0.0-alpha.3</Version>
+		<Version>3.0.0-alpha.4</Version>
 		<PackageLicenseExpression>MIT</PackageLicenseExpression>
 		<PackageReadmeFile>README.md</PackageReadmeFile>
 		<PackageIcon>icon.png</PackageIcon>
 		<NoWarn>$(NoWarn);NU5118</NoWarn>
 	</PropertyGroup>
+
 </Project>
