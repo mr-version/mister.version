@@ -1107,6 +1107,9 @@ EOF
     # Level10 should bump because Base changed (transitive dependency)
     run_monorepo_versioning_tool "$repo_dir" "./src/Level10/Level10.csproj" "1.0.1" "$test_name - Level10 after Base change"
 
+    # Tag the versions to establish new baseline
+    git tag Level10-v1.0.1
+
     # Test 19b: Modify middle level, only downstream should bump
     echo "// Level5 update" >> src/Level5/Class5.cs
     git add .
