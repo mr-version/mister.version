@@ -1325,21 +1325,21 @@ test_detached_head() {
     local commit_between=$(git rev-parse HEAD~1)
     git checkout --detach "$commit_between"
 
-    run_versioning_tool "$repo_dir" "1.0.1" "$test_name - between tags"
+    run_versioning_tool "$repo_dir" "1.0.1-no-branch.1" "$test_name - between tags"
 
     # Test 15c: Detached HEAD with new commits
     echo "// Detached change" >> src/TestProject/Program.cs
     git add .
     git commit -m "Change in detached HEAD"
 
-    run_versioning_tool "$repo_dir" "1.1.1" "$test_name - with new commits"
+    run_versioning_tool "$repo_dir" "1.0.2-no-branch.1" "$test_name - with new commits"
 
     # Test 15d: Detached HEAD at specific commit hash
     git checkout main 2>/dev/null || git checkout master 2>/dev/null
     local commit_hash=$(git rev-parse HEAD~1)
     git checkout --detach "$commit_hash"
 
-    run_versioning_tool "$repo_dir" "1.1.1" "$test_name - at commit hash"
+    run_versioning_tool "$repo_dir" "1.1.1-no-branch.1" "$test_name - at commit hash"
 }
 
 # Test 16: Shallow clone scenarios
