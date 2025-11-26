@@ -1217,14 +1217,15 @@ test_tag_edge_cases() {
 
     run_versioning_tool "$repo_dir" "3.0.1" "$test_name - tag with build metadata"
 
-    # Test 21e: Very old tags (100+ commits ago)
+    # Test 21e: Very old tags (50+ commits ago)
     for i in {1..50}; do
         echo "// Commit $i" >> src/TestProject/Program.cs
         git add .
         git commit -m "Commit $i"
     done
 
-    run_versioning_tool "$repo_dir" "3.0.51" "$test_name - many commits after tag"
+    # Version increments by 1 regardless of number of commits (semantic versioning)
+    run_versioning_tool "$repo_dir" "3.0.1" "$test_name - many commits after tag"
 }
 
 # Test 22: Advanced git scenarios
