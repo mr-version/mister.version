@@ -22,7 +22,9 @@
 	</PropertyGroup>
 
 	<!-- Include the versioning task - use same path as regular build targets -->
-	<UsingTask TaskName="Mister.Version.MonoRepoVersionTask" AssemblyFile="$(MSBuildThisFileDirectory)../tasks/$(AppSettingStronglyTyped_TFM)/Mister.Version.dll" />
+	<!-- Override="true" ensures this version takes precedence over any previously loaded task assembly -->
+	<!-- This prevents MSB4064 errors when multiple package versions exist in the NuGet cache -->
+	<UsingTask TaskName="Mister.Version.MonoRepoVersionTask" AssemblyFile="$(MSBuildThisFileDirectory)../tasks/$(AppSettingStronglyTyped_TFM)/Mister.Version.dll" Override="true" />
 
 	<!-- DIAGNOSTIC: Log UsingTask path -->
 	<Target Name="_DiagnosticTaskPath" BeforeTargets="BeforeBuild;Build;Pack" Condition="'$(MonoRepoExtraDebug)' == 'true'">

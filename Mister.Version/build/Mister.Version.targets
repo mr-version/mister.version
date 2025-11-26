@@ -1,7 +1,9 @@
 <?xml version="1.0" encoding="utf-8"?>
 <Project xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
 	<!-- Include the versioning task -->
-	<UsingTask TaskName="Mister.Version.MonoRepoVersionTask" AssemblyFile="$(MSBuildThisFileDirectory)../tasks/$(AppSettingStronglyTyped_TFM)/Mister.Version.dll" />
+	<!-- Override="true" ensures this version takes precedence over any previously loaded task assembly -->
+	<!-- This prevents MSB4064 errors when multiple package versions exist in the NuGet cache -->
+	<UsingTask TaskName="Mister.Version.MonoRepoVersionTask" AssemblyFile="$(MSBuildThisFileDirectory)../tasks/$(AppSettingStronglyTyped_TFM)/Mister.Version.dll" Override="true" />
 
 	<!-- CRITICAL: Ensure test projects have versions set immediately to prevent GenerateDepsFile errors -->
 	<PropertyGroup Condition="'$(IsTestProject)' == 'true'">
