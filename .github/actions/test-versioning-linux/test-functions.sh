@@ -1253,7 +1253,8 @@ test_advanced_git_scenarios() {
 
     echo "// Feature commit 2" >> src/TestProject/Program.cs
     git add .
-    local cherry_commit=$(git add . && git commit -m "Feature commit 2" && git rev-parse HEAD)
+    git commit -m "Feature commit 2"
+    local cherry_commit=$(git rev-parse HEAD)
 
     git checkout main 2>/dev/null || git checkout master 2>/dev/null
     git cherry-pick $cherry_commit
