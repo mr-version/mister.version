@@ -1202,6 +1202,10 @@ test_tag_edge_cases() {
     git tag v2.0.0-rc.1
     git tag release-2.0.0
 
+    echo "// After multiple tags" >> src/TestProject/Program.cs
+    git add .
+    git commit -m "Change after multiple tags"
+
     run_versioning_tool "$repo_dir" "2.0.1" "$test_name - multiple tags same commit"
 
     # Test 21d: Tag with special characters
