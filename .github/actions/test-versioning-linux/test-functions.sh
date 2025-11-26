@@ -1247,14 +1247,14 @@ test_advanced_git_scenarios() {
 
     # Test 22a: Cherry-pick scenario
     git checkout -b feature/new-feature
-    echo "// Feature commit 1" >> src/TestProject/Feature.cs
+    echo "// Feature commit 1" > src/TestProject/Feature.cs
     git add .
     git commit -m "Feature commit 1"
+    local cherry_commit=$(git rev-parse HEAD)
 
     echo "// Feature commit 2" >> src/TestProject/Feature.cs
     git add .
     git commit -m "Feature commit 2"
-    local cherry_commit=$(git rev-parse HEAD)
 
     git checkout main 2>/dev/null || git checkout master 2>/dev/null
     git cherry-pick $cherry_commit
