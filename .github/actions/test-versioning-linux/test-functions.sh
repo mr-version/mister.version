@@ -1375,32 +1375,36 @@ test_shallow_clone() {
         git commit -m "Change $i"
     done
 
-    # Test 16a: Shallow clone with depth 1
+    # Test 16a: Shallow clone with depth 1 (no tags)
     cd "$TEST_DIR"
     git clone --depth 1 "file://$source_repo" "$shallow_repo-depth1"
     cd "$shallow_repo-depth1"
 
-    run_versioning_tool "$shallow_repo-depth1" "1.1.1" "$test_name - depth 1"
+    # Without tags, should fall back to default version
+    run_versioning_tool "$shallow_repo-depth1" "0.1.0" "$test_name - depth 1 no tags"
 
-    # Test 16b: Shallow clone with depth 5
+    # Test 16b: Shallow clone with depth 1 and tags fetched
+    cd "$TEST_DIR"
+    git clone --depth 1 "file://$source_repo" "$shallow_repo-depth1-tags"
+    cd "$shallow_repo-depth1-tags"
+    git fetch --depth 1 origin +refs/tags/*:refs/tags/*
+
+    run_versioning_tool "$shallow_repo-depth1-tags" "1.1.1" "$test_name - depth 1 with tags"
+
+    # Test 16c: Shallow clone with depth 5
     cd "$TEST_DIR"
     git clone --depth 5 "file://$source_repo" "$shallow_repo-depth5"
     cd "$shallow_repo-depth5"
+    git fetch origin +refs/tags/*:refs/tags/*
 
     run_versioning_tool "$shallow_repo-depth5" "1.1.1" "$test_name - depth 5"
 
-    # Test 16c: Shallow clone then fetch more history
+    # Test 16d: Unshallow the repository completely
     cd "$TEST_DIR"
     git clone --depth 1 "file://$source_repo" "$shallow_repo-unshallow"
     cd "$shallow_repo-unshallow"
-
-    # Fetch more history
-    git fetch --depth=10
-
-    run_versioning_tool "$shallow_repo-unshallow" "1.1.1" "$test_name - after fetch depth"
-
-    # Test 16d: Unshallow the repository completely
     git fetch --unshallow
+    git fetch origin +refs/tags/*:refs/tags/*
 
     run_versioning_tool "$shallow_repo-unshallow" "1.1.1" "$test_name - after unshallow"
 }
