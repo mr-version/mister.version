@@ -136,6 +136,19 @@ public class MonoRepoVersionTask : Task
     public bool EnableCache { get; set; } = true;
 
     /// <summary>
+    /// Enable file-based caching of version results (default: false).
+    /// When enabled, version results are stored in .mrversion/[git-sha]/[project-name]/version.props
+    /// This allows for fast version lookups when the git SHA hasn't changed, even across separate build processes.
+    /// </summary>
+    public bool EnableFileCache { get; set; } = false;
+
+    /// <summary>
+    /// Custom path for the file cache directory.
+    /// If not specified, defaults to .mrversion in the repository root.
+    /// </summary>
+    public string FileCachePath { get; set; }
+
+    /// <summary>
     /// Enable conventional commits analysis for semantic version bump detection
     /// </summary>
     public bool ConventionalCommitsEnabled { get; set; } = false;
@@ -473,7 +486,9 @@ public class MonoRepoVersionTask : Task
                 RequireMajorApproval = RequireMajorApproval,
                 BlockedVersions = BlockedVersions,
                 RequireMonotonicIncrease = RequireMonotonicIncrease,
-                MajorVersionApproved = MajorVersionApproved
+                MajorVersionApproved = MajorVersionApproved,
+                EnableFileCache = EnableFileCache,
+                FileCachePath = FileCachePath
             };
 
             // Calculate version

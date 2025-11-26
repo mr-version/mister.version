@@ -5,6 +5,9 @@
 
 .claude/
 
+# Mister.Version file cache directory
+.mrversion/
+
 # User-specific files
 *.rsuser
 *.suo

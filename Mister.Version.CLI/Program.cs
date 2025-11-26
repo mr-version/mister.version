@@ -384,6 +384,12 @@ namespace Mister.Version.CLI
         [Option("config-file", Required = false, HelpText = "Path to mr-version.yml configuration file (auto-detected if not specified)")]
         public string ConfigFile { get; set; }
 
+        [Option("enable-file-cache", Required = false, HelpText = "Enable file-based caching of version results in .mrversion folder", Default = false)]
+        public bool EnableFileCache { get; set; }
+
+        [Option("file-cache-path", Required = false, HelpText = "Custom path for the file cache directory (defaults to .mrversion in repo root)")]
+        public string FileCachePath { get; set; }
+
     }
 
     [Verb("version", HelpText = "Calculate the version for a specific project")]
@@ -415,6 +421,12 @@ namespace Mister.Version.CLI
 
         [Option("config-file", Required = false, HelpText = "Path to mr-version.yml configuration file (auto-detected if not specified)")]
         public string ConfigFile { get; set; }
+
+        [Option("enable-file-cache", Required = false, HelpText = "Enable file-based caching of version results in .mrversion folder", Default = false)]
+        public bool EnableFileCache { get; set; }
+
+        [Option("file-cache-path", Required = false, HelpText = "Custom path for the file cache directory (defaults to .mrversion in repo root)")]
+        public string FileCachePath { get; set; }
     }
 
     [Verb("changelog", HelpText = "Generate a changelog from commit history")]
@@ -842,7 +854,9 @@ namespace Mister.Version.CLI
                     SkipTestProjects = true,
                     SkipNonPackableProjects = true,
                     IsTestProject = isTestProject,
-                    IsPackable = isPackable
+                    IsPackable = isPackable,
+                    EnableFileCache = _options.EnableFileCache,
+                    FileCachePath = _options.FileCachePath
                 };
 
                 // Calculate version

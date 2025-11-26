@@ -15,6 +15,7 @@ namespace Mister.Version.Core.Services
         private readonly VersionCalculator _versionCalculator;
         private readonly Action<string, string> _logger;
         private readonly VersionCache _cache;
+        private readonly string _repoRoot;
         private bool _disposed = false;
 
         public VersioningService(string repoRoot, Action<string, string> logger)
@@ -24,6 +25,7 @@ namespace Mister.Version.Core.Services
 
         public VersioningService(string repoRoot, Action<string, string> logger, VersionCache cache)
         {
+            _repoRoot = repoRoot;
             _logger = logger ?? ((level, message) => { });
             _cache = cache;
 
@@ -51,6 +53,18 @@ namespace Mister.Version.Core.Services
             {
                 _logger("Debug", $"Starting version calculation for: {request.ProjectPath}");
 
+                var projectName = Path.GetFileNameWithoutExtension(request.ProjectPath);
+
+                // Check file cache first if enabled
+                if (request.EnableFileCache)
+                {
+                    var cachedResult = TryGetFromFileCache(request, projectName);
+                    if (cachedResult != null)
+                    {
+                        return cachedResult;
+                    }
+                }
+
                 // Load configuration
                 var config = ConfigurationService.LoadConfiguration(
                     request.ConfigFile, 
@@ -70,7 +84,6 @@ namespace Mister.Version.Core.Services
                 };
 
                 // Apply configuration overrides
-                var projectName = Path.GetFileNameWithoutExtension(request.ProjectPath);
                 var configOverrides = ConfigurationService.ApplyConfiguration(
                     config, 
                     projectName, 
@@ -229,7 +242,7 @@ namespace Mister.Version.Core.Services
 
                 _logger("Info", $"Calculated version: {versionResult.Version} for {projectName}");
 
-                return new VersioningResult
+                var result = new VersioningResult
                 {
                     Success = true,
                     Version = versionResult.Version,
@@ -239,6 +252,14 @@ namespace Mister.Version.Core.Services
                     SemVer = _gitService.ParseSemVer(versionResult.Version),
                     ConfigurationApplied = config != null
                 };
+
+                // Save to file cache if enabled
+                if (request.EnableFileCache)
+                {
+                    SaveToFileCache(request, projectName, versionResult);
+                }
+
+                return result;
             }
             catch (Exception ex)
             {
@@ -248,6 +269,78 @@ namespace Mister.Version.Core.Services
                     Success = false,
                     ErrorMessage = ex.Message
                 };
+            }
+        }
+
+        /// <summary>
+        /// Tries to get a cached version result from the file cache
+        /// </summary>
+        private VersioningResult TryGetFromFileCache(VersioningRequest request, string projectName)
+        {
+            try
+            {
+                // Get current HEAD SHA
+                var headSha = _gitService.Repository?.Head?.Tip?.Sha;
+                if (string.IsNullOrEmpty(headSha))
+                {
+                    _logger("Debug", "Cannot use file cache: Unable to get HEAD SHA");
+                    return null;
+                }
+
+                var fileCache = new FileVersionCache(_repoRoot, request.FileCachePath, _logger);
+                var cachedVersion = fileCache.TryGetCachedVersion(headSha, projectName);
+
+                if (cachedVersion != null)
+                {
+                    _logger("Info", $"Using cached version {cachedVersion.Version} for {projectName} from file cache");
+                    return new VersioningResult
+                    {
+                        Success = true,
+                        Version = cachedVersion.Version,
+                        VersionChanged = cachedVersion.VersionChanged,
+                        ChangeReason = cachedVersion.ChangeReason + " (from file cache)",
+                        ProjectName = projectName,
+                        SemVer = cachedVersion.SemVer,
+                        ConfigurationApplied = false
+                    };
+                }
+            }
+            catch (Exception ex)
+            {
+                _logger("Warning", $"Failed to read from file cache: {ex.Message}");
+            }
+
+            return null;
+        }
+
+        /// <summary>
+        /// Saves a version result to the file cache
+        /// </summary>
+        private void SaveToFileCache(VersioningRequest request, string projectName, Models.VersionResult versionResult)
+        {
+            try
+            {
+                // Get current HEAD SHA
+                var headSha = _gitService.Repository?.Head?.Tip?.Sha;
+                if (string.IsNullOrEmpty(headSha))
+                {
+                    _logger("Debug", "Cannot save to file cache: Unable to get HEAD SHA");
+                    return;
+                }
+
+                var fileCache = new FileVersionCache(_repoRoot, request.FileCachePath, _logger);
+
+                if (fileCache.CacheVersion(headSha, projectName, versionResult))
+                {
+                    _logger("Debug", $"Saved version {versionResult.Version} for {projectName} to file cache");
+
+                    // Cleanup old cache entries (keep last 10 SHAs)
+                    fileCache.CleanupOldCache(10);
+                }
+            }
+            catch (Exception ex)
+            {
+                _logger("Warning", $"Failed to save to file cache: {ex.Message}");
             }
         }
 
@@ -383,6 +476,19 @@ namespace Mister.Version.Core.Services
         public string BlockedVersions { get; set; }
         public bool RequireMonotonicIncrease { get; set; } = true;
         public bool MajorVersionApproved { get; set; } = false;
+
+        // File caching configuration
+        /// <summary>
+        /// Enable file-based caching of version results.
+        /// When enabled, version results are stored in .mrversion/[git-sha]/[project-name]/version.props
+        /// </summary>
+        public bool EnableFileCache { get; set; } = false;
+
+        /// <summary>
+        /// Custom path for the file cache directory.
+        /// If not specified, defaults to .mrversion in the repository root.
+        /// </summary>
+        public string FileCachePath { get; set; }
     }
 
     /// <summary>
