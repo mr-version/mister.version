@@ -1321,7 +1321,9 @@ test_detached_head() {
     run_versioning_tool "$repo_dir" "1.0.0" "$test_name - at tagged commit"
 
     # Test 15b: Detached HEAD at untagged commit (between tags)
-    git checkout --detach HEAD~1  # Go back to commit between v1.0.0 and v1.1.0
+    git checkout main 2>/dev/null || git checkout master 2>/dev/null
+    local commit_between=$(git rev-parse HEAD~1)
+    git checkout --detach "$commit_between"
 
     run_versioning_tool "$repo_dir" "1.0.1" "$test_name - between tags"
 
