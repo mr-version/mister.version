@@ -61,17 +61,6 @@ jobs:
     - name: Quick Integration Test
       run: |
         echo "Running quick integration test..."
-        cd mister.version
-
-        # Determine target framework based on .NET version
-        DOTNET_VERSION="${{ matrix.dotnet-version }}"
-        if [[ "$DOTNET_VERSION" == "8.0.x" ]]; then
-          TARGET_FX="net8.0"
-        elif [[ "$DOTNET_VERSION" == "9.0.x" ]]; then
-          TARGET_FX="net9.0"
-        elif [[ "$DOTNET_VERSION" == "10.0.x" ]]; then
-          TARGET_FX="net10.0"
-        fi
 
         # Create a simple test repo
         TEST_DIR=$(mktemp -d)
@@ -99,7 +88,7 @@ jobs:
         git commit -m "Initial commit"
 
         # Test version calculation
-        TOOL_PATH="$GITHUB_WORKSPACE/mister.version/Mister.Version.CLI/bin/Release/${TARGET_FX}/mr-version.dll"
+        TOOL_PATH="$GITHUB_WORKSPACE/Mister.Version.CLI/bin/Release/net8.0/mr-version.dll"
         VERSION=$(dotnet "$TOOL_PATH" version --repo . --project ./src/TestProject/TestProject.csproj | grep "^Version:" | cut -d' ' -f2)
 
         if [ "$VERSION" != "0.1.0" ]; then
