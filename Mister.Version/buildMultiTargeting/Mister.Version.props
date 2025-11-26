@@ -74,6 +74,10 @@
 		<MonoRepoCalVerResetPatch Condition="'$(MonoRepoCalVerResetPatch)'==''">true</MonoRepoCalVerResetPatch>
 		<!-- CalVer separator (default: .) -->
 		<MonoRepoCalVerSeparator Condition="'$(MonoRepoCalVerSeparator)'==''">.</MonoRepoCalVerSeparator>
+		<!-- Enable file-based version caching for improved build performance -->
+		<MonoRepoEnableFileCache Condition="'$(MonoRepoEnableFileCache)'==''">false</MonoRepoEnableFileCache>
+		<!-- Custom path for file cache storage (defaults to .mister-version-cache in repo root) -->
+		<MonoRepoFileCachePath Condition="'$(MonoRepoFileCachePath)'==''"></MonoRepoFileCachePath>
 	</PropertyGroup>
 
 	<!-- Inject versioning into GenerateNuspec dependency chain -->
