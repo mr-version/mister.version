@@ -1247,11 +1247,11 @@ test_advanced_git_scenarios() {
 
     # Test 22a: Cherry-pick scenario
     git checkout -b feature/new-feature
-    echo "// Feature commit 1" >> src/TestProject/Program.cs
+    echo "// Feature commit 1" >> src/TestProject/Feature.cs
     git add .
     git commit -m "Feature commit 1"
 
-    echo "// Feature commit 2" >> src/TestProject/Program.cs
+    echo "// Feature commit 2" >> src/TestProject/Feature.cs
     git add .
     git commit -m "Feature commit 2"
     local cherry_commit=$(git rev-parse HEAD)
@@ -1275,11 +1275,11 @@ test_advanced_git_scenarios() {
 
     # Test 22d: Squash merge
     git checkout -b feature/squash-test
-    echo "// Squash 1" >> src/TestProject/Program.cs
+    echo "// Squash 1" >> src/TestProject/Squash.cs
     git add .
     git commit -m "Squash commit 1"
 
-    echo "// Squash 2" >> src/TestProject/Program.cs
+    echo "// Squash 2" >> src/TestProject/Squash.cs
     git add .
     git commit -m "Squash commit 2"
 
