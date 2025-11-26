@@ -1262,10 +1262,12 @@ test_advanced_git_scenarios() {
     run_versioning_tool "$repo_dir" "1.0.1" "$test_name - after cherry-pick"
 
     # Test 22b: Rebase scenario
+    # After rebase, feature branch has 1 commit ahead (commit 2), rebased on top of main
+    # which has 1 commit (cherry-picked commit 1), so total height from v1.0.0 is 2
     git checkout feature/new-feature
     git rebase main
 
-    run_versioning_tool "$repo_dir" "1.0.1-new-feature.1" "$test_name - after rebase"
+    run_versioning_tool "$repo_dir" "1.0.1-new-feature.2" "$test_name - after rebase"
 
     # Test 22c: Merge commit
     git checkout main 2>/dev/null || git checkout master 2>/dev/null
