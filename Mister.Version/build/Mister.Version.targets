@@ -2,6 +2,7 @@
 <Project xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
 	<!-- Include the versioning task -->
 	<UsingTask TaskName="Mister.Version.MonoRepoVersionTask" AssemblyFile="$(MSBuildThisFileDirectory)../tasks/$(AppSettingStronglyTyped_TFM)/Mister.Version.dll" />
+	<UsingTask TaskName="Mister.Version.HasChangesTask" AssemblyFile="$(MSBuildThisFileDirectory)../tasks/$(AppSettingStronglyTyped_TFM)/Mister.Version.dll" />
 
 	<!-- CRITICAL: Ensure test projects have versions set immediately to prevent GenerateDepsFile errors -->
 	<PropertyGroup Condition="'$(IsTestProject)' == 'true'">
@@ -461,5 +462,62 @@
 		Experimental: Fallback to ensure AssemblyVersion is set
 	</Target>
 	-->
+
+	<!-- ============================================================
+	     HasChanges Task - Lightweight change detection
+	     ============================================================ -->
+
+	<!-- Target to check if a project has changes since the last version tag -->
+	<Target Name="_MonoRepoHasChanges"
+	        Condition="'$(MonoRepoVersioningEnabled)'=='true'">
+		<!-- Automatically detect dependencies based on ProjectReference -->
+		<ItemGroup>
+			<_MonoRepoDependencies Include="@(ProjectReference)" />
+		</ItemGroup>
+
+		<!-- Run the HasChanges task -->
+		<HasChangesTask
+			ProjectPath="$(MSBuildProjectFullPath)"
+			RepoRoot="$(MonoRepoRoot)"
+			TagPrefix="$(MonoRepoTagPrefix)"
+			SinceTag="$(MonoRepoSinceTag)"
+			SinceCommit="$(MonoRepoSinceCommit)"
+			ChangeDetectionEnabled="$(MonoRepoChangeDetectionEnabled)"
+			IgnoreFilePatterns="$(MonoRepoIgnoreFilePatterns)"
+			MajorFilePatterns="$(MonoRepoMajorFilePatterns)"
+			MinorFilePatterns="$(MonoRepoMinorFilePatterns)"
+			PatchFilePatterns="$(MonoRepoPatchFilePatterns)"
+			AdditionalMonitorPaths="$(MonoRepoAdditionalMonitorPaths)"
+			Debug="$(MonoRepoDebug)"
+			Dependencies="@(_MonoRepoDependencies)">
+			<Output TaskParameter="HasChanges" PropertyName="MonoRepoHasChanges" />
+			<Output TaskParameter="ChangeType" PropertyName="MonoRepoChangeType" />
+			<Output TaskParameter="ChangeReason" PropertyName="MonoRepoChangeReason" />
+			<Output TaskParameter="ChangedFiles" ItemName="MonoRepoChangedFiles" />
+			<Output TaskParameter="ComparedAgainst" PropertyName="MonoRepoComparedAgainst" />
+			<Output TaskParameter="DiscoveredRepoRoot" PropertyName="DiscoveredRepoRoot" />
+		</HasChangesTask>
+
+		<Message Text="[MrVersion] HasChanges: $(MonoRepoHasChanges), Type: $(MonoRepoChangeType), Compared Against: $(MonoRepoComparedAgainst)" Importance="High" Condition="'$(MonoRepoDebug)'=='true'" />
+	</Target>
+
+	<!-- Convenience target that can be called explicitly to check for changes -->
+	<Target Name="CheckForChanges" DependsOnTargets="_MonoRepoHasChanges">
+		<Message Text="Project has changes: $(MonoRepoHasChanges)" Importance="High" />
+		<Message Text="Change type: $(MonoRepoChangeType)" Importance="High" Condition="'$(MonoRepoHasChanges)' == 'true'" />
+		<Message Text="Reason: $(MonoRepoChangeReason)" Importance="High" />
+		<Message Text="Compared against: $(MonoRepoComparedAgainst)" Importance="High" />
+	</Target>
+
+	<!-- Target for conditional build based on changes -->
+	<Target Name="_MonoRepoConditionalBuild"
+	        DependsOnTargets="_MonoRepoHasChanges"
+	        Condition="'$(MonoRepoSkipUnchanged)' == 'true'">
+		<!-- Set a property to skip build if no changes -->
+		<PropertyGroup Condition="'$(MonoRepoHasChanges)' == 'false'">
+			<_MonoRepoShouldSkipBuild>true</_MonoRepoShouldSkipBuild>
+		</PropertyGroup>
+		<Message Text="[MrVersion] Project has no changes since $(MonoRepoComparedAgainst) - build may be skipped" Importance="High" Condition="'$(_MonoRepoShouldSkipBuild)' == 'true'" />
+	</Target>
 
 </Project>
