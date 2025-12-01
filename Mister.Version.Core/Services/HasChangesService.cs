@@ -347,8 +347,13 @@ namespace Mister.Version.Core.Services
                 var projectDir = Path.GetDirectoryName(request.ProjectPath);
                 if (!string.IsNullOrEmpty(projectDir) && Directory.Exists(projectDir))
                 {
+#if NET472
+                    files.AddRange(Directory.GetFiles(projectDir, "*", SearchOption.AllDirectories)
+                        .Select(f => PathUtils.GetRelativePath(request.RepoRoot, f)));
+#else
                     files.AddRange(Directory.GetFiles(projectDir, "*", SearchOption.AllDirectories)
                         .Select(f => Path.GetRelativePath(request.RepoRoot, f)));
+#endif
                 }
             }
             catch
