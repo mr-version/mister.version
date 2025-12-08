@@ -16,7 +16,7 @@ jobs:
         dotnet-version: ['8.0.x', '9.0.x', '10.0.x']
 
     steps:
-    - uses: actions/checkout@v4
+    - uses: actions/checkout@v6
 
     - name: Setup .NET
       uses: actions/setup-dotnet@v4
@@ -55,7 +55,7 @@ jobs:
         dotnet-version: ['8.0.x', '9.0.x', '10.0.x']
 
     steps:
-    - uses: actions/checkout@v4
+    - uses: actions/checkout@v6
 
     - name: Setup .NET
       uses: actions/setup-dotnet@v4
@@ -100,7 +100,7 @@ jobs:
           - config-baseversion
 
     steps:
-    - uses: actions/checkout@v4
+    - uses: actions/checkout@v6
 
     - name: Setup .NET
       uses: actions/setup-dotnet@v4
@@ -154,7 +154,7 @@ jobs:
         dotnet-version: ['8.0.x', '9.0.x', '10.0.x']
 
     steps:
-    - uses: actions/checkout@v4
+    - uses: actions/checkout@v6
 
     - name: Initialize CodeQL
       uses: github/codeql-action/init@v3
@@ -186,7 +186,7 @@ jobs:
         dotnet-version: ['8.0.x']
 
     steps:
-    - uses: actions/checkout@v4
+    - uses: actions/checkout@v6
 
     - name: Setup .NET
       uses: actions/setup-dotnet@v4
