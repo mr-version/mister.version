@@ -33,14 +33,14 @@ jobs:
       run: dotnet test --no-build --verbosity normal --coverage --coverage-output ./coverage --coverage-output-format cobertura
       
     - name: Upload Test Results
-      uses: actions/upload-artifact@v4
+      uses: actions/upload-artifact@v7
       if: always()
       with:
         name: unit-test-results-dotnet-${{ matrix.dotnet-version }}
         path: "**/*.trx"
 
     - name: Upload Coverage Reports
-      uses: actions/upload-artifact@v4
+      uses: actions/upload-artifact@v7
       if: always()
       with:
         name: coverage-reports-dotnet-${{ matrix.dotnet-version }}
@@ -77,7 +77,7 @@ jobs:
         ./test-versioning-scenarios.sh
       
     - name: Upload Integration Test Results
-      uses: actions/upload-artifact@v4
+      uses: actions/upload-artifact@v7
       if: always()
       with:
         name: integration-test-results-dotnet-${{ matrix.dotnet-version }}
@@ -271,7 +271,7 @@ jobs:
         echo "See individual job artifacts for detailed test results." >> test-report.md
         
     - name: Upload comprehensive report
-      uses: actions/upload-artifact@v4
+      uses: actions/upload-artifact@v7
       with:
         name: comprehensive-test-report
         path: test-report.md
