@@ -16,7 +16,7 @@ jobs:
         uses: actions/checkout@v4
 
       - name: Size Label
-        uses: pascalgn/size-label-action@v0.5.3
+        uses: pascalgn/size-label-action@v0.5.7
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
