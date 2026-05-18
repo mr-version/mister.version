@@ -133,7 +133,7 @@ jobs:
       run: dotnet test --no-build --configuration Debug --coverage --coverage-output ./coverage --coverage-output-format cobertura
 
     - name: Upload Coverage to Codecov
-      uses: codecov/codecov-action@v3
+      uses: codecov/codecov-action@v6
       with:
         directory: ./coverage
         fail_ci_if_error: false
