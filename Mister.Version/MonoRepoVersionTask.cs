@@ -868,6 +868,8 @@ public class MonoRepoVersionTask : Task
             all.Add(string.IsNullOrEmpty(full) ? Path.GetFullPath(Path.Combine(projectDirectory, item.ItemSpec)) : full);
         }
         all.AddRange(ReadProjectReferenceClosure(ProjectAssetsFile, projectDirectory));
+        // Edges NuGet does not record (ReferenceOutputAssembly=false, PrivateAssets=all) further down the graph
+        all.AddRange(ReadProjectFileClosure(all.ToList()));
 
         var self = Path.GetFullPath(ProjectPath);
         _allDependencies = all
@@ -878,70 +880,19 @@ public class MonoRepoVersionTask : Task
         return _allDependencies;
     }
 
-    private static readonly System.Collections.Concurrent.ConcurrentDictionary<string, Tuple<DateTime, long, List<string>>> AssetsClosureCache =
-        new System.Collections.Concurrent.ConcurrentDictionary<string, Tuple<DateTime, long, List<string>>>(StringComparer.OrdinalIgnoreCase);
+    /// <summary>
+    /// Transitive project references from a project.assets.json (see <see cref="ProjectReferenceReader.ReadAssetsClosure"/>).
+    /// </summary>
+    internal static List<string> ReadProjectReferenceClosure(string assetsFile, string projectDirectory) =>
+        ProjectReferenceReader.ReadAssetsClosure(assetsFile, projectDirectory);
 
     /// <summary>
-    /// Reads every "type": "project" library from a project.assets.json: the full transitive closure of project
-    /// references as resolved by NuGet restore (conditions and TFMs already evaluated).
+    /// Every project reachable from <paramref name="roots"/> through ProjectReference items, read from the project
+    /// files. Complements NuGet's closure, which leaves out ReferenceOutputAssembly=false references (source
+    /// generators, analyzers, build-order references) and does not flow PrivateAssets=all project references.
     /// </summary>
-    internal static List<string> ReadProjectReferenceClosure(string assetsFile, string projectDirectory)
-    {
-        var result = new List<string>();
-        if (string.IsNullOrEmpty(assetsFile))
-            return result;
-
-        try
-        {
-            var path = Path.IsPathRooted(assetsFile) ? assetsFile : Path.Combine(projectDirectory, assetsFile);
-            var info = new FileInfo(path);
-            if (!info.Exists)
-                return result;
-
-            if (AssetsClosureCache.TryGetValue(info.FullName, out var cached) &&
-                cached.Item1 == info.LastWriteTimeUtc && cached.Item2 == info.Length)
-            {
-                return cached.Item3;
-            }
-
-            using (var stream = File.OpenRead(info.FullName))
-            using (var document = System.Text.Json.JsonDocument.Parse(stream))
-            {
-                if (document.RootElement.TryGetProperty("libraries", out var libraries) &&
-                    libraries.ValueKind == System.Text.Json.JsonValueKind.Object)
-                {
-                    foreach (var library in libraries.EnumerateObject())
-                    {
-                        var value = library.Value;
-                        if (value.ValueKind != System.Text.Json.JsonValueKind.Object ||
-                            !value.TryGetProperty("type", out var type) || type.GetString() != "project")
-                        {
-                            continue;
-                        }
-
-                        string relative = null;
-                        if (value.TryGetProperty("msbuildProject", out var msbuildProject))
-                            relative = msbuildProject.GetString();
-                        else if (value.TryGetProperty("path", out var libraryPath))
-                            relative = libraryPath.GetString();
-
-                        if (!string.IsNullOrEmpty(relative))
-                        {
-                            result.Add(Path.GetFullPath(Path.Combine(projectDirectory, relative)));
-                        }
-                    }
-                }
-            }
-
-            AssetsClosureCache[info.FullName] = Tuple.Create(info.LastWriteTimeUtc, info.Length, result);
-        }
-        catch (Exception)
-        {
-            // Fall back to direct references only
-        }
-
-        return result;
-    }
+    internal static List<string> ReadProjectFileClosure(IEnumerable<string> roots) =>
+        ProjectReferenceReader.GetReferenceClosure(roots);
 
     private static string NormalizeForKey(string path) => path?.Replace('\\', '/');
 

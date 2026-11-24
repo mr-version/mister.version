@@ -1045,10 +1045,7 @@ namespace Mister.Version.CLI
             }
 
             // Find all project files
-            var projectFiles = Directory.GetFiles(searchPath, "*.csproj", SearchOption.AllDirectories)
-                .Concat(Directory.GetFiles(searchPath, "*.vbproj", SearchOption.AllDirectories))
-                .Concat(Directory.GetFiles(searchPath, "*.fsproj", SearchOption.AllDirectories))
-                .ToList();
+            var projectFiles = ProjectDiscovery.FindProjectFiles(searchPath, logger);
 
             logger("Info", $"Found {projectFiles.Count} project files");
 
