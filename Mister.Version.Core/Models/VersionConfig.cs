@@ -112,6 +112,20 @@ public class ProjectVersionConfig
     /// Paths can be absolute or relative to the repository root.
     /// </summary>
     public List<string> AdditionalMonitorPaths { get; set; } = new List<string>();
+
+    /// <summary>Version scheme for this project (semver or calver); overrides the global scheme.</summary>
+    public string Scheme { get; set; }
+
+    /// <summary>Alias of <see cref="Scheme"/> ("versionScheme:").</summary>
+    [YamlDotNet.Serialization.YamlMember(Alias = "versionScheme")]
+    public string VersionSchemeAlias { get => null; set => Scheme = value; }
+
+    /// <summary>CalVer settings for this project; override the global CalVer settings.</summary>
+    public CalVerConfig CalVer { get; set; }
+
+    /// <summary>Alias of <see cref="CalVer"/> ("calver:").</summary>
+    [YamlDotNet.Serialization.YamlMember(Alias = "calver")]
+    public CalVerConfig CalVerAlias { get => null; set => CalVer = value; }
 }
 
 /// <summary>

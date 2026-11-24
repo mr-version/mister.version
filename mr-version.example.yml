@@ -11,7 +11,7 @@ tagPrefix: v         # Prefix for version tags (default: v)
 skipTestProjects: true
 skipNonPackableProjects: true
 
-# ✨ NEW: Version scheme selection (SemVer or CalVer)
+# ✨ NEW: Version scheme selection (SemVer or CalVer). "versionScheme" and "scheme" are equivalent.
 versionScheme: semver  # Options: semver (default), calver
 
 # ✨ NEW: Calendar Versioning (CalVer) configuration
@@ -22,17 +22,18 @@ calver:
   startDate: "2025-01-01"  # Optional: Starting date for versioning
 
 # ✨ NEW: Version policies for coordinating releases
-versionPolicy: independent  # Options: independent, lockstep, grouped
-
-# ✨ NEW: Version groups for grouped versioning strategy
-versionGroups:
-  core-libraries:
-    projects: [Mister.Version.Core, Mister.Version]
-    strategy: lockstep
-
-  tools:
-    projects: [Mister.Version.CLI]
-    strategy: independent
+#   Independent: every project has its own version (default)
+#   LockStep:    every project gets the highest version in the repository
+#   Grouped:     projects in a LockStep group share the group's highest version (or the group's baseVersion if higher)
+versionPolicy:
+  policy: Grouped
+  groups:
+    core-libraries:
+      projects: [Mister.Version.Core, Mister.Version]   # names or wildcards, e.g. "Contoso.*"
+      strategy: LockStep
+    tools:
+      projects: [Mister.Version.CLI]
+      strategy: Independent
 
 # ✨ NEW: Conventional commits configuration for semantic versioning
 commitConventions:
@@ -101,10 +102,10 @@ gitIntegration:
   # Branch metadata in versions
   includeBranchInMetadata: true
 
-  # Custom tag patterns: ProjectName={name}-{prefix}{version}
+  # Custom tag patterns: "ProjectName={format}" ("*" for all projects); {name}, {prefix} and {version} are replaced
   customTagPatterns:
-    MyLib: "{name}_{prefix}{version}"
-    MyApp: "{name}/{prefix}{version}"
+    - "MyLib={name}_{prefix}{version}"
+    - "MyApp={name}/{prefix}{version}"
 
 # ✨ NEW: Changelog generation configuration
 changelog:
@@ -140,20 +141,16 @@ changelog:
       commitTypes: ["docs"]
       order: 5
 
-# ✨ NEW: Version validation constraints
+# ✨ NEW: Version validation constraints. A violation fails the build (MSBuild error MRV004).
 constraints:
-  enabled: true
+  enabled: false                   # set to true to enforce
   minimumVersion: "1.0.0"          # Never go below this version
   maximumVersion: "10.0.0"         # Never exceed this version
   allowedRange: "3.x.x"            # Stay within version range
   requireMonotonicIncrease: true   # Versions must always increase
-  blockedVersions: []              # Skip specific versions
-  requireMajorApproval: false      # Prevent accidental major bumps
+  blockedVersions: []              # Versions that must never be produced
+  requireMajorApproval: false      # Major bumps need MonoRepoMajorVersionApproved=true
   validateDependencyVersions: true # Validate dependency compatibility
-  customRules:
-    - name: "No 13 in version"
-      pattern: "^(?!.*13).*$"      # Regex pattern for validation
-      errorMessage: "Version cannot contain '13'"
 
 # Project-specific overrides
 projects:
@@ -182,8 +179,5 @@ projects:
       - "../shared/common"
       - "../libs/authentication"
 
-  # ✨ NEW: Project with custom validation constraints
-  MyStableLibrary:
-    constraints:
-      minimumVersion: "2.0.0"
-      requireMajorApproval: true
+  # Note: per-project overrides support prereleaseType, forceVersion, additionalMonitorPaths,
+  # versionScheme/scheme and calver; constraints are global.

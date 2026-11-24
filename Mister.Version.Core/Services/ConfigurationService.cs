@@ -109,7 +109,8 @@ namespace Mister.Version.Core.Services
             }
             catch (Exception ex)
             {
-                logger?.Invoke("Warning", $"Failed to load configuration from {configPath}: {ex.Message}");
+                var location = ex is YamlDotNet.Core.YamlException yamlEx ? $" (line {yamlEx.Start.Line}, column {yamlEx.Start.Column})" : "";
+                logger?.Invoke("Warning", $"Failed to load configuration from {configPath}{location}: {GetInnermostMessage(ex)}. The configuration file is ignored.");
                 return null;
             }
         }
