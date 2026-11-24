@@ -175,9 +175,9 @@ namespace Mister.Version.CLI
                     Console.Error.WriteLine($"[DEBUG] Repo path: {options.RepoPath}");
                 }
 
-                // Resolve repository root
+                // Resolve repository root (works for worktrees and submodules, where .git is a file)
                 var repoRoot = Path.GetFullPath(options.RepoPath);
-                if (!Directory.Exists(Path.Combine(repoRoot, ".git")))
+                if (!Repository.IsValid(repoRoot))
                 {
                     Console.Error.WriteLine($"Error: Not a git repository: {repoRoot}");
                     return 1;
@@ -192,35 +192,15 @@ namespace Mister.Version.CLI
                 // Get commit range
                 Commit fromCommit = null;
                 Commit toCommit = repo.Head.Tip;
+                string fromVersion = null;
 
-                if (!string.IsNullOrEmpty(options.FromVersion))
-                {
-                    var fromTag = repo.Tags.FirstOrDefault(t => t.FriendlyName == options.TagPrefix + options.FromVersion);
-                    fromCommit = fromTag?.Target as Commit;
-                    if (fromCommit == null)
-                    {
-                        Console.Error.WriteLine($"Error: Could not find tag {options.TagPrefix}{options.FromVersion}");
-                        return 1;
-                    }
-                }
-                else
-                {
-                    // Find the most recent tag
-                    var gitService = new GitService(repoRoot, null, options.Debug ? LoggerFactory.CreateReportLogger(true) : null);
-                    var latestTag = repo.Tags
-                        .Where(t => t.FriendlyName.StartsWith(options.TagPrefix))
-                        .Select(t => new { Tag = t, Commit = t.Target as Commit })
-                        .Where(x => x.Commit != null)
-                        .OrderByDescending(x => x.Commit.Author.When)
-                        .FirstOrDefault();
-
-                    fromCommit = latestTag?.Commit;
-                }
+                // Tag lookups peel annotated tags (Target is a TagAnnotation for those, not a Commit)
+                Commit FindTagCommit(string version) =>
+                    repo.Tags.FirstOrDefault(t => t.FriendlyName == options.TagPrefix + version)?.PeeledTarget as Commit;
 
                 if (!string.IsNullOrEmpty(options.ToVersion))
                 {
-                    var toTag = repo.Tags.FirstOrDefault(t => t.FriendlyName == options.TagPrefix + options.ToVersion);
-                    toCommit = toTag?.Target as Commit;
+                    toCommit = FindTagCommit(options.ToVersion);
                     if (toCommit == null)
                     {
                         Console.Error.WriteLine($"Error: Could not find tag {options.TagPrefix}{options.ToVersion}");
@@ -228,21 +208,30 @@ namespace Mister.Version.CLI
                     }
                 }
 
-                // Get commits in range
-                var commits = new List<Commit>();
-                if (fromCommit != null)
+                List<Commit> commits;
+                if (!string.IsNullOrEmpty(options.FromVersion))
                 {
-                    var filter = new CommitFilter
+                    fromCommit = FindTagCommit(options.FromVersion);
+                    if (fromCommit == null)
+                    {
+                        Console.Error.WriteLine($"Error: Could not find tag {options.TagPrefix}{options.FromVersion}");
+                        return 1;
+                    }
+                    fromVersion = options.FromVersion;
+                    commits = repo.Commits.QueryBy(new CommitFilter
                     {
                         IncludeReachableFrom = toCommit,
                         ExcludeReachableFrom = fromCommit
-                    };
-                    commits = repo.Commits.QueryBy(filter).ToList();
+                    }).ToList();
                 }
                 else
                 {
-                    // No from commit, use all commits up to HEAD
-                    commits = repo.Commits.QueryBy(new CommitFilter { IncludeReachableFrom = toCommit }).ToList();
+                    // Previous release = nearest version tag in toCommit's history (not the newest tag by date,
+                    // which may be on another branch); a tag on toCommit itself is the release being described.
+                    var range = ChangelogRange.Resolve(repo, toCommit, options.TagPrefix, options.ProjectName, null, excludeTagsOnTarget: true);
+                    fromCommit = range.FromCommit;
+                    fromVersion = range.FromVersion;
+                    commits = range.Commits;
                 }
 
                 if (options.Debug)
@@ -250,12 +239,13 @@ namespace Mister.Version.CLI
                     Console.Error.WriteLine($"[DEBUG] Found {commits.Count} commits");
                 }
 
-                // Determine versions
-                var fromVersion = fromCommit != null
-                    ? repo.Tags.FirstOrDefault(t => (t.Target as Commit)?.Sha == fromCommit.Sha)?.FriendlyName?.Replace(options.TagPrefix, "")
-                    : null;
-                var toVersion = repo.Tags.FirstOrDefault(t => (t.Target as Commit)?.Sha == toCommit?.Sha)?.FriendlyName?.Replace(options.TagPrefix, "")
-                    ?? "HEAD";
+                // Determine the version label for the end of the range
+                var toVersion = !string.IsNullOrEmpty(options.ToVersion)
+                    ? options.ToVersion
+                    : (toCommit != null && ChangelogRange.GetVersionTagsByCommit(repo, options.TagPrefix, options.ProjectName)
+                        .TryGetValue(toCommit.Sha, out var tagsOnTarget)
+                        ? tagsOnTarget.OrderByDescending(v => v, StringComparer.Ordinal).First()
+                        : "HEAD");
 
                 // Create changelog configuration
                 var changelogConfig = config?.Changelog ?? new ChangelogConfig
