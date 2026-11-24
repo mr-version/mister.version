@@ -669,6 +669,7 @@ namespace Mister.Version.CLI
                 SkipNonPackableProjects = true,
                 IsTestProject = projectType?.IsTestProject ?? false,
                 IsPackable = projectType?.IsPackable ?? true,
+                ProjectVersion = projectType?.ProjectVersion,
                 EnableFileCache = settings.EnableFileCache,
                 FileCachePath = settings.FileCachePath
             };
@@ -1081,6 +1082,13 @@ namespace Mister.Version.CLI
                 }
             }
 
+            // Projects are identified by file name in tags (Name/v1.2.3) and in mr-version.yml
+            foreach (var duplicate in projects.GroupBy(p => p.Name, StringComparer.OrdinalIgnoreCase).Where(g => g.Count() > 1))
+            {
+                logger("Warning", $"{duplicate.Count()} projects are named '{duplicate.Key}' ({string.Join(", ", duplicate.Select(p => p.Path))}): " +
+                                  $"project tags ({duplicate.Key}/v1.2.3) and mr-version.yml project settings apply to all of them");
+            }
+
             // Build dependency graph
             projectAnalyzer.BuildDependencyGraph(projects);
 
@@ -1144,6 +1152,17 @@ namespace Mister.Version.CLI
             if (gitRepoRoot == null)
             {
                 return 1;
+            }
+
+            // A project inside a submodule or nested repository is versioned from that repository, as in MSBuild
+            // (which discovers the repository from the project directory)
+            var projectRepoRoot = GitRepositoryHelper.DiscoverRepositoryRoot(Path.GetDirectoryName(Path.GetFullPath(_options.ProjectPath)));
+            var nestedRoot = projectRepoRoot == null ? null : Path.GetFullPath(projectRepoRoot).Replace('\\', '/').TrimEnd('/');
+            var outerRoot = Path.GetFullPath(gitRepoRoot).Replace('\\', '/').TrimEnd('/');
+            if (nestedRoot != null && nestedRoot.StartsWith(outerRoot + "/", StringComparison.OrdinalIgnoreCase))
+            {
+                logger("Info", $"{Path.GetFileName(_options.ProjectPath)} is in the nested repository {projectRepoRoot}; versioning it from that repository");
+                gitRepoRoot = projectRepoRoot;
             }
 
             // Initialize versioning service with timeout

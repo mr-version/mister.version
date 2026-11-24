@@ -37,6 +37,12 @@ public class VersionOptions
     /// Applies to all projects including test projects and artifacts normally ignored.
     /// </summary>
     public string BaseVersion { get; set; }
+
+    /// <summary>
+    /// The version the project file sets itself; reported for test / non-packable projects, which are not versioned
+    /// (they keep this version, or 1.0.0 when null).
+    /// </summary>
+    public string ProjectVersion { get; set; }
     
     /// <summary>
     /// Default increment level for version bumps.

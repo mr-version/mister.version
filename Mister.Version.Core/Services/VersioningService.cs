@@ -228,6 +228,7 @@ namespace Mister.Version.Core.Services
                     IsPackable = request.IsPackable,
                     PrereleaseType = configOverrides.PrereleaseType ?? request.PrereleaseType,
                     BaseVersion = configOverrides.BaseVersion,
+                    ProjectVersion = request.ProjectVersion,
                     CommitConventions = conventionalCommitsConfig,
                     ChangeDetection = changeDetectionConfig,
                     GitIntegration = gitIntegrationConfig,
@@ -709,6 +710,12 @@ namespace Mister.Version.Core.Services
 
         /// <summary>Branch name to version as (overrides the checked-out branch, e.g. detached HEAD in CI).</summary>
         public string BranchName { get; set; }
+
+        /// <summary>
+        /// The version the project file sets itself (see <see cref="ProjectTypeInfo.ProjectVersion"/>): reported for
+        /// test / non-packable projects, which are not versioned and keep it.
+        /// </summary>
+        public string ProjectVersion { get; set; }
 
         /// <summary>Internal: calculate this project's own version without applying the version policy.</summary>
         public bool SkipVersionPolicy { get; set; }
