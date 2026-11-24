@@ -34,6 +34,12 @@ public class HasChangesTask : Task
     public ITaskItem[] Dependencies { get; set; }
 
     /// <summary>
+    /// The project's NuGet assets file ($(ProjectAssetsFile)), used to include transitive project references
+    /// (the same dependency set the version calculation uses).
+    /// </summary>
+    public string ProjectAssetsFile { get; set; }
+
+    /// <summary>
     /// Custom tag prefix for version tags (default: v)
     /// </summary>
     public string TagPrefix { get; set; } = "v";
@@ -152,7 +158,12 @@ public class HasChangesTask : Task
             using var changeDetectionService = new HasChangesService(gitRepoRoot, logger);
 
             // Prepare request
-            var dependencies = Dependencies?.Select(d => d.ItemSpec).ToList() ?? new List<string>();
+            var projectDirectory = Path.GetDirectoryName(Path.GetFullPath(ProjectPath));
+            var dependencies = (Dependencies ?? Array.Empty<ITaskItem>())
+                .Select(d => d.GetMetadata("FullPath") is string full && full.Length > 0 ? full : Path.GetFullPath(Path.Combine(projectDirectory, d.ItemSpec)))
+                .Concat(MonoRepoVersionTask.ReadProjectReferenceClosure(ProjectAssetsFile, projectDirectory))
+                .Distinct(StringComparer.OrdinalIgnoreCase)
+                .ToList();
             var request = new HasChangesRequest
             {
                 ProjectPath = ProjectPath,
