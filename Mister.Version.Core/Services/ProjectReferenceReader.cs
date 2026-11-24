@@ -15,22 +15,24 @@ namespace Mister.Version.Core.Services
     /// Reads the ProjectReference items of a project file without MSBuild, approximating MSBuild evaluation closely
     /// enough for dependency tracking:
     /// <list type="bullet">
-    /// <item>evaluation order Directory.Build.props (and what it imports), the project file (and its imports), then
-    /// Directory.Build.targets (and what it imports);</item>
-    /// <item>properties from those files, environment variables and the reserved MSBuildProject* / MSBuildThisFile*
-    /// properties, including common property functions ([MSBuild]::NormalizePath, GetDirectoryNameOfFileAbove,
-    /// GetPathOfFileAbove, [System.IO.Path]::Combine, ...);</item>
-    /// <item>Include lists separated by ';', wildcards, Remove, single- or double-quoted attributes;</item>
-    /// <item>simple conditions ('$(A)' == 'b', !=, and, or, !, Exists(), HasTrailingSlash()).</item>
+    /// <item>two passes like MSBuild: first all properties and imports (Directory.Build.props, the project file,
+    /// Directory.Build.targets and what they import, in that order), then all items against the final property
+    /// values;</item>
+    /// <item>environment variables, the reserved MSBuildProject* / MSBuildThisFile* properties, properties the
+    /// project's SDK defines (UsingMicrosoftNETSdkWeb, ...), string methods ($(Name.EndsWith('.Tests'))) and common
+    /// property functions ([MSBuild]::NormalizePath, GetDirectoryNameOfFileAbove, GetPathOfFileAbove,
+    /// VersionGreaterThan, [System.IO.Path]::Combine, [System.String]::IsNullOrEmpty, ...);</item>
+    /// <item>Include lists separated by ';', wildcards, Remove/Exclude/Update, Choose/When, single- or double-quoted
+    /// attributes, and conditions (==, !=, &lt;, &gt;, and, or, !, Exists(), HasTrailingSlash()).</item>
     /// </list>
     /// Conditions that depend on values only known during a build (target framework, configuration, runtime
-    /// identifier, ...) or that cannot be evaluated count as true for items, so a project reference that applies to
-    /// any target framework is tracked: over-including a dependency at worst bumps a version, missing one ships a
-    /// changed dependency under an old version.
+    /// identifier, ...) or that cannot be evaluated are "unknown": such references are included but marked as not
+    /// certain (<see cref="ReferenceItem.Certain"/>), so callers decide whether to over-include them.
     /// </summary>
     public static class ProjectReferenceReader
     {
         private const int MaxImportDepth = 32;
+        private const int MaxStampedDirectories = 256;
 
         /// <summary>Properties MSBuild only knows during a build: when undefined, conditions on them are unknown.</summary>
         private static readonly HashSet<string> BuildTimeProperties = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
@@ -53,6 +55,25 @@ namespace Mister.Version.Core.Services
         private static readonly ConcurrentDictionary<string, Tuple<DateTime, long, List<string>>> AssetsClosureCache =
             new ConcurrentDictionary<string, Tuple<DateTime, long, List<string>>>(StringComparer.OrdinalIgnoreCase);
 
+        /// <summary>A ProjectReference item of an evaluated project.</summary>
+        public sealed class ReferenceItem
+        {
+            /// <summary>Full path of the referenced project file (it exists).</summary>
+            public string Path { get; internal set; }
+
+            /// <summary>
+            /// Every condition on the way to this item (Choose branch, ItemGroup, item) evaluated to true. False when
+            /// one of them depends on build-time values (e.g. the target framework) or could not be evaluated.
+            /// </summary>
+            public bool Certain { get; internal set; }
+
+            /// <summary>ReferenceOutputAssembly="false" (source generators, analyzers, build-order references).</summary>
+            public bool NoOutputAssembly { get; internal set; }
+
+            /// <summary>PrivateAssets="all": the reference does not flow to consumers of this project.</summary>
+            public bool PrivateAssetsAll { get; internal set; }
+        }
+
         /// <summary>The result of reading a project file.</summary>
         public sealed class ProjectEvaluation
         {
@@ -64,25 +85,31 @@ namespace Mister.Version.Core.Services
             /// <summary>Full path of the project file.</summary>
             public string ProjectPath { get; }
 
-            /// <summary>Full paths of the existing project files referenced by ProjectReference items.</summary>
+            /// <summary>Full paths of the existing project files referenced by ProjectReference items (certain or not).</summary>
             public List<string> References { get; } = new List<string>();
+
+            /// <summary>The ProjectReference items with their certainty and metadata.</summary>
+            public List<ReferenceItem> ReferenceItems { get; } = new List<ReferenceItem>();
 
             /// <summary>ProjectReference items that could not be resolved to an existing file (as written, expanded where possible).</summary>
             public List<string> Unresolved { get; } = new List<string>();
 
-            /// <summary>Evaluated properties (only those defined unconditionally or under conditions known to be true).</summary>
+            /// <summary>Evaluated properties (final values of properties known at evaluation time).</summary>
             public IReadOnlyDictionary<string, string> Properties { get; internal set; }
 
-            /// <summary>The SDK named by the project (Sdk attribute, &lt;Sdk&gt; element or Import Sdk=), if any.</summary>
+            /// <summary>The SDKs named by the project (Sdk attribute, &lt;Sdk&gt; elements or Import Sdk=).</summary>
             public List<string> Sdks { get; } = new List<string>();
 
             /// <summary>Files read during evaluation (project, Directory.Build.props/targets and imports).</summary>
             public List<string> Files { get; } = new List<string>();
+
+            /// <summary>Paths whose existence or contents the result depends on (files read, files looked for, wildcard directories).</summary>
+            internal List<string> Dependencies { get; } = new List<string>();
         }
 
         private sealed class CachedEvaluation
         {
-            public List<Tuple<string, DateTime>> Stamps;
+            public List<Tuple<string, DateTime, long>> Stamps;
             public ProjectEvaluation Evaluation;
         }
 
@@ -103,7 +130,8 @@ namespace Mister.Version.Core.Services
 
         /// <summary>
         /// Every project reachable through ProjectReference items from <paramref name="roots"/> (the roots
-        /// themselves are included), as full paths. Cycles are tolerated.
+        /// themselves are included), as full paths. Includes references whose conditions are not certain.
+        /// Cycles are tolerated.
         /// </summary>
         public static List<string> GetReferenceClosure(IEnumerable<string> roots, Action<string, string> logger = null)
         {
@@ -114,7 +142,7 @@ namespace Mister.Version.Core.Services
             {
                 if (string.IsNullOrEmpty(root))
                     continue;
-                var full = Path.GetFullPath(root);
+                var full = System.IO.Path.GetFullPath(root);
                 if (seen.Add(full))
                 {
                     result.Add(full);
@@ -141,15 +169,62 @@ namespace Mister.Version.Core.Services
         }
 
         /// <summary>
+        /// The projects a build depends on that NuGet's restore closure (project.assets.json) leaves out: given the
+        /// closure MSBuild/NuGet report (<paramref name="buildClosure"/>), follows from each of those projects only its
+        /// ReferenceOutputAssembly="false" and PrivateAssets="all" references - edges NuGet does not record or flow -
+        /// and below the projects reached that way, every reference. Only references whose conditions are certain are
+        /// followed, so this never adds an edge MSBuild might not have.
+        /// </summary>
+        public static List<string> GetUnflowedReferenceClosure(IEnumerable<string> buildClosure, Action<string, string> logger = null)
+        {
+            var known = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            var outside = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            var result = new List<string>();
+            var queue = new Queue<string>();
+            foreach (var project in buildClosure ?? Enumerable.Empty<string>())
+            {
+                if (string.IsNullOrEmpty(project))
+                    continue;
+                var full = System.IO.Path.GetFullPath(project);
+                if (known.Add(full))
+                    queue.Enqueue(full);
+            }
+
+            while (queue.Count > 0)
+            {
+                var current = queue.Dequeue();
+                var evaluation = Evaluate(current, logger);
+                if (evaluation == null)
+                    continue;
+
+                var belowUnflowedEdge = outside.Contains(current);
+                foreach (var item in evaluation.ReferenceItems)
+                {
+                    if (!item.Certain || !(belowUnflowedEdge || item.NoOutputAssembly || item.PrivateAssetsAll))
+                        continue;
+                    if (known.Add(item.Path))
+                    {
+                        outside.Add(item.Path);
+                        result.Add(item.Path);
+                        queue.Enqueue(item.Path);
+                    }
+                }
+            }
+
+            return result;
+        }
+
+        /// <summary>
         /// Evaluates a project file (see the class remarks). Results are cached per project and reused while none of
-        /// the files read changed. Returns null when the project file does not exist.
+        /// the files it depends on changed (including files that were looked for and not found). Returns null when the
+        /// project file does not exist.
         /// </summary>
         public static ProjectEvaluation Evaluate(string projectPath, Action<string, string> logger = null)
         {
             if (string.IsNullOrEmpty(projectPath))
                 return null;
 
-            var fullPath = Path.GetFullPath(projectPath);
+            var fullPath = System.IO.Path.GetFullPath(projectPath);
             if (!File.Exists(fullPath))
                 return null;
 
@@ -166,12 +241,15 @@ namespace Mister.Version.Core.Services
                 logger?.Invoke("Warning", $"Could not read project references of {fullPath}: {ex.Message}");
                 evaluation = new ProjectEvaluation(fullPath) { Properties = new Dictionary<string, string>() };
                 evaluation.Files.Add(fullPath);
+                evaluation.Dependencies.Add(fullPath);
             }
 
+            if (Cache.Count > 20000)
+                Cache.Clear();
             Cache[fullPath] = new CachedEvaluation
             {
                 Evaluation = evaluation,
-                Stamps = evaluation.Files.Select(f => Tuple.Create(f, SafeLastWriteTime(f))).ToList()
+                Stamps = evaluation.Dependencies.Distinct(StringComparer.OrdinalIgnoreCase).Select(Stamp).ToList()
             };
             return evaluation;
         }
@@ -239,26 +317,35 @@ namespace Mister.Version.Core.Services
             return result;
         }
 
-        private static bool IsCurrent(List<Tuple<string, DateTime>> stamps)
-        {
-            foreach (var stamp in stamps)
-            {
-                if (SafeLastWriteTime(stamp.Item1) != stamp.Item2)
-                    return false;
-            }
-            return true;
-        }
-
-        private static DateTime SafeLastWriteTime(string path)
+        /// <summary>Snapshot of a dependency path: last write time and length, or MinValue/-1 when it does not exist.</summary>
+        private static Tuple<string, DateTime, long> Stamp(string path)
         {
             try
             {
-                return File.Exists(path) ? File.GetLastWriteTimeUtc(path) : DateTime.MinValue;
+                if (File.Exists(path))
+                {
+                    var info = new FileInfo(path);
+                    return Tuple.Create(path, info.LastWriteTimeUtc, info.Length);
+                }
+                if (Directory.Exists(path))
+                    return Tuple.Create(path, Directory.GetLastWriteTimeUtc(path), -2L);
             }
             catch (Exception)
             {
-                return DateTime.MinValue;
+                // Treated as missing
             }
+            return Tuple.Create(path, DateTime.MinValue, -1L);
+        }
+
+        private static bool IsCurrent(List<Tuple<string, DateTime, long>> stamps)
+        {
+            foreach (var stamp in stamps)
+            {
+                var now = Stamp(stamp.Item1);
+                if (now.Item2 != stamp.Item2 || now.Item3 != stamp.Item3)
+                    return false;
+            }
+            return true;
         }
 
         internal static XDocument LoadDocument(string path)
@@ -305,17 +392,27 @@ namespace Mister.Version.Core.Services
             public static readonly Expanded UnknownValue = new Expanded { Value = string.Empty, Unknown = true };
         }
 
+        /// <summary>An ItemGroup found in pass 1, evaluated in pass 2.</summary>
+        private sealed class PendingItemGroup
+        {
+            public XElement Element;
+            public string File;
+            public bool Certain;
+        }
+
         private sealed class Evaluator
         {
             private readonly string _projectPath;
             private readonly string _projectDirectory;
             private readonly Action<string, string> _logger;
             private readonly Dictionary<string, string> _properties = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
-            private readonly List<string> _references = new List<string>();
-            private readonly HashSet<string> _referenceSet = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            private readonly HashSet<string> _unknownProperties = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            private readonly List<ReferenceItem> _items = new List<ReferenceItem>();
+            private readonly List<PendingItemGroup> _itemGroups = new List<PendingItemGroup>();
             private readonly ProjectEvaluation _result;
             private readonly Stack<string> _files = new Stack<string>();
             private readonly HashSet<string> _importing = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            private int _stampedDirectories;
 
             public Evaluator(string projectPath, Action<string, string> logger)
             {
@@ -328,42 +425,67 @@ namespace Mister.Version.Core.Services
             public ProjectEvaluation Run()
             {
                 SeedProperties();
+                _result.Dependencies.Add(_projectPath);
+
+                // Pass 1: properties and imports, in MSBuild's order
+                var projectDocument = LoadDocument(_projectPath);
+                if (projectDocument?.Root != null)
+                {
+                    CollectSdks(projectDocument.Root);
+                    SeedSdkProperties();
+                }
 
                 var propsFile = FindFileAbove(_projectDirectory, "Directory.Build.props");
-                if (propsFile != null && !IsFalse(_properties, "ImportDirectoryBuildProps"))
+                if (propsFile != null && !IsFalse("ImportDirectoryBuildProps"))
                 {
                     _properties["DirectoryBuildPropsPath"] = propsFile;
                     EvaluateFile(propsFile, 0);
                 }
 
-                EvaluateFile(_projectPath, 0, isProject: true);
-
-                // SDK defaults that Directory.Build.targets conditions commonly test, when not set explicitly
-                if (!_properties.ContainsKey("OutputType"))
-                    _properties["OutputType"] = "Library";
-                if (!_properties.ContainsKey("IsTestProject") || !_properties.ContainsKey("IsPackable"))
+                if (projectDocument?.Root != null)
                 {
-                    var type = ProjectAnalyzer.DetectProjectType(_projectPath);
-                    if (!_properties.ContainsKey("IsTestProject"))
-                        _properties["IsTestProject"] = type.IsTestProject ? "true" : "false";
-                    if (!_properties.ContainsKey("IsPackable"))
-                        _properties["IsPackable"] = type.IsPackable ? "true" : "false";
+                    EvaluateFile(_projectPath, 0);
+                }
+                else
+                {
+                    _result.Files.Add(_projectPath);
+                    EvaluateWithRegexFallback(_projectPath);
                 }
 
+                SeedSdkDefaults();
+
                 var targetsFile = FindFileAbove(_projectDirectory, "Directory.Build.targets");
-                if (targetsFile != null && !IsFalse(_properties, "ImportDirectoryBuildTargets"))
+                if (targetsFile != null && !IsFalse("ImportDirectoryBuildTargets"))
                 {
                     _properties["DirectoryBuildTargetsPath"] = targetsFile;
                     EvaluateFile(targetsFile, 0);
                 }
 
-                _result.References.AddRange(_references.Where(r => !string.Equals(r, _projectPath, StringComparison.OrdinalIgnoreCase)));
+                // Pass 2: items, against the final property values
+                foreach (var group in _itemGroups)
+                {
+                    _files.Push(group.File);
+                    try
+                    {
+                        EvaluateItems(group.Element, group.Certain);
+                    }
+                    finally
+                    {
+                        _files.Pop();
+                    }
+                }
+
+                foreach (var item in _items.Where(i => !string.Equals(i.Path, _projectPath, StringComparison.OrdinalIgnoreCase)))
+                {
+                    _result.ReferenceItems.Add(item);
+                    _result.References.Add(item.Path);
+                }
                 _result.Properties = new Dictionary<string, string>(_properties, StringComparer.OrdinalIgnoreCase);
                 return _result;
             }
 
-            private static bool IsFalse(Dictionary<string, string> properties, string name) =>
-                properties.TryGetValue(name, out var value) && string.Equals(value?.Trim(), "false", StringComparison.OrdinalIgnoreCase);
+            private bool IsFalse(string name) =>
+                _properties.TryGetValue(name, out var value) && string.Equals(value?.Trim(), "false", StringComparison.OrdinalIgnoreCase);
 
             private void SeedProperties()
             {
@@ -392,6 +514,56 @@ namespace Mister.Version.Core.Services
                 _properties["OS"] = Path.DirectorySeparatorChar == '\\' ? "Windows_NT" : "Unix";
             }
 
+            /// <summary>Properties the project's SDK props set before Directory.Build.props is imported.</summary>
+            private void SeedSdkProperties()
+            {
+                foreach (var sdk in _result.Sdks)
+                {
+                    if (sdk.StartsWith("Microsoft.NET.Sdk", StringComparison.OrdinalIgnoreCase))
+                        _properties["UsingMicrosoftNETSdk"] = "true";
+                    if (sdk.Equals("Microsoft.NET.Sdk.Web", StringComparison.OrdinalIgnoreCase))
+                    {
+                        _properties["UsingMicrosoftNETSdkWeb"] = "true";
+                        _properties["UsingMicrosoftNETSdkRazor"] = "true";
+                    }
+                    else if (sdk.Equals("Microsoft.NET.Sdk.Razor", StringComparison.OrdinalIgnoreCase))
+                        _properties["UsingMicrosoftNETSdkRazor"] = "true";
+                    else if (sdk.Equals("Microsoft.NET.Sdk.Worker", StringComparison.OrdinalIgnoreCase))
+                        _properties["UsingMicrosoftNETSdkWorker"] = "true";
+                    else if (sdk.Equals("Microsoft.NET.Sdk.BlazorWebAssembly", StringComparison.OrdinalIgnoreCase))
+                    {
+                        _properties["UsingMicrosoftNETSdkBlazorWebAssembly"] = "true";
+                        _properties["UsingMicrosoftNETSdkRazor"] = "true";
+                    }
+                    else if (sdk.Equals("Microsoft.Build.Traversal", StringComparison.OrdinalIgnoreCase))
+                        _properties["UsingMicrosoftTraversalSdk"] = "true";
+                    else if (sdk.Equals("Microsoft.Build.NoTargets", StringComparison.OrdinalIgnoreCase))
+                        _properties["UsingMicrosoftNoTargetsSdk"] = "true";
+                }
+            }
+
+            /// <summary>Defaults the SDK targets apply when the project did not set them (read by Directory.Build.targets and items).</summary>
+            private void SeedSdkDefaults()
+            {
+                if (!_properties.ContainsKey("OutputType") && !_unknownProperties.Contains("OutputType"))
+                {
+                    var exe = _result.Sdks.Any(s => s.Equals("Microsoft.NET.Sdk.Web", StringComparison.OrdinalIgnoreCase) ||
+                                                    s.Equals("Microsoft.NET.Sdk.Worker", StringComparison.OrdinalIgnoreCase) ||
+                                                    s.Equals("Microsoft.NET.Sdk.BlazorWebAssembly", StringComparison.OrdinalIgnoreCase));
+                    _properties["OutputType"] = exe ? "Exe" : "Library";
+                }
+
+                if ((!_properties.ContainsKey("IsTestProject") && !_unknownProperties.Contains("IsTestProject")) ||
+                    (!_properties.ContainsKey("IsPackable") && !_unknownProperties.Contains("IsPackable")))
+                {
+                    var type = ProjectAnalyzer.DetectProjectType(_projectPath);
+                    if (!_properties.ContainsKey("IsTestProject") && !_unknownProperties.Contains("IsTestProject"))
+                        _properties["IsTestProject"] = type.IsTestProject ? "true" : "false";
+                    if (!_properties.ContainsKey("IsPackable") && !_unknownProperties.Contains("IsPackable"))
+                        _properties["IsPackable"] = type.IsPackable ? "true" : "false";
+                }
+            }
+
             private static bool IsValidPropertyName(string name)
             {
                 if (name.Length == 0 || !(char.IsLetter(name[0]) || name[0] == '_'))
@@ -404,18 +576,20 @@ namespace Mister.Version.Core.Services
                 return true;
             }
 
-            private static string FindFileAbove(string directory, string fileName)
+            /// <summary>The nearest file named <paramref name="fileName"/> at or above a directory; every path looked at is a dependency.</summary>
+            private string FindFileAbove(string directory, string fileName)
             {
                 for (var current = directory; !string.IsNullOrEmpty(current); current = Path.GetDirectoryName(current))
                 {
                     var candidate = Path.Combine(current, fileName);
+                    _result.Dependencies.Add(candidate);
                     if (File.Exists(candidate))
                         return candidate;
                 }
                 return null;
             }
 
-            private void EvaluateFile(string path, int depth, bool isProject = false)
+            private void EvaluateFile(string path, int depth)
             {
                 var full = Path.GetFullPath(path);
                 if (depth > MaxImportDepth || !_importing.Add(full))
@@ -425,21 +599,16 @@ namespace Mister.Version.Core.Services
                 {
                     if (!_result.Files.Contains(full, StringComparer.OrdinalIgnoreCase))
                         _result.Files.Add(full);
+                    _result.Dependencies.Add(full);
 
                     var document = LoadDocument(full);
                     if (document?.Root == null)
-                    {
-                        if (isProject)
-                            EvaluateWithRegexFallback(full);
                         return;
-                    }
 
                     _files.Push(full);
                     try
                     {
-                        if (isProject)
-                            CollectSdks(document.Root);
-                        EvaluateChildren(document.Root, depth);
+                        EvaluateChildren(document.Root, depth, certain: true);
                     }
                     finally
                     {
@@ -472,7 +641,8 @@ namespace Mister.Version.Core.Services
                                  RegexOptions.IgnoreCase | RegexOptions.CultureInvariant))
                     {
                         var include = match.Groups[1].Success ? match.Groups[1].Value : match.Groups[2].Value;
-                        AddReferences(include, null);
+                        foreach (var resolved in ResolveItemSpecs(include))
+                            AddItem(resolved, certain: false, noOutputAssembly: false, privateAssetsAll: false);
                     }
                 }
                 finally
@@ -489,47 +659,37 @@ namespace Mister.Version.Core.Services
 
                 foreach (var element in root.Elements())
                 {
+                    string sdk = null;
                     if (NameIs(element, "Sdk"))
-                    {
-                        var name = Attribute(element, "Name");
-                        if (!string.IsNullOrWhiteSpace(name))
-                            _result.Sdks.Add(name.Trim());
-                    }
+                        sdk = Attribute(element, "Name");
                     else if (NameIs(element, "Import"))
+                        sdk = Attribute(element, "Sdk");
+                    if (!string.IsNullOrWhiteSpace(sdk))
                     {
-                        var sdk = Attribute(element, "Sdk");
-                        if (!string.IsNullOrWhiteSpace(sdk) && !_result.Sdks.Contains(sdk.Trim(), StringComparer.OrdinalIgnoreCase))
-                            _result.Sdks.Add(sdk.Trim());
+                        sdk = sdk.Split('/')[0].Trim();
+                        if (!_result.Sdks.Contains(sdk, StringComparer.OrdinalIgnoreCase))
+                            _result.Sdks.Add(sdk);
                     }
                 }
             }
 
-            private void EvaluateChildren(XElement parent, int depth)
+            // ------------------------------------------------------------------ pass 1
+
+            private void EvaluateChildren(XElement parent, int depth, bool certain)
             {
                 foreach (var element in parent.Elements())
                 {
                     if (NameIs(element, "PropertyGroup"))
                     {
-                        var condition = EvaluateCondition(element);
-                        if (condition == true)
-                        {
+                        var condition = EvaluateCondition(element, CurrentDirectory);
+                        if (condition == true && certain)
                             EvaluateProperties(element);
-                        }
-                        else if (condition == null)
-                        {
-                            // The group may or may not apply: its properties' values are unknown from here on
-                            foreach (var property in element.Elements())
-                            {
-                                _properties.Remove(property.Name.LocalName);
-                                _unknownProperties.Add(property.Name.LocalName);
-                            }
-                        }
+                        else if (condition != false)
+                            MarkUnknown(element); // the group may or may not apply
                     }
                     else if (NameIs(element, "ItemGroup"))
                     {
-                        // Unknown group conditions still contribute items (see class remarks)
-                        if (EvaluateCondition(element) != false)
-                            EvaluateItems(element);
+                        _itemGroups.Add(new PendingItemGroup { Element = element, File = CurrentFile, Certain = certain });
                     }
                     else if (NameIs(element, "Import"))
                     {
@@ -537,7 +697,7 @@ namespace Mister.Version.Core.Services
                     }
                     else if (NameIs(element, "ImportGroup"))
                     {
-                        if (EvaluateCondition(element) != false)
+                        if (EvaluateCondition(element, CurrentDirectory) != false)
                         {
                             foreach (var import in element.Elements().Where(e => NameIs(e, "Import")))
                                 EvaluateImport(import, depth);
@@ -545,55 +705,52 @@ namespace Mister.Version.Core.Services
                     }
                     else if (NameIs(element, "Choose"))
                     {
-                        EvaluateChoose(element, depth);
+                        EvaluateChoose(element, depth, certain);
                     }
                     // Target, UsingTask, ProjectExtensions, Sdk: nothing to evaluate
                 }
             }
 
-            private void EvaluateChoose(XElement choose, int depth)
+            private void EvaluateChoose(XElement choose, int depth, bool certain)
             {
                 var anyUnknown = false;
                 foreach (var branch in choose.Elements())
                 {
                     if (NameIs(branch, "When"))
                     {
-                        var condition = EvaluateCondition(branch);
+                        var condition = EvaluateCondition(branch, _projectDirectory);
                         if (condition == false)
                             continue;
 
                         if (condition == true && !anyUnknown)
                         {
-                            EvaluateChildren(branch, depth);
+                            EvaluateChildren(branch, depth, certain);
                             return;
                         }
 
                         // The branch might be the one taken (its condition is unknown, or an earlier unknown branch
-                        // might win): take its items, not its properties
+                        // might win): its properties become unknown, its items are uncertain
                         anyUnknown = true;
-                        foreach (var itemGroup in branch.Elements().Where(e => NameIs(e, "ItemGroup")))
-                        {
-                            if (EvaluateCondition(itemGroup) != false)
-                                EvaluateItems(itemGroup);
-                        }
-
+                        EvaluateChildren(branch, depth, certain: false);
                         if (condition == true)
                             return; // later branches are never taken
                     }
                     else if (NameIs(branch, "Otherwise"))
                     {
-                        if (!anyUnknown)
-                        {
-                            EvaluateChildren(branch, depth);
-                        }
-                        else
-                        {
-                            foreach (var itemGroup in branch.Elements().Where(e => NameIs(e, "ItemGroup")))
-                            {
-                                if (EvaluateCondition(itemGroup) != false)
-                                    EvaluateItems(itemGroup);
-                            }
-                        }
+                        EvaluateChildren(branch, depth, certain && !anyUnknown);
+                    }
+                }
+            }
+
+            /// <summary>Marks every property set below <paramref name="element"/> (including nested Choose) as unknown.</summary>
+            private void MarkUnknown(XElement element)
+            {
+                foreach (var group in element.DescendantsAndSelf().Where(e => NameIs(e, "PropertyGroup")))
+                {
+                    foreach (var property in group.Elements())
+                    {
+                        _properties.Remove(property.Name.LocalName);
+                        _unknownProperties.Add(property.Name.LocalName);
                     }
                 }
             }
@@ -602,7 +759,7 @@ namespace Mister.Version.Core.Services
             {
                 if (!string.IsNullOrWhiteSpace(Attribute(import, "Sdk")))
                     return; // SDK props/targets: not part of the repository
-                if (EvaluateCondition(import) == false)
+                if (EvaluateCondition(import, CurrentDirectory) == false)
                     return;
 
                 var project = Attribute(import, "Project");
@@ -624,7 +781,10 @@ namespace Mister.Version.Core.Services
                     }
 
                     var path = ToFullPath(value, CurrentDirectory);
-                    if (path != null && File.Exists(path))
+                    if (path == null)
+                        continue;
+                    _result.Dependencies.Add(path);
+                    if (File.Exists(path))
                         EvaluateFile(path, depth + 1);
                 }
             }
@@ -633,13 +793,15 @@ namespace Mister.Version.Core.Services
             {
                 foreach (var property in group.Elements())
                 {
-                    var condition = EvaluateCondition(property);
+                    var condition = EvaluateCondition(property, _projectDirectory);
                     if (condition == false)
                         continue;
+
+                    var name = property.Name.LocalName;
                     if (condition == null)
                     {
-                        _properties.Remove(property.Name.LocalName);
-                        _unknownProperties.Add(property.Name.LocalName);
+                        _properties.Remove(name);
+                        _unknownProperties.Add(name);
                         continue;
                     }
 
@@ -647,64 +809,111 @@ namespace Mister.Version.Core.Services
                     if (expanded.Unknown)
                     {
                         // The value depends on the build: later conditions on it are unknown
-                        _properties.Remove(property.Name.LocalName);
-                        _unknownProperties.Add(property.Name.LocalName);
+                        _properties.Remove(name);
+                        _unknownProperties.Add(name);
                         continue;
                     }
 
-                    _properties[property.Name.LocalName] = expanded.Value.Trim();
-                    _unknownProperties.Remove(property.Name.LocalName);
+                    _properties[name] = expanded.Value.Trim();
+                    _unknownProperties.Remove(name);
                 }
             }
 
-            private readonly HashSet<string> _unknownProperties = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            // ------------------------------------------------------------------ pass 2
 
-            private void EvaluateItems(XElement group)
+            private void EvaluateItems(XElement group, bool certain)
             {
+                var groupCondition = EvaluateCondition(group, _projectDirectory);
+                if (groupCondition == false)
+                    return;
+                certain &= groupCondition == true;
+
                 foreach (var item in group.Elements().Where(e => NameIs(e, "ProjectReference")))
                 {
-                    if (EvaluateCondition(item) == false)
+                    var itemCondition = EvaluateCondition(item, _projectDirectory);
+                    if (itemCondition == false)
                         continue;
+                    var itemCertain = certain && itemCondition == true;
 
                     var include = Attribute(item, "Include");
                     var remove = Attribute(item, "Remove");
+                    var update = Attribute(item, "Update");
                     if (!string.IsNullOrWhiteSpace(include))
                     {
-                        AddReferences(include, Attribute(item, "Exclude"));
+                        var excluded = string.IsNullOrWhiteSpace(Attribute(item, "Exclude"))
+                            ? new HashSet<string>(StringComparer.OrdinalIgnoreCase)
+                            : new HashSet<string>(ResolveItemSpecs(Attribute(item, "Exclude")), StringComparer.OrdinalIgnoreCase);
+                        var noOutputAssembly = IsMetadata(item, "ReferenceOutputAssembly", "false");
+                        var privateAssetsAll = MetadataContains(item, "PrivateAssets", "all");
+                        foreach (var path in ResolveItemSpecs(include))
+                        {
+                            if (!excluded.Contains(path))
+                                AddItem(path, itemCertain, noOutputAssembly, privateAssetsAll);
+                        }
                     }
                     else if (!string.IsNullOrWhiteSpace(remove))
                     {
-                        foreach (var path in ResolveItemSpecs(remove))
+                        var removed = new HashSet<string>(ResolveItemSpecs(remove), StringComparer.OrdinalIgnoreCase);
+                        // An uncertain Remove may not happen: keep the items, as uncertain
+                        foreach (var existing in _items.Where(i => removed.Contains(i.Path)).ToList())
                         {
-                            if (_referenceSet.Remove(path))
-                                _references.RemoveAll(r => string.Equals(r, path, StringComparison.OrdinalIgnoreCase));
+                            if (itemCertain)
+                                _items.Remove(existing);
+                            else
+                                existing.Certain = false;
+                        }
+                    }
+                    else if (!string.IsNullOrWhiteSpace(update) && itemCertain)
+                    {
+                        var updated = new HashSet<string>(ResolveItemSpecs(update), StringComparer.OrdinalIgnoreCase);
+                        foreach (var existing in _items.Where(i => updated.Contains(i.Path)))
+                        {
+                            if (HasMetadata(item, "ReferenceOutputAssembly"))
+                                existing.NoOutputAssembly = IsMetadata(item, "ReferenceOutputAssembly", "false");
+                            if (HasMetadata(item, "PrivateAssets"))
+                                existing.PrivateAssetsAll = MetadataContains(item, "PrivateAssets", "all");
                         }
                     }
                 }
             }
 
-            private void AddReferences(string include, string exclude)
+            private void AddItem(string path, bool certain, bool noOutputAssembly, bool privateAssetsAll)
             {
-                var excluded = string.IsNullOrWhiteSpace(exclude)
-                    ? new HashSet<string>(StringComparer.OrdinalIgnoreCase)
-                    : new HashSet<string>(ResolveItemSpecs(exclude), StringComparer.OrdinalIgnoreCase);
-
-                foreach (var path in ResolveItemSpecs(include))
+                _result.Dependencies.Add(path);
+                if (!File.Exists(path))
                 {
-                    if (excluded.Contains(path))
-                        continue;
-
-                    if (!File.Exists(path))
-                    {
-                        _result.Unresolved.Add(path);
-                        _logger?.Invoke("Warning", $"Referenced project not found: {path} (referenced by {_projectPath})");
-                        continue;
-                    }
-
-                    if (_referenceSet.Add(path))
-                        _references.Add(path);
+                    _result.Unresolved.Add(path);
+                    _logger?.Invoke("Warning", $"Referenced project not found: {path} (referenced by {_projectPath})");
+                    return;
                 }
+
+                var existing = _items.FirstOrDefault(i => string.Equals(i.Path, path, StringComparison.OrdinalIgnoreCase));
+                if (existing != null)
+                {
+                    existing.Certain |= certain;
+                    return;
+                }
+
+                _items.Add(new ReferenceItem { Path = path, Certain = certain, NoOutputAssembly = noOutputAssembly, PrivateAssetsAll = privateAssetsAll });
             }
+
+            private string MetadataValue(XElement item, string name)
+            {
+                var value = Attribute(item, name) ?? item.Elements().FirstOrDefault(e => NameIs(e, name))?.Value;
+                if (value == null)
+                    return null;
+                var expanded = Expand(value);
+                return expanded.Unknown ? null : expanded.Value.Trim();
+            }
+
+            private bool HasMetadata(XElement item, string name) =>
+                Attribute(item, name) != null || item.Elements().Any(e => NameIs(e, name));
+
+            private bool IsMetadata(XElement item, string name, string value) =>
+                string.Equals(MetadataValue(item, name), value, StringComparison.OrdinalIgnoreCase);
+
+            private bool MetadataContains(XElement item, string name, string value) =>
+                (MetadataValue(item, name) ?? string.Empty).Split(';').Any(v => string.Equals(v.Trim(), value, StringComparison.OrdinalIgnoreCase));
 
             /// <summary>Item specs (';'-separated, expanded, wildcards resolved) as full paths, relative to the project directory.</summary>
             private IEnumerable<string> ResolveItemSpecs(string specs)
@@ -768,7 +977,13 @@ namespace Mister.Version.Core.Services
                 }
             }
 
-            private static IEnumerable<string> ExpandWildcard(string pattern, string baseDirectory)
+            /// <summary>Directory names never searched by wildcards (huge and never hold projects of the repository).</summary>
+            private static readonly HashSet<string> WildcardSkippedDirectories = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
+            {
+                ".git", "node_modules", "bin", "obj"
+            };
+
+            private IEnumerable<string> ExpandWildcard(string pattern, string baseDirectory)
             {
                 var normalized = pattern.Replace('\\', '/');
                 var segments = normalized.Split('/');
@@ -777,39 +992,74 @@ namespace Mister.Version.Core.Services
                 string root;
                 try
                 {
-                    root = Path.GetFullPath(Path.IsPathRooted(fixedPart) || normalized.StartsWith("/", StringComparison.Ordinal)
+                    root = Path.GetFullPath(normalized.StartsWith("/", StringComparison.Ordinal) || Path.IsPathRooted(fixedPart)
                         ? (fixedPart.Length == 0 ? "/" : fixedPart)
                         : Path.Combine(baseDirectory, fixedPart));
                 }
                 catch (Exception)
                 {
-                    yield break;
+                    return Enumerable.Empty<string>();
                 }
 
+                // A wildcard rooted at the file system root (e.g. an empty property: "$(Unset)/**/*.csproj") would
+                // enumerate the whole disk
+                if (string.Equals(root.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar),
+                        (Path.GetPathRoot(root) ?? string.Empty).TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar),
+                        StringComparison.OrdinalIgnoreCase))
+                {
+                    _logger?.Invoke("Debug", $"Wildcard '{pattern}' starts at the file system root and is not expanded");
+                    return Enumerable.Empty<string>();
+                }
+
+                StampDirectory(root);
                 if (!Directory.Exists(root))
-                    yield break;
+                    return Enumerable.Empty<string>();
 
                 var rest = string.Join("/", segments.Skip(fixedSegments.Count));
                 var regex = new Regex("^" + GlobToRegex(rest) + "$",
                     (Path.DirectorySeparatorChar == '\\' ? RegexOptions.IgnoreCase : RegexOptions.None) | RegexOptions.CultureInvariant);
                 var recursive = rest.Contains("**") || rest.Contains("/");
 
-                IEnumerable<string> files;
-                try
+                var results = new List<string>();
+                var pending = new Stack<string>();
+                pending.Push(root);
+                while (pending.Count > 0)
                 {
-                    files = Directory.EnumerateFiles(root, "*", recursive ? SearchOption.AllDirectories : SearchOption.TopDirectoryOnly).ToList();
-                }
-                catch (Exception)
-                {
-                    yield break;
+                    var directory = pending.Pop();
+                    try
+                    {
+                        foreach (var file in Directory.EnumerateFiles(directory))
+                        {
+                            var relative = file.Substring(root.Length).TrimStart(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar).Replace('\\', '/');
+                            if (regex.IsMatch(relative))
+                                results.Add(Path.GetFullPath(file));
+                        }
+
+                        if (recursive)
+                        {
+                            foreach (var sub in Directory.EnumerateDirectories(directory))
+                            {
+                                if (WildcardSkippedDirectories.Contains(Path.GetFileName(sub)))
+                                    continue;
+                                StampDirectory(sub);
+                                pending.Push(sub);
+                            }
+                        }
+                    }
+                    catch (Exception)
+                    {
+                        // Unreadable directory: skip
+                    }
                 }
 
-                foreach (var file in files)
-                {
-                    var relative = file.Substring(root.Length).TrimStart(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar).Replace('\\', '/');
-                    if (regex.IsMatch(relative))
-                        yield return Path.GetFullPath(file);
-                }
+                return results;
+            }
+
+            /// <summary>Records a directory whose contents the result depends on (added or removed entries change its time).</summary>
+            private void StampDirectory(string directory)
+            {
+                if (_stampedDirectories++ < MaxStampedDirectories)
+                    _result.Dependencies.Add(directory);
             }
 
             private static string GlobToRegex(string glob)
@@ -853,8 +1103,12 @@ namespace Mister.Version.Core.Services
 
             // ------------------------------------------------------------------ conditions
 
-            /// <summary>true / false, or null when the condition cannot be evaluated here.</summary>
-            private bool? EvaluateCondition(XElement element)
+            /// <summary>
+            /// true / false, or null when the condition cannot be evaluated here. Relative paths in Exists() resolve
+            /// against <paramref name="baseDirectory"/>: the containing file's directory for Import, ImportGroup and
+            /// PropertyGroup conditions, the project directory otherwise (as MSBuild does).
+            /// </summary>
+            private bool? EvaluateCondition(XElement element, string baseDirectory)
             {
                 var condition = Attribute(element, "Condition");
                 if (string.IsNullOrWhiteSpace(condition))
@@ -862,7 +1116,7 @@ namespace Mister.Version.Core.Services
 
                 try
                 {
-                    var parser = new ConditionParser(condition, this);
+                    var parser = new ConditionParser(condition, this, baseDirectory);
                     var result = parser.ParseExpression();
                     return parser.AtEnd ? result.AsBool() : (bool?)null;
                 }
@@ -897,12 +1151,14 @@ namespace Mister.Version.Core.Services
             {
                 private readonly string _text;
                 private readonly Evaluator _evaluator;
+                private readonly string _baseDirectory;
                 private int _position;
 
-                public ConditionParser(string text, Evaluator evaluator)
+                public ConditionParser(string text, Evaluator evaluator, string baseDirectory)
                 {
                     _text = text;
                     _evaluator = evaluator;
+                    _baseDirectory = baseDirectory;
                 }
 
                 public bool AtEnd
@@ -1080,7 +1336,9 @@ namespace Mister.Version.Core.Services
                         var value = (args[0].Text ?? string.Empty).Trim();
                         if (value.Length == 0)
                             return new Operand { Bool = false };
-                        var full = ToFullPath(value, _evaluator._projectDirectory);
+                        var full = ToFullPath(value, _baseDirectory ?? _evaluator._projectDirectory);
+                        if (full != null)
+                            _evaluator._result.Dependencies.Add(full);
                         return new Operand { Bool = full != null && (File.Exists(full) || Directory.Exists(full)) };
                     }
 
@@ -1199,22 +1457,63 @@ namespace Mister.Version.Core.Services
                 return Expanded.Of(sb.ToString());
             }
 
+            /// <summary>Name, Name.Method(...)..., or [Type]::Member(...).Method(...)...</summary>
             private Expanded EvaluatePropertyExpression(string inner)
             {
+                Expanded value;
+                string chain;
                 if (inner.StartsWith("[", StringComparison.Ordinal))
-                    return EvaluateStaticFunction(inner);
+                {
+                    var typeEnd = inner.IndexOf("]::", StringComparison.Ordinal);
+                    if (typeEnd < 0)
+                        return Expanded.UnknownValue;
+                    var type = inner.Substring(1, typeEnd - 1).Trim();
+                    var rest = inner.Substring(typeEnd + 3);
+                    var nameMatch = Regex.Match(rest, @"^\s*(\w+)\s*", RegexOptions.CultureInvariant);
+                    if (!nameMatch.Success)
+                        return Expanded.UnknownValue;
+                    var member = nameMatch.Groups[1].Value;
+                    var after = rest.Substring(nameMatch.Length);
+                    List<string> args = null;
+                    if (after.StartsWith("(", StringComparison.Ordinal))
+                    {
+                        int close;
+                        try
+                        {
+                            close = FindClosingParen(after, 0);
+                        }
+                        catch (FormatException)
+                        {
+                            return Expanded.UnknownValue;
+                        }
+                        args = ExpandArguments(after.Substring(1, close - 1), out var unknownArgs);
+                        if (unknownArgs)
+                            return Expanded.UnknownValue;
+                        after = after.Substring(close + 1);
+                    }
 
-                // $(Name) or $(Name.Method(...)): only plain names and a few string methods are supported
-                var dot = inner.IndexOf('.');
-                var name = dot < 0 ? inner : inner.Substring(0, dot);
-                if (!IsValidPropertyName(name))
-                    return Expanded.UnknownValue;
+                    try
+                    {
+                        value = EvaluateStaticMember(type, member, args);
+                    }
+                    catch (Exception)
+                    {
+                        return Expanded.UnknownValue;
+                    }
+                    chain = after;
+                }
+                else
+                {
+                    var nameMatch = Regex.Match(inner, @"^([A-Za-z_][\w\-]*)", RegexOptions.CultureInvariant);
+                    if (!nameMatch.Success)
+                        return Expanded.UnknownValue;
+                    value = LookupProperty(nameMatch.Groups[1].Value);
+                    chain = inner.Substring(nameMatch.Length);
+                }
 
-                var value = LookupProperty(name);
-                if (value.Unknown || dot < 0)
+                if (value.Unknown || string.IsNullOrWhiteSpace(chain))
                     return value;
-
-                return ApplyStringMethods(value.Value, inner.Substring(dot));
+                return ApplyMethodChain(value.Value, chain);
             }
 
             private Expanded LookupProperty(string name)
@@ -1247,75 +1546,148 @@ namespace Mister.Version.Core.Services
                 return Expanded.Of(string.Empty);
             }
 
-            private static Expanded ApplyStringMethods(string value, string chain)
+            /// <summary>Applies ".Method(args)" / ".Property" calls on a string, as MSBuild property functions do.</summary>
+            private Expanded ApplyMethodChain(string value, string chain)
             {
-                // Supports .Trim(), .TrimEnd('x'), .TrimStart('x'), .ToLower(), .ToUpper(), .ToLowerInvariant(), .ToUpperInvariant()
-                var match = Regex.Match(chain, @"^(?:\.(Trim|TrimEnd|TrimStart|ToLower|ToUpper|ToLowerInvariant|ToUpperInvariant)\(\s*(?:'([^']*)'|""([^""]*)"")?\s*\))+$",
-                    RegexOptions.CultureInvariant);
-                if (!match.Success)
-                    return Expanded.UnknownValue;
-
-                foreach (Match call in Regex.Matches(chain, @"\.(\w+)\(\s*(?:'([^']*)'|""([^""]*)"")?\s*\)", RegexOptions.CultureInvariant))
+                object current = value;
+                var position = 0;
+                while (position < chain.Length)
                 {
-                    var method = call.Groups[1].Value;
-                    var argument = call.Groups[2].Success ? call.Groups[2].Value : call.Groups[3].Success ? call.Groups[3].Value : null;
-                    var chars = string.IsNullOrEmpty(argument) ? null : argument.ToCharArray();
-                    switch (method)
+                    while (position < chain.Length && char.IsWhiteSpace(chain[position]))
+                        position++;
+                    if (position >= chain.Length)
+                        break;
+                    if (chain[position] != '.')
+                        return Expanded.UnknownValue;
+                    position++;
+
+                    var nameMatch = Regex.Match(chain.Substring(position), @"^(\w+)\s*", RegexOptions.CultureInvariant);
+                    if (!nameMatch.Success)
+                        return Expanded.UnknownValue;
+                    var method = nameMatch.Groups[1].Value;
+                    position += nameMatch.Length;
+
+                    List<string> args = null;
+                    if (position < chain.Length && chain[position] == '(')
                     {
-                        case "Trim": value = chars == null ? value.Trim() : value.Trim(chars); break;
-                        case "TrimEnd": value = chars == null ? value.TrimEnd() : value.TrimEnd(chars); break;
-                        case "TrimStart": value = chars == null ? value.TrimStart() : value.TrimStart(chars); break;
-                        case "ToLower":
-                        case "ToLowerInvariant": value = value.ToLowerInvariant(); break;
-                        case "ToUpper":
-                        case "ToUpperInvariant": value = value.ToUpperInvariant(); break;
-                        default: return Expanded.UnknownValue;
+                        int close;
+                        try
+                        {
+                            close = FindClosingParen(chain, position);
+                        }
+                        catch (FormatException)
+                        {
+                            return Expanded.UnknownValue;
+                        }
+                        args = ExpandArguments(chain.Substring(position + 1, close - position - 1), out var unknownArgs);
+                        if (unknownArgs)
+                            return Expanded.UnknownValue;
+                        position = close + 1;
                     }
+
+                    current = ApplyStringMethod(Convert.ToString(current, System.Globalization.CultureInfo.InvariantCulture), method, args);
+                    if (current == null)
+                        return Expanded.UnknownValue;
                 }
 
-                return Expanded.Of(value);
+                return Expanded.Of(Format(current));
             }
 
-            private Expanded EvaluateStaticFunction(string inner)
-            {
-                // [Type]::Method(args)
-                var match = Regex.Match(inner, @"^\[\s*([\w\.]+)\s*\]::(\w+)\s*\((.*)\)\s*$", RegexOptions.Singleline | RegexOptions.CultureInvariant);
-                if (!match.Success)
-                {
-                    // [Type]::Property, e.g. [System.IO.Path]::DirectorySeparatorChar
-                    var property = Regex.Match(inner, @"^\[\s*([\w\.]+)\s*\]::(\w+)\s*$", RegexOptions.CultureInvariant);
-                    if (property.Success && IsPathType(property.Groups[1].Value) &&
-                        property.Groups[2].Value == "DirectorySeparatorChar")
-                        return Expanded.Of(Path.DirectorySeparatorChar.ToString());
-                    return Expanded.UnknownValue;
-                }
+            private static string Format(object value) =>
+                value is bool b ? (b ? "True" : "False") : Convert.ToString(value, System.Globalization.CultureInfo.InvariantCulture);
 
-                var type = match.Groups[1].Value;
-                var method = match.Groups[2].Value;
-                var args = new List<string>();
-                foreach (var raw in SplitArguments(match.Groups[3].Value))
+            /// <summary>The string instance members MSBuild projects commonly call; null when unsupported.</summary>
+            private static object ApplyStringMethod(string value, string method, List<string> args)
+            {
+                var count = args?.Count ?? 0;
+                string Arg(int i) => args[i];
+                int IntArg(int i) => int.Parse(args[i].Trim(), System.Globalization.CultureInfo.InvariantCulture);
+                char[] Chars(int i) => args[i].Length == 0 ? null : args[i].ToCharArray();
+
+                switch (method)
+                {
+                    case "Length": return args == null ? (object)value.Length : null;
+                    case "Trim": return count == 0 ? value.Trim() : value.Trim(Chars(0));
+                    case "TrimEnd": return count == 0 ? value.TrimEnd() : value.TrimEnd(Chars(0));
+                    case "TrimStart": return count == 0 ? value.TrimStart() : value.TrimStart(Chars(0));
+                    case "ToLower":
+                    case "ToLowerInvariant": return value.ToLowerInvariant();
+                    case "ToUpper":
+                    case "ToUpperInvariant": return value.ToUpperInvariant();
+                    case "ToString": return value;
+                    case "EndsWith": return count >= 1 ? value.EndsWith(Arg(0), StringComparison.Ordinal) : (object)null;
+                    case "StartsWith": return count >= 1 ? value.StartsWith(Arg(0), StringComparison.Ordinal) : (object)null;
+                    case "Contains": return count == 1 ? value.IndexOf(Arg(0), StringComparison.Ordinal) >= 0 : (object)null;
+                    case "Equals": return count >= 1 ? string.Equals(value, Arg(0), StringComparison.Ordinal) : (object)null;
+                    case "IndexOf": return count == 1 ? value.IndexOf(Arg(0), StringComparison.Ordinal) : (object)null;
+                    case "LastIndexOf": return count == 1 ? value.LastIndexOf(Arg(0), StringComparison.Ordinal) : (object)null;
+                    case "Replace": return count == 2 && Arg(0).Length > 0 ? value.Replace(Arg(0), Arg(1)) : null;
+                    case "Substring":
+                        if (count == 1) return value.Substring(IntArg(0));
+                        if (count == 2) return value.Substring(IntArg(0), IntArg(1));
+                        return null;
+                    case "PadLeft": return count == 1 ? value.PadLeft(IntArg(0)) : null;
+                    case "PadRight": return count == 1 ? value.PadRight(IntArg(0)) : null;
+                    default: return null;
+                }
+            }
+
+            /// <summary>Expands a property function's argument list (quoted strings, numbers, nested $()).</summary>
+            private List<string> ExpandArguments(string text, out bool unknown)
+            {
+                unknown = false;
+                var result = new List<string>();
+                foreach (var raw in SplitArguments(text))
                 {
                     var arg = raw.Trim();
                     if (arg.Length >= 2 && (arg[0] == '\'' || arg[0] == '"' || arg[0] == '`') && arg[arg.Length - 1] == arg[0])
                         arg = arg.Substring(1, arg.Length - 2);
                     var expanded = Expand(arg);
                     if (expanded.Unknown)
-                        return Expanded.UnknownValue;
-                    args.Add(expanded.Value);
+                    {
+                        unknown = true;
+                        return result;
+                    }
+                    result.Add(expanded.Value);
                 }
+                return result;
+            }
 
-                try
+            private Expanded EvaluateStaticMember(string type, string member, List<string> args)
+            {
+                if (string.Equals(type, "MSBuild", StringComparison.OrdinalIgnoreCase))
+                    return args == null ? Expanded.UnknownValue : EvaluateMSBuildFunction(member, args);
+                if (IsPathType(type))
                 {
-                    if (string.Equals(type, "MSBuild", StringComparison.OrdinalIgnoreCase))
-                        return EvaluateMSBuildFunction(method, args);
-                    if (IsPathType(type))
-                        return EvaluatePathFunction(method, args);
+                    if (args == null)
+                        return member == "DirectorySeparatorChar" ? Expanded.Of(Path.DirectorySeparatorChar.ToString()) : Expanded.UnknownValue;
+                    return EvaluatePathFunction(member, args);
                 }
-                catch (Exception)
+                if (string.Equals(type, "System.String", StringComparison.OrdinalIgnoreCase) ||
+                    string.Equals(type, "String", StringComparison.OrdinalIgnoreCase))
                 {
-                    return Expanded.UnknownValue;
+                    if (args == null)
+                        return member == "Empty" ? Expanded.Of(string.Empty) : Expanded.UnknownValue;
+                    switch (member)
+                    {
+                        case "IsNullOrEmpty": return args.Count == 1 ? Expanded.Of(Format(string.IsNullOrEmpty(args[0]))) : Expanded.UnknownValue;
+                        case "IsNullOrWhiteSpace": return args.Count == 1 ? Expanded.Of(Format(string.IsNullOrWhiteSpace(args[0]))) : Expanded.UnknownValue;
+                        case "Equals": return args.Count == 2 ? Expanded.Of(Format(string.Equals(args[0], args[1], StringComparison.Ordinal))) : Expanded.UnknownValue;
+                        case "Copy": return args.Count == 1 ? Expanded.Of(args[0]) : Expanded.UnknownValue;
+                        case "Concat": return Expanded.Of(string.Concat(args));
+                        default: return Expanded.UnknownValue;
+                    }
                 }
-
+                if ((string.Equals(type, "System.IO.File", StringComparison.OrdinalIgnoreCase) ||
+                     string.Equals(type, "System.IO.Directory", StringComparison.OrdinalIgnoreCase)) &&
+                    member == "Exists" && args != null && args.Count == 1)
+                {
+                    var full = ToFullPath(args[0], _projectDirectory);
+                    if (full != null)
+                        _result.Dependencies.Add(full);
+                    var exists = full != null && (type.EndsWith("File", StringComparison.OrdinalIgnoreCase) ? File.Exists(full) : Directory.Exists(full));
+                    return Expanded.Of(Format(exists));
+                }
                 return Expanded.UnknownValue;
             }
 
@@ -1351,6 +1723,21 @@ namespace Mister.Version.Core.Services
                         return Expanded.Of(PathUtils.GetRelativePath(args[0], args[1]));
                     case "ValueOrDefault":
                         return args.Count == 2 ? Expanded.Of(string.IsNullOrEmpty(args[0]) ? args[1] : args[0]) : Expanded.UnknownValue;
+                    case "VersionEquals":
+                    case "VersionNotEquals":
+                    case "VersionGreaterThan":
+                    case "VersionGreaterThanOrEquals":
+                    case "VersionLessThan":
+                    case "VersionLessThanOrEquals":
+                        {
+                            if (args.Count != 2 || !TryParseVersion(args[0], out var a) || !TryParseVersion(args[1], out var b))
+                                return Expanded.UnknownValue;
+                            var c = a.CompareTo(b);
+                            var r = method == "VersionEquals" ? c == 0 : method == "VersionNotEquals" ? c != 0 :
+                                method == "VersionGreaterThan" ? c > 0 : method == "VersionGreaterThanOrEquals" ? c >= 0 :
+                                method == "VersionLessThan" ? c < 0 : c <= 0;
+                            return Expanded.Of(Format(r));
+                        }
                     case "IsOSPlatform":
                     case "IsOsPlatform":
                         if (args.Count != 1)
@@ -1432,6 +1819,17 @@ namespace Mister.Version.Core.Services
                        path.EndsWith(Path.AltDirectorySeparatorChar.ToString(), StringComparison.Ordinal)
                     ? path
                     : path + Path.DirectorySeparatorChar;
+            }
+
+            private static bool TryParseVersion(string text, out System.Version version)
+            {
+                var trimmed = (text ?? string.Empty).Trim().TrimStart('v', 'V');
+                var dash = trimmed.IndexOfAny(new[] { '-', '+' });
+                if (dash >= 0)
+                    trimmed = trimmed.Substring(0, dash);
+                if (trimmed.IndexOf('.') < 0)
+                    trimmed += ".0";
+                return System.Version.TryParse(trimmed, out version);
             }
 
             private static IEnumerable<string> SplitArguments(string text)

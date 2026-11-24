@@ -82,11 +82,25 @@ namespace Mister.Version.Core.Services
             return result;
         }
 
+        /// <summary>
+        /// A symbolic link or junction. Other reparse points (OneDrive Files-On-Demand / Cloud Files placeholders,
+        /// ProjFS / VFS for Git) are ordinary directories and must be searched.
+        /// </summary>
         private static bool IsLink(string directory)
         {
             try
             {
-                return (File.GetAttributes(directory) & FileAttributes.ReparsePoint) != 0;
+#if NET472
+                // .NET Framework has no LinkTarget: treat reparse points as links unless they carry the attributes of
+                // cloud-file / virtualization placeholders
+                const FileAttributes recallOnOpen = (FileAttributes)0x00040000;
+                const FileAttributes recallOnDataAccess = (FileAttributes)0x00400000;
+                var attributes = File.GetAttributes(directory);
+                return (attributes & FileAttributes.ReparsePoint) != 0 &&
+                       (attributes & (FileAttributes.Offline | recallOnOpen | recallOnDataAccess)) == 0;
+#else
+                return new DirectoryInfo(directory).LinkTarget != null;
+#endif
             }
             catch (Exception)
             {
