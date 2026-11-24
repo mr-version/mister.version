@@ -25,6 +25,12 @@ namespace Mister.Version.Core.Services
     {
         public bool IsTestProject { get; set; }
         public bool IsPackable { get; set; } = true;
+
+        /// <summary>
+        /// The version the project sets itself (Version, or VersionPrefix-VersionSuffix), or null for the SDK default
+        /// (1.0.0). It is what a project that is not versioned (test / non-packable) is built with.
+        /// </summary>
+        public string ProjectVersion { get; set; }
     }
 
     public class ProjectAnalyzer : IProjectAnalyzer
@@ -404,12 +410,31 @@ namespace Mister.Version.Core.Services
             public bool? IsTestProject { get; set; }
             public bool? IsPackable { get; set; }
             public bool ReferencesTestSdk { get; set; }
+            public string Version { get; set; }
+            public string VersionPrefix { get; set; }
+            public string VersionSuffix { get; set; }
+
+            /// <summary>The project uses an SDK whose props default IsPackable to false (Web, Worker, Blazor WebAssembly).</summary>
+            public bool NonPackableSdk { get; set; }
         }
+
+        /// <summary>
+        /// SDKs whose props set IsPackable=false when the project does not set it: web apps and worker services are
+        /// deployed, not packed.
+        /// </summary>
+        private static readonly HashSet<string> NonPackableSdks = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
+        {
+            "Microsoft.NET.Sdk.Web",
+            "Microsoft.NET.Sdk.Web.ProjectSystem",
+            "Microsoft.NET.Sdk.Worker",
+            "Microsoft.NET.Sdk.BlazorWebAssembly"
+        };
 
         private static ProjectTypeInfo Evaluate(IEnumerable<ProjectFileFacts> directoryBuildProps, ProjectFileFacts project)
         {
             bool? isTestProject = null;
             bool? isPackable = null;
+            string version = null, versionPrefix = null, versionSuffix = null;
             var referencesTestSdk = project.ReferencesTestSdk;
 
             foreach (var props in directoryBuildProps)
@@ -417,6 +442,20 @@ namespace Mister.Version.Core.Services
                 isTestProject = props.IsTestProject ?? isTestProject;
                 isPackable = props.IsPackable ?? isPackable;
                 referencesTestSdk |= props.ReferencesTestSdk;
+                version = props.Version ?? version;
+                versionPrefix = props.VersionPrefix ?? versionPrefix;
+                versionSuffix = props.VersionSuffix ?? versionSuffix;
+            }
+
+            version = project.Version ?? version;
+            versionPrefix = project.VersionPrefix ?? versionPrefix;
+            versionSuffix = project.VersionSuffix ?? versionSuffix;
+
+            // The SDK's props (imported before Directory.Build.props is read for IsPackable, with a "not set"
+            // condition) make web/worker projects non-packable unless something sets IsPackable
+            if (project.NonPackableSdk && isPackable == null && project.IsPackable == null)
+            {
+                isPackable = false;
             }
 
             // NuGet package props are imported after Directory.Build.props and before the project body
@@ -433,7 +472,14 @@ namespace Mister.Version.Core.Services
             {
                 IsTestProject = test,
                 // NuGet.Build.Tasks.Pack.targets: IsPackable defaults to false for test projects, true otherwise
-                IsPackable = isPackable ?? !test
+                IsPackable = isPackable ?? !test,
+                // Microsoft.NET.Sdk: Version = VersionPrefix[-VersionSuffix] unless Version is set
+                ProjectVersion = !string.IsNullOrWhiteSpace(version)
+                    ? version.Trim()
+                    : !string.IsNullOrWhiteSpace(versionPrefix) || !string.IsNullOrWhiteSpace(versionSuffix)
+                        ? (string.IsNullOrWhiteSpace(versionPrefix) ? "1.0.0" : versionPrefix.Trim()) +
+                          (string.IsNullOrWhiteSpace(versionSuffix) ? "" : "-" + versionSuffix.Trim())
+                        : null
             };
         }
 
@@ -460,6 +506,25 @@ namespace Mister.Version.Core.Services
                 return facts;
             }
 
+            var sdks = new List<string>();
+            var sdkAttribute = (string)root.Attributes().FirstOrDefault(a => string.Equals(a.Name.LocalName, "Sdk", StringComparison.OrdinalIgnoreCase));
+            if (!string.IsNullOrWhiteSpace(sdkAttribute))
+            {
+                sdks.AddRange(sdkAttribute.Split(';').Select(sdk => sdk.Split('/')[0].Trim()));
+            }
+            foreach (var element in root.Elements())
+            {
+                if (NameIs(element, "Sdk"))
+                {
+                    sdks.Add(((string)element.Attribute("Name") ?? string.Empty).Trim());
+                }
+                else if (NameIs(element, "Import") && element.Attribute("Sdk") != null)
+                {
+                    sdks.Add(((string)element.Attribute("Sdk")).Split('/')[0].Trim());
+                }
+            }
+            facts.NonPackableSdk = sdks.Any(sdk => NonPackableSdks.Contains(sdk));
+
             foreach (var group in root.Elements().Where(e => !HasCondition(e)))
             {
                 if (NameIs(group, "PropertyGroup"))
@@ -473,6 +538,18 @@ namespace Mister.Version.Core.Services
                         else if (NameIs(property, "IsPackable"))
                         {
                             facts.IsPackable = ParseBool(property.Value) ?? facts.IsPackable;
+                        }
+                        else if (NameIs(property, "Version"))
+                        {
+                            facts.Version = LiteralOrNull(property.Value) ?? facts.Version;
+                        }
+                        else if (NameIs(property, "VersionPrefix"))
+                        {
+                            facts.VersionPrefix = LiteralOrNull(property.Value) ?? facts.VersionPrefix;
+                        }
+                        else if (NameIs(property, "VersionSuffix"))
+                        {
+                            facts.VersionSuffix = LiteralOrNull(property.Value) ?? facts.VersionSuffix;
                         }
                     }
                 }
@@ -541,6 +618,13 @@ namespace Mister.Version.Core.Services
         private static bool HasCondition(XElement element) =>
             element.Attributes().Any(a => string.Equals(a.Name.LocalName, "Condition", StringComparison.OrdinalIgnoreCase) &&
                                           !string.IsNullOrWhiteSpace(a.Value));
+
+        /// <summary>A literal property value, or null when it is empty or uses $(...) (cannot be evaluated here).</summary>
+        private static string LiteralOrNull(string value)
+        {
+            var trimmed = value?.Trim();
+            return string.IsNullOrEmpty(trimmed) || trimmed.Contains("$(") ? null : trimmed;
+        }
 
         private static bool? ParseBool(string value)
         {
