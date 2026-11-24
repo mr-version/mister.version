@@ -871,7 +871,7 @@ public class MonoRepoVersionTask : Task
         }
         all.AddRange(ReadProjectReferenceClosure(ProjectAssetsFile, projectDirectory));
         // Edges NuGet does not record (ReferenceOutputAssembly=false, PrivateAssets=all) further down the graph
-        all.AddRange(ReadProjectFileClosure(all.ToList()));
+        all.AddRange(ReadUnflowedReferenceClosure(all.ToList()));
 
         var self = Path.GetFullPath(ProjectPath);
         _allDependencies = all
@@ -889,12 +889,13 @@ public class MonoRepoVersionTask : Task
         ProjectReferenceReader.ReadAssetsClosure(assetsFile, projectDirectory);
 
     /// <summary>
-    /// Every project reachable from <paramref name="roots"/> through ProjectReference items, read from the project
-    /// files. Complements NuGet's closure, which leaves out ReferenceOutputAssembly=false references (source
-    /// generators, analyzers, build-order references) and does not flow PrivateAssets=all project references.
+    /// Projects the build depends on that NuGet's closure leaves out: below the given MSBuild/NuGet closure, the
+    /// ReferenceOutputAssembly=false references (source generators, analyzers, build-order references) and
+    /// PrivateAssets=all project references, which NuGet does not record or flow, and what they reference. Only
+    /// references whose conditions are certain are followed (see <see cref="ProjectReferenceReader.GetUnflowedReferenceClosure"/>).
     /// </summary>
-    internal static List<string> ReadProjectFileClosure(IEnumerable<string> roots) =>
-        ProjectReferenceReader.GetReferenceClosure(roots);
+    internal static List<string> ReadUnflowedReferenceClosure(IEnumerable<string> buildClosure) =>
+        ProjectReferenceReader.GetUnflowedReferenceClosure(buildClosure);
 
     private static string NormalizeForKey(string path) => path?.Replace('\\', '/');
 

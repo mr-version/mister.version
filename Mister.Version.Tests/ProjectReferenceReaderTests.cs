@@ -229,6 +229,123 @@ namespace Mister.Version.Tests
             Assert.Equal(new[] { "Second" }, Refs(app));
         }
 
+        // ------------------------------------------------------------------ review findings
+
+        private ProjectReferenceReader.ReferenceItem Item(string projectPath, string name) =>
+            ProjectReferenceReader.Evaluate(projectPath).ReferenceItems.FirstOrDefault(i => Path.GetFileNameWithoutExtension(i.Path) == name);
+
+        [Fact]
+        public void StringMethodConditions_AreEvaluated()
+        {
+            Lib("TestUtils");
+            Write("Directory.Build.targets",
+                "<Project><ItemGroup Condition=\"$(MSBuildProjectName.EndsWith('.Tests'))\">" +
+                "<ProjectReference Include=\"$(MSBuildThisFileDirectory)src/TestUtils/TestUtils.csproj\" /></ItemGroup></Project>");
+            var lib = Write("src/Lib/Lib.csproj", Project(""));
+            var tests = Write("tests/Lib.Tests/Lib.Tests.csproj", Project(""));
+            Assert.Empty(Refs(lib));
+            Assert.Equal(new[] { "TestUtils" }, Refs(tests));
+            Assert.True(Item(tests, "TestUtils").Certain);
+        }
+
+        [Fact]
+        public void ItemsSeeFinalPropertyValues_TwoPassEvaluation()
+        {
+            Lib("Contracts");
+            Lib("Logging");
+            Write("Directory.Build.props",
+                "<Project>" +
+                "<ItemGroup Condition=\"'$(UseContracts)' == 'true'\"><ProjectReference Include=\"$(MSBuildThisFileDirectory)src/Contracts/Contracts.csproj\" /></ItemGroup>" +
+                "<ItemGroup Condition=\"'$(UseSharedLogging)' != 'false'\"><ProjectReference Include=\"$(MSBuildThisFileDirectory)src/Logging/Logging.csproj\" /></ItemGroup>" +
+                "</Project>");
+            var app = Write("src/App/App.csproj", Project("", "<UseContracts>true</UseContracts><UseSharedLogging>false</UseSharedLogging>"));
+            Assert.Equal(new[] { "Contracts" }, Refs(app));
+        }
+
+        [Fact]
+        public void SdkDefinedProperties_AreKnown()
+        {
+            Lib("WebCommon");
+            Write("Directory.Build.targets",
+                "<Project><ItemGroup Condition=\"'$(UsingMicrosoftNETSdkWeb)' == 'true'\">" +
+                "<ProjectReference Include=\"$(MSBuildThisFileDirectory)src/WebCommon/WebCommon.csproj\" /></ItemGroup></Project>");
+            var web = Write("src/Web/Web.csproj", "<Project Sdk=\"Microsoft.NET.Sdk.Web\" />");
+            var lib = Write("src/Lib/Lib.csproj", Project(""));
+            Assert.Equal(new[] { "WebCommon" }, Refs(web));
+            Assert.Empty(Refs(lib));
+        }
+
+        [Fact]
+        public void ExistsInImportConditions_IsRelativeToTheContainingFile()
+        {
+            Lib("Core");
+            Write("Directory.Build.props",
+                "<Project><PropertyGroup><RepoSrc>$(MSBuildThisFileDirectory)src/</RepoSrc></PropertyGroup>" +
+                "<ItemGroup Condition=\"'$(MSBuildProjectName)' != 'Core'\"><ProjectReference Include=\"$(RepoSrc)Core/Core.csproj\" /></ItemGroup></Project>");
+            Write("src/Directory.Build.props",
+                "<Project><Import Project=\"../Directory.Build.props\" Condition=\"Exists('../Directory.Build.props')\" /></Project>");
+            var app = Write("src/Group/App/App.csproj", Project(""));
+            Assert.Equal(new[] { "Core" }, Refs(app));
+        }
+
+        [Fact]
+        public void ChooseWithUnknownCondition_MakesItsPropertiesUnknown()
+        {
+            Lib("Legacy");
+            var app = Write("src/App/App.csproj",
+                "<Project Sdk=\"Microsoft.NET.Sdk\"><PropertyGroup><TargetFrameworks>net472;net10.0</TargetFrameworks></PropertyGroup>" +
+                "<Choose><When Condition=\"'$(TargetFramework)'=='net472'\"><PropertyGroup><UseLegacy>true</UseLegacy></PropertyGroup></When></Choose>" +
+                "<ItemGroup Condition=\"'$(UseLegacy)'=='true'\"><ProjectReference Include=\"../Legacy/Legacy.csproj\" /></ItemGroup></Project>");
+            Assert.Equal(new[] { "Legacy" }, Refs(app));
+            Assert.False(Item(app, "Legacy").Certain);
+        }
+
+        [Fact]
+        public void Cache_SeesFilesThatAppearAfterTheFirstEvaluation()
+        {
+            var app = Write("src/App/App.csproj", Project("<ProjectReference Include=\"../Lib/Lib.csproj\" />"));
+            Assert.Empty(Refs(app));
+
+            Lib("Lib");
+            Assert.Equal(new[] { "Lib" }, Refs(app));
+
+            Lib("Gen");
+            Write("src/App/Directory.Build.targets", "<Project><ItemGroup><ProjectReference Include=\"../Gen/Gen.csproj\" /></ItemGroup></Project>");
+            Assert.Equal(new[] { "Gen", "Lib" }, Refs(app));
+        }
+
+        [Fact]
+        public void WildcardUnderAnEmptyProperty_DoesNotSearchTheFileSystemRoot()
+        {
+            var app = Write("src/App/App.csproj", Project("<ProjectReference Include=\"$(NotSet)/**/*.csproj\" />"));
+            var stopwatch = System.Diagnostics.Stopwatch.StartNew();
+            Assert.Empty(Refs(app));
+            Assert.True(stopwatch.Elapsed < TimeSpan.FromSeconds(5));
+        }
+
+        [Fact]
+        public void UnflowedClosure_FollowsOnlyCertainGeneratorAndPrivateEdges()
+        {
+            Lib("Gen");
+            Lib("GenHelper");
+            Lib("Priv");
+            Lib("MaybeNet472");
+            Lib("Normal");
+            Write("src/Gen/Gen.csproj", Project("<ProjectReference Include=\"../GenHelper/GenHelper.csproj\" />"));
+            var lib = Write("src/Lib/Lib.csproj", Project(
+                "<ProjectReference Include=\"../Gen/Gen.csproj\" OutputItemType=\"Analyzer\" ReferenceOutputAssembly=\"false\" />" +
+                "<ProjectReference Include=\"../Priv/Priv.csproj\" PrivateAssets=\"all\" />" +
+                "<ProjectReference Include=\"../Normal/Normal.csproj\" />" +
+                "<ProjectReference Include=\"../MaybeNet472/MaybeNet472.csproj\" ReferenceOutputAssembly=\"false\" Condition=\"'$(TargetFramework)' == 'net472'\" />"));
+
+            var added = ProjectReferenceReader.GetUnflowedReferenceClosure(new[] { lib })
+                .Select(p => Path.GetFileNameWithoutExtension(p))
+                .OrderBy(n => n, StringComparer.Ordinal)
+                .ToArray();
+            // Normal is NuGet's job; MaybeNet472 depends on the target framework
+            Assert.Equal(new[] { "Gen", "GenHelper", "Priv" }, added);
+        }
+
         [Fact]
         public void ProjectDiscovery_SkipsNestedRepositoriesAndLinkedDirectories()
         {
