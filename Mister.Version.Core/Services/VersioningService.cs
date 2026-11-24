@@ -465,23 +465,15 @@ namespace Mister.Version.Core.Services
 
         private SemVer CalculateMemberVersion(VersioningRequest request, string memberPath, string fingerprint)
         {
-            string content = string.Empty;
-            try
-            {
-                content = File.ReadAllText(memberPath);
-            }
-            catch (IOException)
-            {
-            }
-
             var memberRequest = (VersioningRequest)request.MemberwiseCloneRequest();
             memberRequest.ProjectPath = memberPath;
             memberRequest.Dependencies = GetDependencyClosure(memberPath, request.RepoRoot);
             memberRequest.SkipVersionPolicy = true;
             memberRequest.EnableFileCache = false;
-            memberRequest.IsTestProject = System.Text.RegularExpressions.Regex.IsMatch(content, @"<IsTestProject>\s*true\s*</IsTestProject>", System.Text.RegularExpressions.RegexOptions.IgnoreCase) ||
-                                          content.IndexOf("Microsoft.NET.Test.Sdk", StringComparison.OrdinalIgnoreCase) >= 0;
-            memberRequest.IsPackable = !System.Text.RegularExpressions.Regex.IsMatch(content, @"<IsPackable>\s*false\s*</IsPackable>", System.Text.RegularExpressions.RegexOptions.IgnoreCase);
+            // Same project-type rules as the CLI (IsPackable/IsTestProject incl. Directory.Build.props)
+            var memberType = ProjectAnalyzer.DetectProjectType(memberPath, request.RepoRoot);
+            memberRequest.IsTestProject = memberType.IsTestProject;
+            memberRequest.IsPackable = memberType.IsPackable;
             memberRequest.ForceVersion = null;
 
             var key = fingerprint == null ? null : VersionResultCache.CreateKey(fingerprint, DescribeRequest(memberRequest));

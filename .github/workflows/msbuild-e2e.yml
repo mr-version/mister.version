@@ -3,7 +3,8 @@ name: MSBuild E2E
 # Packs the Mister.Version MSBuild task package and consumes it from a throwaway git monorepo
 # (e2e/msbuild-e2e.cs), asserting on the versions that end up in assemblies and nupkgs,
 # incremental-build behavior and tag pick-up. Runs on every OS/architecture the package ships
-# native libgit2 binaries for, plus Visual Studio's MSBuild.exe (.NET Framework task).
+# native libgit2 binaries for, plus Visual Studio's MSBuild.exe (.NET Framework task), and a large
+# generated solution (e2e/msbuild-stress.cs).
 
 on:
   push:
@@ -90,3 +91,32 @@ jobs:
         $msbuild = (Get-Command msbuild.exe).Source
         Write-Host "Using $msbuild"
         dotnet run e2e/msbuild-e2e.cs -- --msbuild "$msbuild"
+
+  stress:
+    # 80-project layered solution with many transitive/diamond references and multi-targeted
+    # libraries: verifies that exactly the dependents of each change are bumped, and that
+    # assembly/package/nuspec/reference versions agree across every project, TFM and edge.
+    name: stress (80 projects, ${{ matrix.name }})
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { name: linux-x64,   os: ubuntu-latest }
+          - { name: windows-x64, os: windows-latest }
+          - { name: osx-arm64,   os: macos-latest }
+
+    steps:
+    - name: Checkout Code
+      uses: actions/checkout@v4
+
+    - name: Setup .NET
+      uses: actions/setup-dotnet@v4
+      with:
+        dotnet-version: |
+          8.0.x
+          10.0.x
+
+    - name: Run 80-project stress test
+      run: dotnet run e2e/msbuild-stress.cs -- --projects 80
