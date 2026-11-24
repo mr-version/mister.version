@@ -165,6 +165,7 @@
       PatchFilePatterns="$(MonoRepoPatchFilePatterns)"
       AdditionalMonitorPaths="$(MonoRepoAdditionalMonitorPaths)"
       Debug="$(MonoRepoDebug)"
+      ProjectAssetsFile="$(ProjectAssetsFile)"
       Dependencies="@(_MonoRepoDependencies)">
       <Output TaskParameter="HasChanges" PropertyName="MonoRepoHasChanges" />
       <Output TaskParameter="ChangeType" PropertyName="MonoRepoChangeType" />
