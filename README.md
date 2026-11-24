@@ -76,11 +76,15 @@ MonoRepo Versioning uses Git history to intelligently determine when to incremen
   - With conventional commits enabled: Analyzes commit messages to determine bump type
 - **Dev Branch**: Dev branches produce a prerelease with the commit height (8.2.0 → 8.2.1-dev.3)
   - With conventional commits enabled: Analyzes commit messages to determine bump type
-- **Release Branches**: Final versions within the branch's major.minor (`release/7.3` at 7.3.1 → 7.3.2)
-- **Feature Branches**: Prerelease named after the branch with the commit height (8.2.0 → 8.2.1-feature-name.3)
+- **Release Branches**: Final versions within the branch's major.minor (`release/7.3` at 7.3.1 → 7.3.2). A release
+  branch whose name holds no version (`release/next`, `release/foo`) is versioned like the main branch
+- **Feature Branches**: Prerelease named after the branch with the commit height (8.2.0 → 8.2.1-feature-name.3).
+  `feature/`, `bugfix/` and `hotfix/` prefixes are removed; a numeric name loses leading zeros so the version stays
+  valid SemVer (`feature/0042` → `8.2.1-42.3`). Without any version tag yet, the height counts all commits
 - **Detached HEAD** (the default checkout in most CI systems): the branch is taken from `MonoRepoBranchName`,
   else from the CI system's variables when they describe the checked-out commit (GitHub Actions, GitLab, Azure
-  Pipelines, Jenkins, Bitbucket), else from a branch whose tip is HEAD; otherwise it is versioned as `-no-branch`
+  Pipelines, Jenkins, Bitbucket), else from a branch whose tip is HEAD; otherwise it is versioned as `-no-branch`.
+  `MonoRepoBranchName` / `--branch` accept `main`, `refs/heads/main`, `refs/remotes/origin/main` or `origin/main`
 - **Dependencies**: a project is bumped when its own directory, any **direct or transitive** `ProjectReference`,
   or an additional monitored path changed since its base tag
 
@@ -872,6 +876,10 @@ The patch version increments for each release within the same period (month/week
 - Same month/week: Patch increments (e.g., `2025.11.0` → `2025.11.1`)
 - New month/week: Patch resets to 0 (e.g., `2025.11.5` → `2025.12.0`)
 
+The base is the newest reachable project tag or global tag (`Core/v2025.11.0` or `v2025.11.0`). Versions never go
+below it: if the newest tag is from a later period than today (a tag created on a machine whose clock was ahead),
+its period is continued (`2031.6.0` → `2031.6.1`) and warning `MRV001` explains why.
+
 ### Configuration
 
 #### MSBuild Configuration
@@ -992,6 +1000,10 @@ Include branch names in version metadata for feature branches:
 ```
 
 **Result on feature branch:** `2025.11.2+feature-calver-support`
+
+Note that branches do not change a CalVer version itself: a feature branch build and a main build of the same
+change both get `2025.11.2`, and NuGet ignores `+metadata` when comparing versions. Publish packages only from your
+release branch, or give other branches a prerelease (`MonoRepoPrereleaseType`).
 
 ### Use Cases for CalVer
 
@@ -1422,6 +1434,15 @@ MonoRepo Versioning supports two types of tags:
      `Core-v1.2.3`; the project name is matched case-insensitively)
    - Allow independent versioning of projects in the monorepo
    - Note: `v1.2.3-core` is **not** a project tag - it is a global prerelease tag (`1.2.3` with prerelease `core`)
+   - The project name is the project file name. Projects with the same file name in different directories share
+     their project tags (and their `projects:` settings in `mr-version.yml`; `mr-version report` warns about this).
+     A project whose file name contains a space cannot have a project tag, because git ref names cannot contain
+     spaces; use a global tag or `MonoRepoCustomTagPatterns`
+
+Versions in tags must be SemVer 2.0 (`v1.2.3`, `v1.2.3-rc.1`); `v1.2` is read as `1.2.0`. Tags that are not valid
+SemVer (for example `v2`, `v1.0.0-01` with a leading zero, which NuGet rejects) and tags that do not point at a
+commit are ignored. Only tags reachable from HEAD count: after amending or rebasing a tagged commit, the old tag no
+longer applies and versions continue from the previous reachable tag.
 
 2. **Global tags**: Apply to the entire repository
    - Format: `v1.0.0` (prefix + version)
@@ -1436,14 +1457,36 @@ The system examines multiple sources for changes since the project's base tag:
 
 - Files in the project directory (exact directory boundaries: a change in `src/Lib10` or `src/Lib.Tests` is not a
   change in `src/Lib`), including files moved out of it and `packages.lock.json`
-- Direct **and transitive** project references (the MSBuild task reads the closure NuGet restore recorded in
-  `obj/project.assets.json`; the CLI scans the repository), so `App -> Lib -> Core` is bumped when only `Core` changes
+- Direct **and transitive** project references, so `App -> Lib -> Core` is bumped when only `Core` changes. Every
+  `ProjectReference` edge counts, including `ReferenceOutputAssembly="false"` (source generators, analyzers,
+  build-order references) and `PrivateAssets="all"`, and references in any target framework. The MSBuild task
+  combines the closure NuGet restore recorded in `obj/project.assets.json` with the references in the project files;
+  the CLI reads the project files the way MSBuild evaluates them: properties such as `$(MSBuildThisFileDirectory)` or
+  a `$(RepoRoot)` from `Directory.Build.props`, `;`-separated lists, wildcards, imports and references added in
+  `Directory.Build.props`/`Directory.Build.targets`. References that depend on values only known during a build
+  (target framework, configuration) count for every value
+- A `ProjectReference` into a git submodule changes when the submodule's commit pointer moves. Projects inside a
+  submodule (or another nested repository or worktree) are versioned from that repository; `mr-version report`
+  lists only the projects of the repository it runs in
 - Additional monitored paths (`MonoRepoAdditionalMonitorPaths` / YAML `additionalMonitorPaths`); relative paths are
   resolved against the repository root, or against the project directory when they start with `./` or `../`
 
 With conventional commits or file-pattern detection enabled, a project whose changes are all ignored (for example
 docs-only files, or only `chore:`/`docs:` commits) keeps its current version. Conventional-commit analysis only
-considers commits that touched the project, its dependencies or its monitored paths.
+considers commits that touched the project, its dependencies or its monitored paths, and classifies merge commits by
+the commits they bring in (so merging a `chore:`-only branch with a merge commit does not bump). Only an upper-case
+`BREAKING CHANGE:` or `BREAKING-CHANGE:` footer, or `!` before the colon, is a breaking change; the phrase in prose
+("not a breaking change: ...") is not.
+
+What change detection does **not** see:
+
+- Changes outside the repository: a `ProjectReference` outside the repository (another checkout, a sibling folder)
+  never bumps its dependents, and a project outside the repository is always treated as changed. Both are reported
+  with a warning (`MRV001`). Paths reached through symbolic links into the repository are resolved
+- Repository-wide build inputs above the project directory, such as `Directory.Build.props`, `Directory.Packages.props`
+  (central package versions) or `global.json`. A central package version change therefore changes package
+  dependencies without a version bump. Enable NuGet lock files (`RestorePackagesWithLockFile=true`: the project's
+  `packages.lock.json` then changes) or add those files to `MonoRepoAdditionalMonitorPaths`
 
 ### Version Policies
 
@@ -1467,12 +1510,20 @@ versionPolicy:
 
 - The version is computed once per project and applied as `Version`, `PackageVersion`, `AssemblyVersion`,
   `FileVersion` and `InformationalVersion` before the SDK generates assembly attributes, so unchanged versions never
-  trigger recompilation.
-- Multi-targeted projects use the same settings in every inner (per-TFM) build and in the outer build that
-  `dotnet pack` uses, so the package version always equals the assembly version.
+  trigger recompilation. Values for these properties set in the project, `Directory.Build.props` or on the command
+  line (`-p:Version=...`) are replaced (a message at detailed verbosity says so); use `ForceVersion` to pin a version.
+- Multi-targeted projects use the same settings in every inner (per-TFM) build and in the outer build (pack, and
+  targets hooked on the outer `Build` such as `AfterTargets="Build"`), so the package version always equals the
+  assembly version.
 - Package dependencies on other projects (ProjectReference → nuspec dependency) use each referenced project's
   calculated version, including multi-targeted references, references with their own settings, and `pack --no-build`.
 - IDE design-time builds skip the calculation.
+- Test projects and non-packable projects are not versioned (unless `MonoRepoSkipTestProjects=false` /
+  `MonoRepoSkipNonPackableProjects=false`) and keep their own `Version`; the CLI reports that version. Projects using
+  `Microsoft.NET.Sdk.Web`, `Microsoft.NET.Sdk.Worker` or `Microsoft.NET.Sdk.BlazorWebAssembly` are non-packable
+  unless they set `IsPackable=true`, so set it (or `MonoRepoSkipNonPackableProjects=false`) to version deployable apps.
+- Limitation: `<App>.deps.json` lists referenced projects with the version NuGet restore saw (their static version),
+  not the calculated one; assemblies and packages carry the calculated version.
 
 ### Performance and Caching
 
@@ -1487,9 +1538,9 @@ branch switch or configuration edit therefore always produces a fresh calculatio
 
 | Code | Meaning |
 |------|---------|
-| `MRV001` | A problem reported by the versioning core (for example an unreadable or partly unknown configuration file, or a shallow clone without reachable tags) |
+| `MRV001` | A problem reported by the versioning core (for example an unreadable or partly unknown configuration file, a shallow clone without reachable tags, a project reference outside the repository, or a version tag from a later CalVer period) |
 | `MRV002` | An error reported by the versioning core; the build continues with a fallback |
-| `MRV003` | No git repository was found; the project's own version is kept (`MonoRepoRequireGitRepository=true` makes this an error) |
+| `MRV003` | No git repository was found, or git refuses to open it (for example a repository owned by another user: the message gives the `git config --global --add safe.directory` command); the project's own version is kept (`MonoRepoRequireGitRepository=true` makes this an error) |
 | `MRV004` | The calculated version violates the configured version constraints (error) |
 
 Warnings can be suppressed or promoted with the usual MSBuild switches, e.g. `-nowarn:MRV001` or `-warnaserror:MRV001`.
@@ -1577,8 +1628,9 @@ This will display:
 
 ### Common Issues
 
-1. **Every project is `0.1.0` in CI**: the checkout is shallow or has no tags (warning `MRV001`); use
-   `actions/checkout` with `fetch-depth: 0`
+1. **Every project is `0.1.0` in CI**: the checkout has no reachable version tags. A shallow clone gets warning
+   `MRV001`; a full clone fetched without tags (`--no-tags`) looks like a repository that was never tagged and gets
+   no warning. Use `actions/checkout` with `fetch-depth: 0`, which fetches all history and tags
 2. **CI builds of main get `-no-branch` versions**: the checkout is a detached HEAD that no CI variable or branch tip
    identifies; set `MonoRepoBranchName` (e.g. `-p:MonoRepoBranchName=main`)
 3. **Versions not incrementing**: Check that changes were detected in the project, its dependencies or monitored
@@ -1586,6 +1638,10 @@ This will display:
 4. **Wrong version on feature branch**: Verify branch naming and check for changes
 5. **"The libgit2 native library could not be loaded"**: the host OS/architecture is not one of the supported ones
    listed under Prerequisites
+6. **`MRV003` although the repository exists**: git refused to open it, typically because it is owned by another
+   user (containers, mounted volumes); the warning names the `safe.directory` command to run
+7. **A changed reference does not bump its dependent**: check for a `MRV001` warning about a reference outside the
+   repository, and run `mr-version version -p <project> --debug` to see the tracked dependencies
 
 ## Migration from v1.0.x
 
