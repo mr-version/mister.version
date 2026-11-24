@@ -299,9 +299,9 @@ namespace Mister.Version.Core.Services
         {
             return projects.Where(p =>
             {
-                if (!options.IncludeTestProjects && p.IsTestProject)
-                    return false;
-                
+                if (p.IsTestProject)
+                    return options.IncludeTestProjects; // test projects are not packable by default; IncludeTestProjects decides
+
                 if (!options.IncludeNonPackableProjects && !p.IsPackable)
                     return false;
 
@@ -379,13 +379,14 @@ namespace Mister.Version.Core.Services
                     {
                         var depNodeId = SanitizeNodeId(dependency);
                         var edgeLabel = "";
-                        
-                        if (options.ShowVersions && depProject.Version != null)
+
+                        // Mermaid edge text goes between the arrow and the target: A -->|text| B
+                        if (options.ShowVersions && !string.IsNullOrEmpty(depProject.Version?.Version))
                         {
                             edgeLabel = $"|{depProject.Version.Version}|";
                         }
 
-                        sb.AppendLine($"    {depNodeId} --> {projectNodeId}{edgeLabel}");
+                        sb.AppendLine($"    {depNodeId} -->{edgeLabel} {projectNodeId}");
                     }
                 }
             }
@@ -436,14 +437,14 @@ namespace Mister.Version.Core.Services
                     if (depProject != null)
                     {
                         var depNodeId = SanitizeNodeId(dependency);
-                        var edgeStyle = "";
-                        
-                        if (options.ShowVersions && depProject.Version != null)
+                        var edgeAttributes = "";
+
+                        if (options.ShowVersions && !string.IsNullOrEmpty(depProject.Version?.Version))
                         {
-                            edgeStyle = $", label=\"{depProject.Version.Version}\"";
+                            edgeAttributes = $" [label=\"{depProject.Version.Version}\"]";
                         }
 
-                        sb.AppendLine($"    {depNodeId} -> {projectNodeId}[{edgeStyle}];");
+                        sb.AppendLine($"    {depNodeId} -> {projectNodeId}{edgeAttributes};");
                     }
                 }
             }
@@ -458,42 +459,31 @@ namespace Mister.Version.Core.Services
             sb.AppendLine("=== MonoRepo Dependency Graph ===");
             sb.AppendLine();
 
-            // Create a tree-like ASCII representation
-            var rootProjects = projects.Where(p => 
-                !projects.Any(other => other.DirectDependencies.Contains(p.Name))).ToList();
+            // Tree from the bottom of the dependency graph up: each project is followed by the projects that
+            // depend on it. Roots are the projects with no dependencies among the graphed projects.
+            var names = new HashSet<string>(projects.Select(p => p.Name));
+            var rootProjects = projects
+                .Where(p => !p.DirectDependencies.Any(d => names.Contains(d) && d != p.Name))
+                .OrderBy(p => p.Name)
+                .ToList();
 
-            if (!rootProjects.Any())
+            var expanded = new HashSet<string>();
+            foreach (var root in rootProjects)
             {
-                // If there are circular dependencies, just pick projects without dependencies
-                rootProjects = projects.Where(p => !p.DirectDependencies.Any()).ToList();
+                GenerateAsciiNode(sb, root, projects, options, expanded, new HashSet<string>(), 0);
             }
 
-            if (!rootProjects.Any())
-            {
-                // Fallback: show all projects
-                rootProjects = projects.Take(1).ToList();
-            }
-
-            var visited = new HashSet<string>();
-            foreach (var root in rootProjects.OrderBy(p => p.Name))
-            {
-                if (!visited.Contains(root.Name))
-                {
-                    GenerateAsciiNode(sb, root, projects, options, visited, 0);
-                }
-            }
-
-            // Show any remaining projects that weren't visited (isolated or circular)
-            var remaining = projects.Where(p => !visited.Contains(p.Name)).ToList();
+            // Projects not reachable from a root are part of (or depend on) a dependency cycle
+            var remaining = projects.Where(p => !expanded.Contains(p.Name)).OrderBy(p => p.Name).ToList();
             if (remaining.Any())
             {
                 sb.AppendLine();
-                sb.AppendLine("=== Isolated/Circular Dependencies ===");
-                foreach (var project in remaining.OrderBy(p => p.Name))
+                sb.AppendLine("=== Circular Dependencies ===");
+                foreach (var project in remaining)
                 {
-                    if (!visited.Contains(project.Name))
+                    if (!expanded.Contains(project.Name))
                     {
-                        GenerateAsciiNode(sb, project, projects, options, visited, 0);
+                        GenerateAsciiNode(sb, project, projects, options, expanded, new HashSet<string>(), 0);
                     }
                 }
             }
@@ -501,37 +491,59 @@ namespace Mister.Version.Core.Services
             return sb.ToString();
         }
 
-        private void GenerateAsciiNode(StringBuilder sb, ProjectInfo project, List<ProjectInfo> allProjects, 
-            ReportOptions options, HashSet<string> visited, int depth)
+        /// <summary>
+        /// Writes a project and, indented below it, the projects that depend on it. A project that depends on
+        /// several projects is listed under each of them but expanded only the first time ("(see above)").
+        /// </summary>
+        private void GenerateAsciiNode(StringBuilder sb, ProjectInfo project, List<ProjectInfo> allProjects,
+            ReportOptions options, HashSet<string> expanded, HashSet<string> ancestors, int depth)
         {
-            if (visited.Contains(project.Name) || depth > MAX_GRAPH_DEPTH) // Prevent infinite recursion
+            var indent = new string(' ', depth * 2);
+            var symbol = GetAsciiSymbol(project);
+            var versionInfo = options.ShowVersions && !string.IsNullOrEmpty(project.Version?.Version) ? $" ({project.Version.Version})" : "";
+            var changeIndicator = project.Version?.VersionChanged == true ? " [CHANGED]" : "";
+            var line = $"{indent}{symbol} {project.Name}{versionInfo}{changeIndicator}";
+
+            if (ancestors.Contains(project.Name))
             {
+                sb.AppendLine($"{line} (circular)");
                 return;
             }
 
-            visited.Add(project.Name);
+            if (expanded.Contains(project.Name))
+            {
+                sb.AppendLine($"{line} (see above)");
+                return;
+            }
 
-            var indent = new string(' ', depth * 2);
-            var symbol = GetAsciiSymbol(project);
-            var versionInfo = options.ShowVersions && project.Version != null ? $" ({project.Version.Version})" : "";
-            var changeIndicator = project.Version?.VersionChanged == true ? " [CHANGED]" : "";
+            if (depth > MAX_GRAPH_DEPTH)
+            {
+                sb.AppendLine($"{line} (...)");
+                return;
+            }
 
-            sb.AppendLine($"{indent}{symbol} {project.Name}{versionInfo}{changeIndicator}");
+            sb.AppendLine(line);
+            expanded.Add(project.Name);
+            ancestors.Add(project.Name);
 
-            // Show dependencies
-            var dependents = allProjects.Where(p => p.DirectDependencies.Contains(project.Name))
-                .OrderBy(p => p.Name).ToList();
-            
+            var dependents = allProjects
+                .Where(p => p.Name != project.Name && p.DirectDependencies.Contains(project.Name))
+                .OrderBy(p => p.Name)
+                .ToList();
+
             foreach (var dependent in dependents)
             {
-                GenerateAsciiNode(sb, dependent, allProjects, options, visited, depth + 1);
+                GenerateAsciiNode(sb, dependent, allProjects, options, expanded, ancestors, depth + 1);
             }
+
+            ancestors.Remove(project.Name);
         }
 
         private string SanitizeNodeId(string name)
         {
-            // Replace invalid characters for node IDs
-            return Regex.Replace(name, @"[^a-zA-Z0-9_]", "_");
+            // Replace invalid characters for node IDs; DOT IDs must not start with a digit
+            var id = Regex.Replace(name, @"[^a-zA-Z0-9_]", "_");
+            return id.Length > 0 && char.IsDigit(id[0]) ? "_" + id : id;
         }
 
         private string GetMermaidNodeStyle(ProjectInfo project)
