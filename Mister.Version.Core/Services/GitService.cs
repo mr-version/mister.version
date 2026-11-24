@@ -713,6 +713,14 @@ namespace Mister.Version.Core.Services
             ".csproj", ".fsproj", ".vbproj", ".proj", ".sqlproj", ".shproj", ".esproj", ".vcxproj"
         };
 
+        /// <summary>An MSBuild project file: any extension ending in "proj" (.csproj, .wixproj, .msbuildproj, .ilproj, ...).</summary>
+        private static bool IsProjectFile(string path)
+        {
+            var extension = Path.GetExtension(path);
+            return ProjectFileExtensions.Any(ext => string.Equals(extension, ext, StringComparison.OrdinalIgnoreCase)) ||
+                   (extension.Length > 5 && extension.EndsWith("proj", StringComparison.OrdinalIgnoreCase));
+        }
+
         /// <summary>
         /// Converts a path to a repository-relative path with '/' separators and no leading/trailing
         /// separator ("" is the repository root). Accepts absolute paths, repository-relative paths and,
@@ -743,7 +751,7 @@ namespace Mister.Version.Core.Services
             }
 
             relative = relative.Replace('\\', '/');
-            if (projectFileToDirectory && ProjectFileExtensions.Any(ext => relative.EndsWith(ext, StringComparison.OrdinalIgnoreCase)))
+            if (projectFileToDirectory && IsProjectFile(relative))
             {
                 var slash = relative.LastIndexOf('/');
                 relative = slash < 0 ? "" : relative.Substring(0, slash);
@@ -875,31 +883,25 @@ namespace Mister.Version.Core.Services
             return found;
         }
 
-        /// <summary>
-        /// The repository-relative path of the submodule (gitlink) that contains <paramref name="relativePath"/>, or
-        /// null when the path is not inside a submodule of <paramref name="tree"/>.
-        /// </summary>
-        private static string FindContainingSubmodule(Tree tree, string relativePath)
+        /// <summary>Submodule paths declared in a tree's .gitmodules (empty when it has none).</summary>
+        private static List<string> ReadSubmodulePaths(Tree tree)
         {
-            if (tree == null || string.IsNullOrEmpty(relativePath))
-                return null;
-
-            var current = tree;
-            var parts = relativePath.Split('/');
-            for (var i = 0; i < parts.Length; i++)
+            var result = new List<string>();
+            try
             {
-                // Exact lookup (a binary search in libgit2) first; the case-insensitive scan only when it fails
-                var entry = current[parts[i]] ??
-                            current.FirstOrDefault(e => string.Equals(e.Name, parts[i], StringComparison.OrdinalIgnoreCase));
-                if (entry == null)
-                    return null;
-                if (entry.TargetType == TreeEntryTargetType.GitLink)
-                    return i < parts.Length - 1 ? string.Join("/", parts.Take(i + 1)) : null;
-                if (entry.TargetType != TreeEntryTargetType.Tree)
-                    return null;
-                current = (Tree)entry.Target;
+                if (tree?[".gitmodules"]?.Target is Blob blob)
+                {
+                    foreach (Match match in Regex.Matches(blob.GetContentText(), @"^\s*path\s*=\s*(.+?)\s*$", RegexOptions.Multiline | RegexOptions.CultureInvariant))
+                    {
+                        result.Add(match.Groups[1].Value.Replace('\\', '/').Trim('/'));
+                    }
+                }
             }
-            return null;
+            catch (Exception)
+            {
+                // Unreadable .gitmodules: no submodules
+            }
+            return result;
         }
 
         /// <summary>
@@ -991,17 +993,18 @@ namespace Mister.Version.Core.Services
                 // submodule's commit pointer moves; a pathspec diff below the gitlink does not report that
                 var headTree = _repository.Head.Tip.Tree;
                 var tagTree = tagCommit.Tree;
-                var headHasSubmodules = headTree[".gitmodules"] != null;
-                var tagHasSubmodules = tagTree[".gitmodules"] != null;
-                if (headHasSubmodules || tagHasSubmodules)
+                var submodulePaths = ReadSubmodulePaths(headTree).Union(ReadSubmodulePaths(tagTree), StringComparer.OrdinalIgnoreCase).ToList();
+                if (submodulePaths.Count > 0)
                 {
                     foreach (var scope in scopes.Where(scope => !string.IsNullOrEmpty(scope)))
                     {
-                        var submodule = (headHasSubmodules ? FindContainingSubmodule(headTree, scope) : null) ??
-                                        (tagHasSubmodules ? FindContainingSubmodule(tagTree, scope) : null);
-                        if (submodule != null && PathChanged(tagTree, headTree, submodule))
+                        foreach (var submodule in submodulePaths)
                         {
-                            changedFiles.Add(submodule);
+                            if (IsUnderDirectory(scope, submodule) && !string.Equals(scope, submodule, StringComparison.OrdinalIgnoreCase) &&
+                                PathChanged(tagTree, headTree, submodule))
+                            {
+                                changedFiles.Add(submodule);
+                            }
                         }
                     }
                 }

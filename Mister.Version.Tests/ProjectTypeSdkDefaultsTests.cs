@@ -55,6 +55,64 @@ namespace Mister.Version.Tests
         }
 
         [Fact]
+        public void MSTestSdk_IsATestProject()
+        {
+            var path = Write("tests/T/T.csproj", "<Project Sdk=\"MSTest.Sdk/3.6.4\" />");
+            var type = ProjectAnalyzer.DetectProjectType(path, _root);
+            Assert.True(type.IsTestProject);
+            Assert.False(type.IsPackable);
+        }
+
+        [Fact]
+        public void DetectProject_ReadsMonoRepoSkipSettingsAndEvaluatedVersions()
+        {
+            Write("Directory.Build.props",
+                "<Project><PropertyGroup><MonoRepoSkipNonPackableProjects>false</MonoRepoSkipNonPackableProjects><MyVer>9.9.9</MyVer><Version>2.0.0</Version></PropertyGroup></Project>");
+            var web = Write("src/Web/Web.csproj", "<Project Sdk=\"Microsoft.NET.Sdk.Web\"><PropertyGroup><Version>$(MyVer)</Version></PropertyGroup></Project>");
+            var type = ProjectAnalyzer.DetectProject(web, _root);
+            Assert.False(type.IsPackable);
+            Assert.Equal(false, type.SkipNonPackableProjects);
+            Assert.Null(type.SkipTestProjects);
+            Assert.Equal("9.9.9", type.ProjectVersion);
+        }
+
+        [Fact]
+        public void DetectProject_InANestedRepository_SeesDirectoryBuildPropsOfTheOuterRepository()
+        {
+            Write("Directory.Build.props", "<Project><PropertyGroup><IsPackable>false</IsPackable></PropertyGroup></Project>");
+            Write("ext/.git", "gitdir: ../.git/modules/ext");
+            var nested = Write("ext/S/S.csproj", "<Project Sdk=\"Microsoft.NET.Sdk\" />");
+            Assert.False(ProjectAnalyzer.DetectProject(nested, _root).IsPackable);
+        }
+
+        [Fact]
+        public void TestProject_WithAConfiguredBaseVersion_ReportsItsOwnVersion()
+        {
+            Repository.Init(_root);
+            using var repo = new Repository(_root);
+            var sig = new Signature("T", "t@e.com", DateTimeOffset.Now);
+            Write("mr-version.yml", "baseVersion: \"3.0.0\"\n");
+            var test = Write("tests/T/T.csproj",
+                "<Project Sdk=\"Microsoft.NET.Sdk\"><PropertyGroup><IsTestProject>true</IsTestProject><Version>5.0.0</Version></PropertyGroup></Project>");
+            Commands.Stage(repo, "*");
+            repo.Commit("init", sig, sig);
+
+            var type = ProjectAnalyzer.DetectProject(test, _root);
+            using var service = new VersioningService(_root, (level, message) => { });
+            var result = service.CalculateProjectVersion(new VersioningRequest
+            {
+                RepoRoot = _root,
+                ProjectPath = test,
+                IsPackable = type.IsPackable,
+                IsTestProject = type.IsTestProject,
+                ProjectVersion = type.ProjectVersion,
+                Dependencies = new System.Collections.Generic.List<string>()
+            });
+            Assert.True(result.Skipped);
+            Assert.Equal("5.0.0", result.Version);
+        }
+
+        [Fact]
         public void WebProject_MadePackableInDirectoryBuildProps_IsPackable()
         {
             Write("Directory.Build.props", "<Project><PropertyGroup><IsPackable>true</IsPackable></PropertyGroup></Project>");

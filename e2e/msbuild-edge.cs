@@ -232,6 +232,43 @@ try
         Check(CliVersion(r, "src/Internal/Internal.csproj") == "5.0.0", $"CLI reports Internal 5.0.0 (got {CliVersion(r, "src/Internal/Internal.csproj")})");
     });
 
+    Scenario("tfm-conditioned-generator", () =>
+    {
+        var r = NewRepo("tfmgen");
+        Proj(r, "src/Gen/Gen.csproj", tfm: "netstandard2.0");
+        Proj(r, "src/Multi/Multi.csproj", tfm: "net8.0;net10.0",
+            items: "</ItemGroup><ItemGroup Condition=\"'$(TargetFramework)' == 'net10.0'\"><ProjectReference Include=\"../Gen/Gen.csproj\" OutputItemType=\"Analyzer\" ReferenceOutputAssembly=\"false\" />");
+        Commit(r, "init"); Tag(r, "v1.0.0"); Touch(r, "src/Gen/C.cs"); Commit(r, "fix: gen");
+        var outDir = Path.Combine(r, "out");
+        var pack = Dotnet(r, "pack", "src/Multi/Multi.csproj", "-c", "Release", "-o", outDir, "-nologo");
+        Require(pack.ExitCode == 0, "pack Multi", pack.Output);
+        Check(Nuspec(outDir, "Multi") == "1.0.1", $"package version is 1.0.1 (got {Nuspec(outDir, "Multi")})");
+        Check(Info(r, "src/Multi", "net8.0") == "1.0.1", $"net8.0 assembly is 1.0.1 (got {Info(r, "src/Multi", "net8.0")})");
+        Check(Info(r, "src/Multi", "net10.0") == "1.0.1", $"net10.0 assembly is 1.0.1 (got {Info(r, "src/Multi", "net10.0")})");
+        Check(CliVersion(r, "src/Multi/Multi.csproj") == "1.0.1", $"CLI: Multi 1.0.1 (got {CliVersion(r, "src/Multi/Multi.csproj")})");
+    });
+
+    Scenario("test-projects", () =>
+    {
+        var r = NewRepo("tests");
+        Proj(r, "src/Lib/Lib.csproj");
+        Proj(r, "tests/Lib.Tests/Lib.Tests.csproj", props: "<IsTestProject>true</IsTestProject><Version>0.0.9</Version>",
+            items: "<ProjectReference Include=\"../../src/Lib/Lib.csproj\" />");
+        Commit(r, "init"); Tag(r, "v1.0.0"); Touch(r, "src/Lib/C.cs"); Commit(r, "fix: lib");
+        var build = Build(r);
+        Require(build.ExitCode == 0, "build", build.Output);
+        Check(Info(r, "tests/Lib.Tests", "net10.0") == "0.0.9", $"test project keeps its own version (got {Info(r, "tests/Lib.Tests", "net10.0")})");
+        Check(CliVersion(r, "tests/Lib.Tests/Lib.Tests.csproj") == "0.0.9", $"CLI agrees (got {CliVersion(r, "tests/Lib.Tests/Lib.Tests.csproj")})");
+
+        // mr-version.yml can opt test projects in, for the build as for the CLI (test projects are also not packable)
+        File.WriteAllText(Path.Combine(r, "mr-version.yml"), "skipTestProjects: false\nskipNonPackableProjects: false\n");
+        Commit(r, "chore: version test projects");
+        build = Build(r);
+        Require(build.ExitCode == 0, "build with skipTestProjects: false", build.Output);
+        Check(Info(r, "tests/Lib.Tests", "net10.0") == "1.0.1", $"with skipTestProjects/skipNonPackableProjects: false the test project is versioned 1.0.1 (got {Info(r, "tests/Lib.Tests", "net10.0")})");
+        Check(CliVersion(r, "tests/Lib.Tests/Lib.Tests.csproj") == "1.0.1", $"CLI agrees (got {CliVersion(r, "tests/Lib.Tests/Lib.Tests.csproj")})");
+    });
+
     Scenario("traversal-entry-point", () =>
     {
         var r = NewRepo("traversal");

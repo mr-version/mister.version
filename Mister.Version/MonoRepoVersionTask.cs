@@ -807,7 +807,10 @@ public class MonoRepoVersionTask : Task
 
     private static readonly HashSet<string> NonKeyInputs = new HashSet<string>(StringComparer.Ordinal)
     {
-        nameof(EnableCache), nameof(CacheFile), nameof(Debug), nameof(ExtraDebug), nameof(DryRun)
+        nameof(EnableCache), nameof(CacheFile), nameof(Debug), nameof(ExtraDebug), nameof(DryRun),
+        // This build's own ProjectReference items differ per target framework; the key holds the resolved
+        // dependency set (AllDependencies), which is what the calculation uses
+        nameof(Dependencies)
     };
 
     private static readonly System.Reflection.PropertyInfo[] KeyInputProperties = typeof(MonoRepoVersionTask)
@@ -870,10 +873,11 @@ public class MonoRepoVersionTask : Task
             all.Add(string.IsNullOrEmpty(full) ? Path.GetFullPath(Path.Combine(projectDirectory, item.ItemSpec)) : full);
         }
         all.AddRange(ReadProjectReferenceClosure(ProjectAssetsFile, projectDirectory));
-        // Edges NuGet does not record (ReferenceOutputAssembly=false, PrivateAssets=all) further down the graph
-        all.AddRange(ReadUnflowedReferenceClosure(all.ToList()));
-
+        // Edges NuGet does not record (ReferenceOutputAssembly=false, PrivateAssets=all), from this project (in every
+        // target framework, so the outer build and each inner build agree) and further down the graph
         var self = Path.GetFullPath(ProjectPath);
+        all.AddRange(ReadUnflowedReferenceClosure(new[] { self }.Concat(all).ToList(), GetEvaluationScope(BuildEngine)));
+
         _allDependencies = all
             .Where(d => !string.Equals(d, self, StringComparison.OrdinalIgnoreCase))
             .Distinct(StringComparer.OrdinalIgnoreCase)
@@ -894,8 +898,33 @@ public class MonoRepoVersionTask : Task
     /// PrivateAssets=all project references, which NuGet does not record or flow, and what they reference. Only
     /// references whose conditions are certain are followed (see <see cref="ProjectReferenceReader.GetUnflowedReferenceClosure"/>).
     /// </summary>
-    internal static List<string> ReadUnflowedReferenceClosure(IEnumerable<string> buildClosure) =>
-        ProjectReferenceReader.GetUnflowedReferenceClosure(buildClosure);
+    internal static List<string> ReadUnflowedReferenceClosure(IEnumerable<string> buildClosure, object validationScope = null) =>
+        ProjectReferenceReader.GetUnflowedReferenceClosure(buildClosure, validationScope);
+
+    /// <summary>
+    /// One object per build in this node: project files are not re-checked for changes more than once per build
+    /// (MSBuild itself evaluates each project once per build).
+    /// </summary>
+    internal static object GetEvaluationScope(IBuildEngine buildEngine)
+    {
+        const string key = "Mister.Version.EvaluationScope";
+        try
+        {
+            if (buildEngine is IBuildEngine4 engine)
+            {
+                if (engine.GetRegisteredTaskObject(key, RegisteredTaskObjectLifetime.Build) is object scope)
+                    return scope;
+                var created = new object();
+                engine.RegisterTaskObject(key, created, RegisteredTaskObjectLifetime.Build, allowEarlyCollection: false);
+                return created;
+            }
+        }
+        catch (Exception)
+        {
+            // No per-build scope: files are checked on every use
+        }
+        return null;
+    }
 
     private static string NormalizeForKey(string path) => path?.Replace('\\', '/');
 

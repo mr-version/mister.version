@@ -664,9 +664,10 @@ namespace Mister.Version.CLI
                 Dependencies = dependencies ?? new List<string>(),
                 Debug = settings.Debug,
                 ExtraDebug = false,
-                // Same defaults as the MSBuild task; mr-version.yml skipTestProjects/skipNonPackableProjects override
-                SkipTestProjects = true,
-                SkipNonPackableProjects = true,
+                // As the MSBuild task receives them (MonoRepoSkip* properties, default true);
+                // mr-version.yml skipTestProjects/skipNonPackableProjects override
+                SkipTestProjects = projectType?.SkipTestProjects ?? true,
+                SkipNonPackableProjects = projectType?.SkipNonPackableProjects ?? true,
                 IsTestProject = projectType?.IsTestProject ?? false,
                 IsPackable = projectType?.IsPackable ?? true,
                 ProjectVersion = projectType?.ProjectVersion,
@@ -838,7 +839,7 @@ namespace Mister.Version.CLI
                 var result = versioningService.CalculateProjectVersion(CreateRequest(
                     settings,
                     projectFile,
-                    ProjectAnalyzer.DetectProjectType(projectFile, gitRepoRoot),
+                    ProjectAnalyzer.DetectProject(projectFile, gitRepoRoot),
                     analyzer.GetTransitiveDependencies(projectFile, gitRepoRoot)));
 
                 if (!result.Success)
@@ -1099,6 +1100,7 @@ namespace Mister.Version.CLI
     public class SingleProjectVersionCalculator
     {
         private readonly VersionOptions _options;
+        private string _repositoryRoot;
 
         public SingleProjectVersionCalculator(VersionOptions options)
         {
@@ -1154,15 +1156,20 @@ namespace Mister.Version.CLI
                 return 1;
             }
 
+            _repositoryRoot = gitRepoRoot;
+
             // A project inside a submodule or nested repository is versioned from that repository, as in MSBuild
             // (which discovers the repository from the project directory)
+            var outerRepoRoot = gitRepoRoot;
             var projectRepoRoot = GitRepositoryHelper.DiscoverRepositoryRoot(Path.GetDirectoryName(Path.GetFullPath(_options.ProjectPath)));
             var nestedRoot = projectRepoRoot == null ? null : Path.GetFullPath(projectRepoRoot).Replace('\\', '/').TrimEnd('/');
             var outerRoot = Path.GetFullPath(gitRepoRoot).Replace('\\', '/').TrimEnd('/');
             if (nestedRoot != null && nestedRoot.StartsWith(outerRoot + "/", StringComparison.OrdinalIgnoreCase))
             {
-                logger("Info", $"{Path.GetFileName(_options.ProjectPath)} is in the nested repository {projectRepoRoot}; versioning it from that repository");
+                // Warning (stderr): the version comes from the nested repository's tags, not this one's
+                logger("Warning", $"{Path.GetFileName(_options.ProjectPath)} is in the nested repository {projectRepoRoot}; versioning it from that repository's history and tags");
                 gitRepoRoot = projectRepoRoot;
+                _repositoryRoot = gitRepoRoot;
             }
 
             // Initialize versioning service with timeout
@@ -1188,7 +1195,8 @@ namespace Mister.Version.CLI
                 var projectType = new ProjectTypeInfo();
                 try
                 {
-                    projectType = ProjectAnalyzer.DetectProjectType(_options.ProjectPath, gitRepoRoot);
+                    // Directory.Build.props above a nested repository still apply, as in MSBuild
+                    projectType = ProjectAnalyzer.DetectProject(_options.ProjectPath, outerRepoRoot);
                     logger("Debug", $"Project type detection: IsTestProject={projectType.IsTestProject}, IsPackable={projectType.IsPackable}");
                 }
                 catch (Exception ex)
@@ -1303,6 +1311,8 @@ namespace Mister.Version.CLI
             {
                 project = projectName,
                 path = _options.ProjectPath,
+                // The repository whose history and tags were used (a submodule or nested repository for projects in one)
+                repository = _repositoryRoot,
                 version = details.Version,
                 versionChanged = details.VersionChanged,
                 changeReason = details.ChangeReason,

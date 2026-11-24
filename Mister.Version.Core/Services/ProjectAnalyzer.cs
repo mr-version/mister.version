@@ -31,6 +31,12 @@ namespace Mister.Version.Core.Services
         /// (1.0.0). It is what a project that is not versioned (test / non-packable) is built with.
         /// </summary>
         public string ProjectVersion { get; set; }
+
+        /// <summary>MonoRepoSkipTestProjects as the project sets it (null when not set).</summary>
+        public bool? SkipTestProjects { get; set; }
+
+        /// <summary>MonoRepoSkipNonPackableProjects as the project sets it (null when not set).</summary>
+        public bool? SkipNonPackableProjects { get; set; }
     }
 
     public class ProjectAnalyzer : IProjectAnalyzer
@@ -165,7 +171,7 @@ namespace Mister.Version.Core.Services
             }
 
             var projectName = Path.GetFileNameWithoutExtension(projectPath);
-            var projectType = DetectProjectType(projectPath, repositoryPath);
+            var projectType = DetectProject(projectPath, repositoryPath);
 
             // Get dependencies (including transitive)
             var dependencies = GetProjectDependencies(projectPath, repositoryPath);
@@ -353,6 +359,51 @@ namespace Mister.Version.Core.Services
         }
 
         /// <summary>
+        /// The project's type and versioning settings as MSBuild evaluates them: <see cref="DetectProjectType"/>, refined
+        /// with the full property evaluation of <see cref="ProjectReferenceReader"/> (conditions, $(...) values,
+        /// Directory.Build.targets): IsPackable, IsTestProject, the project's own Version, and the
+        /// MonoRepoSkipTestProjects / MonoRepoSkipNonPackableProjects settings the MSBuild task would receive.
+        /// </summary>
+        public static ProjectTypeInfo DetectProject(string projectPath, string repositoryRoot = null)
+        {
+            var type = DetectProjectType(projectPath, repositoryRoot);
+            IReadOnlyDictionary<string, string> properties = null;
+            try
+            {
+                properties = ProjectReferenceReader.Evaluate(projectPath)?.Properties;
+            }
+            catch (Exception)
+            {
+                // Keep the static detection
+            }
+            if (properties == null)
+            {
+                return type;
+            }
+
+            string Get(string name) => properties.TryGetValue(name, out var value) && !string.IsNullOrWhiteSpace(value) ? value.Trim() : null;
+
+            type.IsTestProject = ParseBool(Get("IsTestProject")) ?? type.IsTestProject;
+            type.IsPackable = ParseBool(Get("IsPackable")) ?? type.IsPackable;
+            type.SkipTestProjects = ParseBool(Get("MonoRepoSkipTestProjects"));
+            type.SkipNonPackableProjects = ParseBool(Get("MonoRepoSkipNonPackableProjects"));
+
+            var version = Get("Version");
+            var prefix = Get("VersionPrefix");
+            var suffix = Get("VersionSuffix");
+            if (version != null)
+            {
+                type.ProjectVersion = version;
+            }
+            else if (prefix != null || suffix != null)
+            {
+                type.ProjectVersion = (prefix ?? "1.0.0") + (suffix != null ? "-" + suffix : string.Empty);
+            }
+
+            return type;
+        }
+
+        /// <summary>
         /// Determines IsTestProject / IsPackable the way MSBuild evaluates them, approximated without MSBuild:
         /// unconditional properties from the Directory.Build.props files that apply to the project (the nearest one,
         /// plus the ones it imports further up, never above <paramref name="repositoryRoot"/>), then the
@@ -416,6 +467,9 @@ namespace Mister.Version.Core.Services
 
             /// <summary>The project uses an SDK whose props default IsPackable to false (Web, Worker, Blazor WebAssembly).</summary>
             public bool NonPackableSdk { get; set; }
+
+            /// <summary>The project uses a test SDK (MSTest.Sdk), which makes it a test project.</summary>
+            public bool TestSdk { get; set; }
         }
 
         /// <summary>
@@ -458,8 +512,9 @@ namespace Mister.Version.Core.Services
                 isPackable = false;
             }
 
-            // NuGet package props are imported after Directory.Build.props and before the project body
-            if (referencesTestSdk)
+            // NuGet package props are imported after Directory.Build.props and before the project body; MSTest.Sdk
+            // brings Microsoft.NET.Test.Sdk itself
+            if (referencesTestSdk || project.TestSdk)
             {
                 isTestProject = true;
             }
@@ -524,6 +579,7 @@ namespace Mister.Version.Core.Services
                 }
             }
             facts.NonPackableSdk = sdks.Any(sdk => NonPackableSdks.Contains(sdk));
+            facts.TestSdk = sdks.Any(sdk => string.Equals(sdk, "MSTest.Sdk", StringComparison.OrdinalIgnoreCase));
 
             foreach (var group in root.Elements().Where(e => !HasCondition(e)))
             {
