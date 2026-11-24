@@ -194,6 +194,12 @@ namespace Mister.Version.Core.Services
                     _logger("Info", $"Loaded version policy configuration: {versionPolicyConfig.Policy}");
                 }
 
+                ProjectVersionConfig projectYaml = null;
+                if (config?.Projects != null && !string.IsNullOrEmpty(projectName))
+                {
+                    config.Projects.TryGetValue(projectName, out projectYaml);
+                }
+
                 // Create version options
                 var versionOptions = new VersionOptions
                 {
@@ -226,11 +232,14 @@ namespace Mister.Version.Core.Services
                     ChangeDetection = changeDetectionConfig,
                     GitIntegration = gitIntegrationConfig,
                     VersionPolicy = versionPolicyConfig,
-                    // YAML configuration takes precedence over MSBuild properties (documented precedence)
-                    Scheme = string.Equals(config?.Scheme, "calver", StringComparison.OrdinalIgnoreCase)
-                        ? VersionScheme.CalVer
-                        : ParseVersionScheme(request.VersionScheme),
-                    CalVer = config?.CalVer ?? new CalVerConfig
+                    // YAML configuration takes precedence over MSBuild properties (documented precedence):
+                    // project-specific YAML > global YAML > MSBuild
+                    Scheme = !string.IsNullOrEmpty(projectYaml?.Scheme)
+                        ? ParseVersionScheme(projectYaml.Scheme)
+                        : string.Equals(config?.Scheme, "calver", StringComparison.OrdinalIgnoreCase)
+                            ? VersionScheme.CalVer
+                            : ParseVersionScheme(request.VersionScheme),
+                    CalVer = projectYaml?.CalVer ?? config?.CalVer ?? new CalVerConfig
                     {
                         Format = request.CalVerFormat ?? "YYYY.MM.PATCH",
                         StartDate = request.CalVerStartDate,
@@ -270,6 +279,12 @@ namespace Mister.Version.Core.Services
                         ErrorMessage = $"Version {versionResult.Version} violates the configured version constraints: " +
                             string.Join("; ", versionResult.ValidationResult.Errors.Select(e => e.Message))
                     };
+                }
+
+                // Lock-step / grouped version policies: every linked project takes the group's highest version
+                if (versionPolicyConfig != null && !request.SkipVersionPolicy && !versionResult.Skipped && versionResult.SemVer != null)
+                {
+                    ApplyVersionPolicy(request, projectName, versionPolicyConfig, versionResult);
                 }
 
                 var result = new VersioningResult
@@ -389,6 +404,193 @@ namespace Mister.Version.Core.Services
             {
                 _logger("Warning", $"Failed to save to file cache due to invalid operation: {invOpEx.Message}");
             }
+        }
+
+        /// <summary>
+        /// Applies a LockStep policy (all projects) or a Grouped policy with a lock-step group: the project gets the
+        /// highest version among the linked projects (or the group's base version if that is higher). Each member's
+        /// own version is computed with the same settings; results are memoized per repository state.
+        /// </summary>
+        private void ApplyVersionPolicy(VersioningRequest request, string projectName, VersionPolicyConfig policy, Models.VersionResult versionResult)
+        {
+            var engine = new VersionPolicyEngine();
+            if (engine.IsIndependent(projectName, policy))
+            {
+                return;
+            }
+
+            var projects = DiscoverProjectFiles(request.RepoRoot);
+            var linked = engine.GetLinkedProjects(projectName, projects.Keys.ToList(), policy);
+            var group = policy.Policy == VersionPolicy.LockStep ? null : engine.GetProjectGroup(projectName, policy);
+
+            var highest = versionResult.SemVer;
+            var highestFrom = projectName;
+            var fingerprint = SafeFingerprint(request);
+
+            foreach (var member in linked)
+            {
+                if (string.Equals(member, projectName, StringComparison.OrdinalIgnoreCase) || !projects.TryGetValue(member, out var memberPath))
+                {
+                    continue;
+                }
+
+                var memberVersion = CalculateMemberVersion(request, memberPath, fingerprint);
+                if (memberVersion != null && memberVersion.CompareTo(highest) > 0)
+                {
+                    highest = memberVersion;
+                    highestFrom = member;
+                }
+            }
+
+            var baseSemVer = !string.IsNullOrEmpty(group?.BaseVersion) ? _gitService.ParseSemVer(group.BaseVersion) : null;
+            if (baseSemVer != null && baseSemVer.CompareTo(highest) > 0)
+            {
+                highest = baseSemVer;
+                highestFrom = $"group base version {group.BaseVersion}";
+            }
+
+            if (!ReferenceEquals(highest, versionResult.SemVer) && highest.CompareTo(versionResult.SemVer) != 0)
+            {
+                var policyName = policy.Policy == VersionPolicy.LockStep ? "lock-step policy" : $"version group '{group?.Name}'";
+                _logger("Info", $"{projectName}: {versionResult.Version} -> {highest} ({policyName}, from {highestFrom})");
+                versionResult.SemVer = highest;
+                versionResult.Version = highest.ToString();
+                versionResult.VersionChanged = true;
+                versionResult.ChangeReason = $"{versionResult.ChangeReason} (aligned to {highest} by the {policyName})";
+            }
+        }
+
+        private static readonly System.Collections.Concurrent.ConcurrentDictionary<string, SemVer> PolicyMemberCache =
+            new System.Collections.Concurrent.ConcurrentDictionary<string, SemVer>(StringComparer.Ordinal);
+
+        private SemVer CalculateMemberVersion(VersioningRequest request, string memberPath, string fingerprint)
+        {
+            string content = string.Empty;
+            try
+            {
+                content = File.ReadAllText(memberPath);
+            }
+            catch (IOException)
+            {
+            }
+
+            var memberRequest = (VersioningRequest)request.MemberwiseCloneRequest();
+            memberRequest.ProjectPath = memberPath;
+            memberRequest.Dependencies = GetDependencyClosure(memberPath, request.RepoRoot);
+            memberRequest.SkipVersionPolicy = true;
+            memberRequest.EnableFileCache = false;
+            memberRequest.IsTestProject = System.Text.RegularExpressions.Regex.IsMatch(content, @"<IsTestProject>\s*true\s*</IsTestProject>", System.Text.RegularExpressions.RegexOptions.IgnoreCase) ||
+                                          content.IndexOf("Microsoft.NET.Test.Sdk", StringComparison.OrdinalIgnoreCase) >= 0;
+            memberRequest.IsPackable = !System.Text.RegularExpressions.Regex.IsMatch(content, @"<IsPackable>\s*false\s*</IsPackable>", System.Text.RegularExpressions.RegexOptions.IgnoreCase);
+            memberRequest.ForceVersion = null;
+
+            var key = fingerprint == null ? null : VersionResultCache.CreateKey(fingerprint, DescribeRequest(memberRequest));
+            if (key != null && PolicyMemberCache.TryGetValue(key, out var cached))
+            {
+                return cached;
+            }
+
+            var memberResult = CalculateProjectVersion(memberRequest);
+            var version = memberResult.Success && !memberResult.Skipped ? memberResult.SemVer : null;
+            if (key != null && version != null)
+            {
+                if (PolicyMemberCache.Count > 4096)
+                    PolicyMemberCache.Clear();
+                PolicyMemberCache[key] = version;
+            }
+            return version;
+        }
+
+        private string SafeFingerprint(VersioningRequest request)
+        {
+            try
+            {
+                return _gitService.Repository == null ? null : RepositoryFingerprint.Compute(_gitService.Repository, _repoRoot, request.ConfigFile);
+            }
+            catch (Exception)
+            {
+                return null;
+            }
+        }
+
+        private static readonly System.Collections.Concurrent.ConcurrentDictionary<string, Dictionary<string, string>> ProjectFileCache =
+            new System.Collections.Concurrent.ConcurrentDictionary<string, Dictionary<string, string>>(StringComparer.OrdinalIgnoreCase);
+
+        /// <summary>Project name -> project file for every project in the repository (bin/obj/.git excluded).</summary>
+        private static Dictionary<string, string> DiscoverProjectFiles(string repoRoot)
+        {
+            return ProjectFileCache.GetOrAdd(repoRoot ?? string.Empty, root =>
+            {
+                var result = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+                var pending = new Stack<string>();
+                pending.Push(root);
+                while (pending.Count > 0)
+                {
+                    var dir = pending.Pop();
+                    try
+                    {
+                        foreach (var file in Directory.EnumerateFiles(dir))
+                        {
+                            var extension = Path.GetExtension(file);
+                            if (extension.Equals(".csproj", StringComparison.OrdinalIgnoreCase) ||
+                                extension.Equals(".fsproj", StringComparison.OrdinalIgnoreCase) ||
+                                extension.Equals(".vbproj", StringComparison.OrdinalIgnoreCase))
+                            {
+                                var name = Path.GetFileNameWithoutExtension(file);
+                                if (!result.ContainsKey(name))
+                                    result[name] = file;
+                            }
+                        }
+                        foreach (var sub in Directory.EnumerateDirectories(dir))
+                        {
+                            var name = Path.GetFileName(sub);
+                            if (name == ".git" || name.Equals("bin", StringComparison.OrdinalIgnoreCase) ||
+                                name.Equals("obj", StringComparison.OrdinalIgnoreCase) || name == "node_modules")
+                                continue;
+                            pending.Push(sub);
+                        }
+                    }
+                    catch (UnauthorizedAccessException)
+                    {
+                    }
+                    catch (IOException)
+                    {
+                    }
+                }
+                return result;
+            });
+        }
+
+        /// <summary>Transitive ProjectReference closure of a project file (parsed from the project files).</summary>
+        private List<string> GetDependencyClosure(string projectPath, string repoRoot)
+        {
+            var analyzer = new ProjectAnalyzer(_versionCalculator, _gitService);
+            var result = new List<string>();
+            var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase) { Path.GetFullPath(projectPath) };
+            var pending = new Queue<string>();
+            pending.Enqueue(projectPath);
+            while (pending.Count > 0)
+            {
+                List<string> dependencies;
+                try
+                {
+                    dependencies = analyzer.GetProjectDependencies(pending.Dequeue(), repoRoot) ?? new List<string>();
+                }
+                catch (Exception)
+                {
+                    continue;
+                }
+                foreach (var dependency in dependencies)
+                {
+                    var full = Path.GetFullPath(dependency);
+                    if (seen.Add(full))
+                    {
+                        result.Add(full);
+                        pending.Enqueue(full);
+                    }
+                }
+            }
+            return result;
         }
 
         /// <summary>
@@ -515,6 +717,11 @@ namespace Mister.Version.Core.Services
 
         /// <summary>Branch name to version as (overrides the checked-out branch, e.g. detached HEAD in CI).</summary>
         public string BranchName { get; set; }
+
+        /// <summary>Internal: calculate this project's own version without applying the version policy.</summary>
+        public bool SkipVersionPolicy { get; set; }
+
+        internal VersioningRequest MemberwiseCloneRequest() => (VersioningRequest)MemberwiseClone();
         public bool Debug { get; set; }
         public bool ExtraDebug { get; set; }
         public bool SkipTestProjects { get; set; } = true;

@@ -74,10 +74,15 @@ MonoRepo Versioning uses Git history to intelligently determine when to incremen
 
 - **Main Branch**: Commits to main increment the patch version by default (8.2.0 → 8.2.1)
   - With conventional commits enabled: Analyzes commit messages to determine bump type
-- **Dev Branch**: ✨ **NEW** - Dev branches also increment patch versions (8.2.0 → 8.2.1)
+- **Dev Branch**: Dev branches produce a prerelease with the commit height (8.2.0 → 8.2.1-dev.3)
   - With conventional commits enabled: Analyzes commit messages to determine bump type
-- **Release Branches**: Patch increments for changes in the branch (7.3.0 → 7.3.2)
-- **Feature Branches**: ✨ **ENHANCED** - Include commit height and hash (8.2.0-feature-name.3-abc1234)
+- **Release Branches**: Final versions within the branch's major.minor (`release/7.3` at 7.3.1 → 7.3.2)
+- **Feature Branches**: Prerelease named after the branch with the commit height (8.2.0 → 8.2.1-feature-name.3)
+- **Detached HEAD** (the default checkout in most CI systems): the branch is taken from `MonoRepoBranchName`,
+  else from the CI system's variables when they describe the checked-out commit (GitHub Actions, GitLab, Azure
+  Pipelines, Jenkins, Bitbucket), else from a branch whose tip is HEAD; otherwise it is versioned as `-no-branch`
+- **Dependencies**: a project is bumped when its own directory, any **direct or transitive** `ProjectReference`,
+  or an additional monitored path changed since its base tag
 
 ### Conventional Commits for Semantic Versioning
 
@@ -438,7 +443,8 @@ Works seamlessly with repositories cloned using `git clone --depth N`:
 
 Features:
 - Automatically detects shallow clones
-- Logs warnings when version history is limited
+- Emits warning `MRV001` when the clone is shallow and no version tag is reachable (otherwise every project
+  silently falls back to `0.1.0`); fetch the history and tags, e.g. `actions/checkout` with `fetch-depth: 0`
 - Uses fallback version when tags aren't available
 - Perfect for CI/CD pipelines with shallow checkouts
 
@@ -515,26 +521,27 @@ Benefits:
 
 ### Feature Branch Versioning
 
-Feature branches now use a more sophisticated versioning scheme:
+Feature branches use the next patch version of their base tag as a prerelease named after the branch:
 
 ```
-Format: {base-version}-{branch-name}.{commit-height}-{git-hash}
-Example: v3.0.4-feature.1-abc1234
+Format: {next-patch-version}-{branch-name}.{commit-height}
+Example: 3.0.5-awesome-feature.1   (base tag v3.0.4, branch feature/awesome-feature)
 ```
 
 Where:
-- `3.0.4` is the base version from the last tag
-- `feature` is the normalized branch name
+- `3.0.5` is the base version from the last tag, with the patch incremented
+- `awesome-feature` is the normalized branch name (the `feature/` prefix is removed)
 - `1` is the number of commits since the base tag
-- `abc1234` is the short Git hash
+
+Set `MonoRepoIncludeBranchInMetadata=true` to also add `+<branch>` build metadata.
 
 ## Getting Started
 
 ### Prerequisites
 
-- .NET SDK 6.0+ (supports both .NET Framework 4.7.2 and .NET 8.0)
-- Git installed and accessible in PATH
-- A .NET solution using MSBuild
+- .NET SDK 8.0 or later (`dotnet build`), or Visual Studio 2022+ / MSBuild.exe (x86, x64 or ARM64)
+- A git repository (git itself does not need to be installed; libgit2 is bundled)
+- Supported hosts: Windows x64/x86/ARM64, Linux x64/ARM64/ARM (glibc and musl/Alpine), macOS x64/Apple Silicon
 
 ### Installation
 
@@ -552,10 +559,15 @@ dotnet tool install --global Mister.Version.CLI --version 3.0.0
 
 ### Basic Setup
 
-1. Add the targets file reference to each project that should use automatic versioning:
+1. Reference the package from every project, typically in a `Directory.Build.props` at the repository root
+   (NuGet imports the package's build logic automatically; no `<Import>` is needed):
 
 ```xml
-<Import Project="$(MSBuildThisFileDirectory)..\..\build\Mister.Version.targets" />
+<Project>
+  <ItemGroup>
+    <PackageReference Include="Mister.Version" Version="3.*" PrivateAssets="all" />
+  </ItemGroup>
+</Project>
 ```
 
 2. Create an initial version tag for your repository:
@@ -1156,13 +1168,16 @@ Mister.Version can be configured using MSBuild properties or a YAML configuratio
 | Property | Description | Default |
 |----------|-------------|---------|
 | `MonoRepoVersioningEnabled` | Enable/disable automatic versioning | `true` |
-| `MonoRepoRoot` | Starting directory for Git repository discovery | `$(ProjectDir)` |
+| `MonoRepoRoot` | Starting directory for Git repository discovery | `$(MSBuildProjectDirectory)` |
+| `MonoRepoBranchName` | Branch to version as (overrides the checked-out branch; see detached HEAD above) | Empty |
+| `MonoRepoRequireGitRepository` | Fail the build when no git repository is found (default: warning `MRV003`, the project's own version is kept) | `false` |
+| `MonoRepoVersionCacheEnabled` | Cache results in memory and in `obj/<Project>.mrversion.cache`, keyed on the full repository state | `true` |
 | `MonoRepoTagPrefix` | Prefix for version tags | `v` |
 | `MonoRepoUpdateProjectFile` | Update project files with versions | `false` |
 | `MonoRepoDebug` | Enable debug logging | `false` |
 | `MonoRepoExtraDebug` | Enable extra debug logging | `false` |
 | `MonoRepoSkipTestProjects` | Skip versioning for test projects | `true` |
-| `MonoRepoSkipNonPackableProjects` | Skip versioning for non-packable projects | `true` |
+| `MonoRepoSkipNonPackableProjects` | Skip versioning for non-packable projects (they keep their own `<Version>`) | `true` |
 | `MonoRepoPrereleaseType` | Prerelease type for main/dev branches (none, alpha, beta, rc) | `none` |
 | `MonoRepoConfigFile` | Path to YAML configuration file | Empty |
 | `ForceVersion` | Force a specific version | Empty |
@@ -1185,18 +1200,25 @@ Mister.Version can be configured using MSBuild properties or a YAML configuratio
 | `MonoRepoChangelogIncludeAuthors` | ✨ Include commit authors in changelog | `false` |
 | `MonoRepoShallowCloneSupport` | 🔧 Enable shallow clone support for repos cloned with --depth | `true` |
 | `MonoRepoShallowCloneFallbackVersion` | 🔧 Fallback version for shallow clones with limited history | Empty |
-| `MonoRepoSubmoduleSupport` | 🔧 Enable submodule change detection (.gitmodules and submodule pointers) | `false` |
+| `MonoRepoSubmoduleSupport` | 🔧 Reserved. Submodule pointer changes inside a project directory are always detected | `false` |
 | `MonoRepoCustomTagPatterns` | 🔧 Custom tag patterns (semicolon-separated): ProjectName={name}-{prefix}{version} | Empty |
-| `MonoRepoBranchBasedVersioning` | 🔧 Enable branch-based versioning strategies | `false` |
-| `MonoRepoBranchVersioningRules` | 🔧 Branch versioning rules (semicolon-separated): branchPattern=strategy | Empty |
+| `MonoRepoBranchBasedVersioning` | 🔧 Reserved for future use (no effect yet) | `false` |
+| `MonoRepoBranchVersioningRules` | 🔧 Reserved for future use (no effect yet) | Empty |
 | `MonoRepoIncludeBranchInMetadata` | 🔧 Include branch name in version build metadata for feature branches | `false` |
 | `MonoRepoValidateTagAncestry` | 🔧 Validate that version tags are reachable from current branch | `true` |
-| `MonoRepoFetchDepth` | 🔧 Fetch depth for shallow clone operations | `50` |
+| `MonoRepoFetchDepth` | 🔧 Reserved for future use (no effect yet) | `50` |
 | `MonoRepoVersionScheme` | 📅 Version scheme to use: SemVer or CalVer | `SemVer` |
 | `MonoRepoCalVerFormat` | 📅 CalVer format (YYYY.MM.PATCH, YY.0M.PATCH, YYYY.WW.PATCH, YYYY.0M.PATCH) | `YYYY.MM.PATCH` |
 | `MonoRepoCalVerResetPatch` | 📅 Reset patch version at the start of each period | `true` |
 | `MonoRepoCalVerSeparator` | 📅 Separator between version components | `.` |
 | `MonoRepoCalVerStartDate` | 📅 Optional start date for CalVer (YYYY-MM-DD format) | Empty |
+| `MonoRepoValidationEnabled` | ✅ Enforce version constraints; a violation fails the build (`MRV004`) | `false` |
+| `MonoRepoMinimumVersion` / `MonoRepoMaximumVersion` | ✅ Lowest / highest allowed version | Empty |
+| `MonoRepoAllowedVersionRange` | ✅ Allowed range pattern, e.g. `3.x.x` | Empty |
+| `MonoRepoBlockedVersions` | ✅ Semicolon-separated versions that must not be produced | Empty |
+| `MonoRepoRequireMajorApproval` / `MonoRepoMajorVersionApproved` | ✅ Require (and grant) approval for major bumps | `false` |
+| `MonoRepoRequireMonotonicIncrease` | ✅ Versions must increase | `true` |
+| `MonoRepoEnableFileCache` / `MonoRepoFileCachePath` | Legacy shared cache under `.mrversion/` (keyed on the full repository state) | `false` / Empty |
 
 #### Example MSBuild Configuration
 
@@ -1379,26 +1401,82 @@ Configuration values are applied in this order (later values override earlier on
 
 MonoRepo Versioning supports two types of tags:
 
-1. **Project-specific tags** (default): Apply to individual projects
-   - Format: `v1.2.3-projectname` (e.g., `v1.2.3-core`)
-   - Used for patch and minor releases
-   - Allows independent versioning of projects in the monorepo
+1. **Project-specific tags**: Apply to individual projects
+   - Format: `{ProjectName}/{prefix}{version}` or `{ProjectName}-{prefix}{version}` (e.g., `Core/v1.2.3`,
+     `Core-v1.2.3`; the project name is matched case-insensitively)
+   - Allow independent versioning of projects in the monorepo
+   - Note: `v1.2.3-core` is **not** a project tag - it is a global prerelease tag (`1.2.3` with prerelease `core`)
 
 2. **Global tags**: Apply to the entire repository
-   - Format: `v1.0.0` (no project suffix)
-   - Created automatically for major version releases (x.0.0)
-   - Used to mark significant milestones across the entire monorepo
+   - Format: `v1.0.0` (prefix + version)
+   - Used to mark releases or milestones across the entire monorepo
 
-The system automatically creates project-specific tags by default, and only creates global tags when releasing a new major version (e.g., going from v1.x.x to v2.0.0).
+A project uses its own tag unless a global tag starts a newer major/minor release cycle. Builds never create
+tags; create them with `git tag`, the CLI, or the `mr-version/tag` GitHub Action.
 
 ### Enhanced Change Detection
 
-The system examines multiple sources for changes:
+The system examines multiple sources for changes since the project's base tag:
 
-- Direct project file modifications
-- Project dependency changes
-- Package dependency updates (packages.lock.json)
-- Transitive dependency version changes
+- Files in the project directory (exact directory boundaries: a change in `src/Lib10` or `src/Lib.Tests` is not a
+  change in `src/Lib`), including files moved out of it and `packages.lock.json`
+- Direct **and transitive** project references (the MSBuild task reads the closure NuGet restore recorded in
+  `obj/project.assets.json`; the CLI scans the repository), so `App -> Lib -> Core` is bumped when only `Core` changes
+- Additional monitored paths (`MonoRepoAdditionalMonitorPaths` / YAML `additionalMonitorPaths`); relative paths are
+  resolved against the repository root, or against the project directory when they start with `./` or `../`
+
+With conventional commits or file-pattern detection enabled, a project whose changes are all ignored (for example
+docs-only files, or only `chore:`/`docs:` commits) keeps its current version. Conventional-commit analysis only
+considers commits that touched the project, its dependencies or its monitored paths.
+
+### Version Policies
+
+Coordinate versions across projects in `mr-version.yml`:
+
+```yaml
+versionPolicy:
+  policy: Grouped          # Independent (default), LockStep or Grouped
+  groups:
+    core:
+      projects: [Contoso.Core, Contoso.Core.*]   # names or wildcards
+      strategy: LockStep
+      baseVersion: "2.0.0"                     # optional floor for the group
+```
+
+- `LockStep`: every project gets the highest version calculated for any project in the repository.
+- `Grouped`: projects in a `LockStep` group share the group's highest version (or its `baseVersion` if higher);
+  all other projects are versioned independently.
+
+### How the Version Flows Through the Build
+
+- The version is computed once per project and applied as `Version`, `PackageVersion`, `AssemblyVersion`,
+  `FileVersion` and `InformationalVersion` before the SDK generates assembly attributes, so unchanged versions never
+  trigger recompilation.
+- Multi-targeted projects use the same settings in every inner (per-TFM) build and in the outer build that
+  `dotnet pack` uses, so the package version always equals the assembly version.
+- Package dependencies on other projects (ProjectReference → nuspec dependency) use each referenced project's
+  calculated version, including multi-targeted references, references with their own settings, and `pack --no-build`.
+- IDE design-time builds skip the calculation.
+
+### Performance and Caching
+
+Results are cached per project, in memory in every MSBuild node and on disk in `obj/<Project>.mrversion.cache`,
+keyed on a fingerprint of everything the version depends on: HEAD (branch and commit), all tags, the shallow-clone
+state, the configuration file contents, every versioning setting and the UTC date (for CalVer). A new commit, tag,
+branch switch or configuration edit therefore always produces a fresh calculation, while repeated invocations
+(other target frameworks, pack, later builds, separate build/pack/test CI steps) reuse it. Set
+`MonoRepoVersionCacheEnabled=false` to disable caching.
+
+### Diagnostics
+
+| Code | Meaning |
+|------|---------|
+| `MRV001` | A problem reported by the versioning core (for example an unreadable or partly unknown configuration file, or a shallow clone without reachable tags) |
+| `MRV002` | An error reported by the versioning core; the build continues with a fallback |
+| `MRV003` | No git repository was found; the project's own version is kept (`MonoRepoRequireGitRepository=true` makes this an error) |
+| `MRV004` | The calculated version violates the configured version constraints (error) |
+
+Warnings can be suppressed or promoted with the usual MSBuild switches, e.g. `-nowarn:MRV001` or `-warnaserror:MRV001`.
 
 ### Feature Branch Workflow
 
@@ -1412,12 +1490,12 @@ git checkout -b feature/awesome-feature
 git add .
 git commit -m "Add awesome feature"
 
-# Build shows: v3.0.4-awesome-feature.1-abc1234
+# Build shows: 3.0.5-awesome-feature.1
 dotnet build
 
 # More commits increase the height
 git commit -m "Fix awesome feature"
-# Build shows: v3.0.4-awesome-feature.2-def5678
+# Build shows: 3.0.5-awesome-feature.2
 ```
 
 ## CI/CD Integration
@@ -1439,7 +1517,7 @@ jobs:
     - name: Setup .NET
       uses: actions/setup-dotnet@v4
       with:
-        dotnet-version: '8.0.x'
+        dotnet-version: '10.0.x'
     
     - name: Install CLI tool
       run: dotnet tool install --global Mister.Version.CLI
@@ -1462,14 +1540,16 @@ jobs:
 Enable debug logging to see detailed information about the versioning process:
 
 ```bash
-dotnet build /p:MonoRepoVersionDebug=true -v:n
+dotnet build -p:MonoRepoDebug=true
 ```
 
 For even more details:
 
 ```bash
-dotnet build /p:MonoRepoVersionExtraDebug=true -v:n
+dotnet build -p:MonoRepoExtraDebug=true
 ```
+
+To print each project's version without building: `dotnet msbuild -t:GetMrVersion`.
 
 This will display:
 - Branch type detection
@@ -1481,10 +1561,15 @@ This will display:
 
 ### Common Issues
 
-1. **Versions not incrementing**: Check that changes were detected in the project files
-2. **Wrong version on feature branch**: Verify branch naming and check for changes
-3. **Feature branch missing commit height**: Ensure there's a base tag to calculate from
-4. **Package has wrong version**: Ensure MSBuild properties are correctly set
+1. **Every project is `0.1.0` in CI**: the checkout is shallow or has no tags (warning `MRV001`); use
+   `actions/checkout` with `fetch-depth: 0`
+2. **CI builds of main get `-no-branch` versions**: the checkout is a detached HEAD that no CI variable or branch tip
+   identifies; set `MonoRepoBranchName` (e.g. `-p:MonoRepoBranchName=main`)
+3. **Versions not incrementing**: Check that changes were detected in the project, its dependencies or monitored
+   paths (`-p:MonoRepoDebug=true`); with conventional commits or file patterns enabled, ignored changes do not bump
+4. **Wrong version on feature branch**: Verify branch naming and check for changes
+5. **"The libgit2 native library could not be loaded"**: the host OS/architecture is not one of the supported ones
+   listed under Prerequisites
 
 ## Migration from v1.0.x
 

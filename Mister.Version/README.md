@@ -14,8 +14,12 @@ MSBuild integration package for Mister.Version, enabling automatic version calcu
 - **File Pattern-Based Change Detection**: Smart versioning based on which files changed
 - **Monorepo Support**: Independent versioning for multiple projects in a single repository
 - **MSBuild Integration**: Seamless integration with the .NET build process
-- **Cross-Platform**: Works on Windows, macOS, and Linux
-- **Multi-Targeting Support**: Works with both .NET Framework 4.7.2 and .NET 8.0+
+- **Cross-Platform**: Windows x64/x86/ARM64, Linux x64/ARM64/ARM (glibc and musl/Alpine), macOS x64/Apple Silicon,
+  with both `dotnet build` (.NET 8 SDK or later) and Visual Studio / MSBuild.exe
+- **Multi-Targeting Support**: multi-targeted projects get the same version in every TFM's assembly and in the
+  package; package dependencies on other projects always use those projects' calculated versions
+- **Fast and incremental**: results are cached per project, keyed on the repository state, and unchanged versions
+  never trigger recompilation
 
 ## Installation
 
@@ -25,10 +29,14 @@ Install via NuGet Package Manager:
 dotnet add package Mister.Version
 ```
 
-Or add to your project file:
+Or add it to every project from a `Directory.Build.props` at the repository root:
 
 ```xml
-<PackageReference Include="Mister.Version" Version="3.0.0" />
+<Project>
+  <ItemGroup>
+    <PackageReference Include="Mister.Version" Version="3.*" PrivateAssets="all" />
+  </ItemGroup>
+</Project>
 ```
 
 ## Usage
@@ -92,7 +100,19 @@ Common properties:
 - `MonoRepoConfigFile` - Path to YAML configuration file
 - `MonoRepoConventionalCommitsEnabled` - Enable conventional commits analysis
 - `MonoRepoChangeDetectionEnabled` - Enable file pattern-based change detection
-- `MonoRepoGenerateChangelog` - Generate changelog during build
+- `MonoRepoGenerateChangelog` - Generate the project's changelog during build (`MonoRepoChangelogOutputPath`, relative to the project)
+- `MonoRepoBranchName` - Branch to version as (useful for detached-HEAD CI checkouts)
+- `MonoRepoRequireGitRepository` - Fail instead of warning (`MRV003`) when building outside a git repository
+- `MonoRepoVersionCacheEnabled` - Cache results keyed on the repository state (default `true`)
+
+Print each project's version without building: `dotnet msbuild -t:GetMrVersion`.
+
+## Diagnostics
+
+- `MRV001` / `MRV002`: problems reported while calculating (for example an unreadable configuration file or a shallow
+  clone without reachable tags - use `fetch-depth: 0` with `actions/checkout`)
+- `MRV003`: no git repository found; the project's own version is kept
+- `MRV004`: the version violates the configured constraints (error)
 
 ## Documentation
 
@@ -107,9 +127,8 @@ See the [main README](../README.md).
 
 ## Requirements
 
-- .NET Framework 4.7.2 or .NET 8.0+
-- Git repository
-- MSBuild 15.0+
+- .NET 8 SDK or later, or Visual Studio 2022+ / MSBuild.exe
+- A git repository (git itself is not required; libgit2 is bundled for every supported OS/architecture)
 
 ## License
 
