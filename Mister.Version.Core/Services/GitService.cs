@@ -47,6 +47,21 @@ namespace Mister.Version.Core.Services
                     }
                 }
 
+                // Reached through a symbolic link into a repository (libgit2 does not resolve links on Windows):
+                // walk up from the link's target
+                var resolved = Mister.Version.Core.PathUtils.ResolveLinks(full);
+                if (!string.Equals(resolved, full, StringComparison.Ordinal))
+                {
+                    for (var dir = resolved; !string.IsNullOrEmpty(dir); dir = Path.GetDirectoryName(dir))
+                    {
+                        var dotGit = Path.Combine(dir, ".git");
+                        if ((Directory.Exists(dotGit) || File.Exists(dotGit)) && Repository.IsValid(dir))
+                        {
+                            return TrimTrailingSeparators(dir);
+                        }
+                    }
+                }
+
                 var discoveredPath = Repository.Discover(startPath);
                 if (discoveredPath == null)
                     return null;
