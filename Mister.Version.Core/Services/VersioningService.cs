@@ -261,7 +261,8 @@ namespace Mister.Version.Core.Services
                     SemVer = _gitService.ParseSemVer(versionResult.Version),
                     ConfigurationApplied = config != null,
                     Skipped = versionResult.Skipped,
-                    SkippedWithConfiguredVersion = versionResult.SkippedWithConfiguredVersion
+                    SkippedWithConfiguredVersion = versionResult.SkippedWithConfiguredVersion,
+                    Details = versionResult
                 };
 
                 // Save to file cache if enabled
@@ -575,5 +576,11 @@ namespace Mister.Version.Core.Services
 
         /// <summary>For skipped projects: whether Version comes from a configured base version.</summary>
         public bool SkippedWithConfiguredVersion { get; set; }
+
+        /// <summary>
+        /// The full calculation result (branch type/name, commit info, height, previous version, conventional
+        /// commit analysis, validation result). Null for results served from the file cache.
+        /// </summary>
+        public Models.VersionResult Details { get; set; }
     }
 }
