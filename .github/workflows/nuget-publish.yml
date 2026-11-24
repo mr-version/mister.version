@@ -1,10 +1,29 @@
 name: Build and Publish to NuGet
 
+# Publishes Mister.Version (MSBuild task) and Mister.Version.CLI (dotnet tool).
+#
+# The package version comes from the tag that triggered the run - releases/vX.Y.Z (the repository's
+# release tags) or vX.Y.Z (release-drafter's tag template) - and is passed to the build with
+# -p:Version, overriding the <Version> in Project.props. A manual run takes the version from the
+# "version" input, or from the tag it was started on.
+#
+# Publishing a version that already exists on nuget.org fails the run (no --skip-duplicate), so an
+# un-bumped re-publish is visible instead of a silent green no-op.
+
 on:
   push:
     tags:
+      - 'releases/v*'
       - 'v*.*.*'
   workflow_dispatch:
+    inputs:
+      version:
+        description: 'Package version to publish (e.g. 3.0.1). Leave empty to use the tag the run is started on.'
+        required: false
+        type: string
+
+permissions:
+  contents: read
 
 jobs:
   build:
@@ -13,51 +32,80 @@ jobs:
     steps:
     - name: Checkout Repo
       uses: actions/checkout@v4
+      with:
+        fetch-depth: 0  # Full history for versioning tests
 
     - name: Setup .NET
       uses: actions/setup-dotnet@v4
       with:
-        dotnet-version: '8.0.x'
+        # 10.0: solution (net10.0 tests, file-based e2e app); 8.0: net8.0 consumer projects in the e2e test
+        dotnet-version: |
+          8.0.x
+          10.0.x
+
+    - name: Determine Package Version
+      id: version
+      env:
+        INPUT_VERSION: ${{ inputs.version }}
+      run: |
+        if [ -n "$INPUT_VERSION" ]; then
+          version="$INPUT_VERSION"
+          source="workflow input"
+        elif [ "$GITHUB_REF_TYPE" = "tag" ]; then
+          # releases/v3.0.1 -> 3.0.1, v3.0.1 -> 3.0.1
+          version="${GITHUB_REF_NAME##*/}"
+          version="${version#v}"
+          source="tag $GITHUB_REF_NAME"
+        else
+          echo "::error::No version: run this workflow on a releases/vX.Y.Z or vX.Y.Z tag, or pass the 'version' input."
+          exit 1
+        fi
+
+        if ! [[ "$version" =~ ^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)(-[0-9A-Za-z][0-9A-Za-z.-]*)?$ ]]; then
+          echo "::error::'$version' (from $source) is not a valid package version (expected X.Y.Z or X.Y.Z-prerelease)."
+          exit 1
+        fi
+
+        echo "Publishing version $version (from $source)"
+        echo "version=$version" >> "$GITHUB_OUTPUT"
 
     - name: Restore dependencies
       run: dotnet restore
 
     - name: Build
-      run: dotnet build --no-restore --configuration Release
+      run: dotnet build --no-restore --configuration Release -p:Version=${{ steps.version.outputs.version }}
 
     - name: Run Unit Tests
-      run: |
-        echo "Running all unit tests including VersionResolutionTests..."
-        dotnet test --no-build --configuration Release --verbosity normal
-        if [ $? -ne 0 ]; then
-          echo "❌ Unit tests failed! Build will not proceed."
-          exit 1
-        fi
-        echo "✅ All unit tests passed!"
+      run: dotnet test --no-build --configuration Release --verbosity normal
 
-    - name: Run Version Resolution Regression Tests
+    - name: Run CLI Integration Tests
       run: |
-        echo "Running specific version resolution tests..."
-        dotnet test --no-build --configuration Release --filter-class Mister.Version.Tests.VersionResolutionTests --verbosity normal
-        if [ $? -ne 0 ]; then
-          echo "❌ Version resolution tests failed! Build will not proceed."
-          exit 1
-        fi
-        echo "✅ Version resolution tests passed!"
+        chmod +x ./test-versioning-scenarios.sh
+        export USE_DOTNET=true
+        ./test-versioning-scenarios.sh
 
-    - name: Run Integration Tests
-      uses: ./.github/actions/test-versioning-linux
-      with:
-        dotnet-version: '8.0.x'
-    
-    - name: Verify All Tests Passed
-      run: |
-        echo "✅ All tests passed successfully! Proceeding with packaging..."
+    - name: Run MSBuild E2E Tests
+      run: dotnet run e2e/msbuild-e2e.cs
 
+    # Packs build again (the e2e test re-packs Mister.Version with its own version), so the packages always
+    # contain assemblies stamped with the release version.
     - name: Pack
-      run: dotnet pack --no-restore --configuration Release --output ./nupkg
+      run: |
+        version="${{ steps.version.outputs.version }}"
+        dotnet pack ./Mister.Version/Mister.Version.csproj --no-restore --configuration Release --output ./nupkg -p:Version="$version"
+        dotnet pack ./Mister.Version.CLI/Mister.Version.CLI.csproj --no-restore --configuration Release --output ./nupkg -p:Version="$version"
+
+        ls -l ./nupkg
+        for id in Mister.Version Mister.Version.CLI; do
+          if [ ! -f "./nupkg/$id.$version.nupkg" ]; then
+            echo "::error::Expected package ./nupkg/$id.$version.nupkg was not produced."
+            exit 1
+          fi
+        done
 
     - name: Publish to NuGet
       env:
         NUGET_API_KEY: ${{ secrets.NUGET_API_KEY }}
-      run: dotnet nuget push ./nupkg/*.nupkg --api-key "$NUGET_API_KEY" --source https://api.nuget.org/v3/index.json --skip-duplicate
+      run: |
+        # No --skip-duplicate: pushing a version that already exists fails the run.
+        dotnet nuget push ./nupkg/*.nupkg --api-key "$NUGET_API_KEY" --source https://api.nuget.org/v3/index.json
