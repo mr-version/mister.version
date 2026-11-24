@@ -477,7 +477,7 @@ namespace Mister.Version.Core.Services
             memberRequest.SkipVersionPolicy = true;
             memberRequest.EnableFileCache = false;
             // Same project-type rules as the CLI (IsPackable/IsTestProject incl. Directory.Build.props)
-            var memberType = ProjectAnalyzer.DetectProjectType(memberPath, request.RepoRoot);
+            var memberType = ProjectAnalyzer.DetectProject(memberPath, request.RepoRoot);
             memberRequest.IsTestProject = memberType.IsTestProject;
             memberRequest.IsPackable = memberType.IsPackable;
             memberRequest.ForceVersion = null;

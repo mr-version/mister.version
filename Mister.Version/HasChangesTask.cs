@@ -165,7 +165,7 @@ public class HasChangesTask : Task
                 .ToList();
             var self = Path.GetFullPath(ProjectPath);
             var dependencies = direct
-                .Concat(MonoRepoVersionTask.ReadUnflowedReferenceClosure(direct))
+                .Concat(MonoRepoVersionTask.ReadUnflowedReferenceClosure(new[] { self }.Concat(direct).ToList(), MonoRepoVersionTask.GetEvaluationScope(BuildEngine)))
                 .Where(d => !string.Equals(d, self, StringComparison.OrdinalIgnoreCase))
                 .Distinct(StringComparer.OrdinalIgnoreCase)
                 .ToList();

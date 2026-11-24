@@ -54,7 +54,7 @@ namespace Mister.Version.Core.Services
         // Prefixes in front of the conventional type that teams commonly add: "[ABC-123] ", "ABC-123: ", gitmoji
         // (":sparkles: " or an emoji), Azure DevOps "Merged PR 12: "
         private static readonly Regex SubjectPrefixPattern = new Regex(
-            @"^(?:\s*(?:\[[^\]\r\n]+\]|\(?[A-Z][A-Z0-9]+-\d+\)?:?|:[a-z0-9_+\-]+:|Merged PR \d+:|[^\w\s\[\]('""`:]+)\s*)+",
+            @"^(?:\s*(?:\[[^\]\r\n]+\]:?|\(?[A-Z][A-Z0-9]+-\d+\)?:?|#\d+:?|:[a-z0-9_+\-]+:|Merged PR \d+:|(?:[^\w\s\[\]('""`:#]|\p{Mn}|\p{Cf})+)\s*)+",
             RegexOptions.Compiled | RegexOptions.CultureInvariant
         );
 

@@ -1520,7 +1520,9 @@ versionPolicy:
   calculated version, including multi-targeted references, references with their own settings, and `pack --no-build`.
 - IDE design-time builds skip the calculation.
 - Test projects and non-packable projects are not versioned (unless `MonoRepoSkipTestProjects=false` /
-  `MonoRepoSkipNonPackableProjects=false`) and keep their own `Version`; the CLI reports that version. Projects using
+  `MonoRepoSkipNonPackableProjects=false`, or `skipTestProjects: false` / `skipNonPackableProjects: false` in
+  `mr-version.yml`) and keep their own `Version`; the CLI reports that version. Test projects are also non-packable
+  by default, so versioning them takes both settings (or `IsPackable=true`). Projects using
   `Microsoft.NET.Sdk.Web`, `Microsoft.NET.Sdk.Worker` or `Microsoft.NET.Sdk.BlazorWebAssembly` are non-packable
   unless they set `IsPackable=true`, so set it (or `MonoRepoSkipNonPackableProjects=false`) to version deployable apps.
 - Limitation: `<App>.deps.json` lists referenced projects with the version NuGet restore saw (their static version),

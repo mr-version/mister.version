@@ -238,6 +238,55 @@ namespace Mister.Version.Tests
             Assert.Equal("1.0.1", Version(Conventional));
         }
 
+        [Fact]
+        public void GenericMergeBringingOnlyUnscopedCommits_StillBumps_EvenWithAnIgnoredCommit()
+        {
+            _repo.ApplyTag("v1.0.0");
+            Write("src/Core/notes.md", "docs");
+            Commit("docs: core notes");
+            var main = _repo.Head;
+            var topic = _repo.CreateBranch("topic");
+            Commands.Checkout(_repo, topic);
+            Write("elsewhere.txt", "x");
+            Commit("fix: elsewhere");
+            Commands.Checkout(_repo, main);
+            _repo.Merge(topic, _sig, new MergeOptions { FastForwardStrategy = FastForwardStrategy.NoFastForward, CommitOnSuccess = false });
+            Write("src/Core/A.cs", "class A { } // brought by the merge");
+            Commands.Stage(_repo, "*");
+            _repo.Commit("Merge branch 'topic'", _sig, _sig);
+            Assert.Equal("1.0.1", Version(Conventional));
+        }
+
+        [Fact]
+        public void CalVer_ProjectAtTheRepositoryRoot_BumpsWithinAPeriod()
+        {
+            Write("Root.csproj", "<Project Sdk=\"Microsoft.NET.Sdk\" />");
+            Commit("add root project");
+            _repo.ApplyTag($"Root/v{CurrentPeriod}.0");
+            Write("a.cs", "class X {}");
+            Commit("fix: change");
+            Assert.Equal($"{CurrentPeriod}.1", Version(t =>
+            {
+                t.VersionScheme = "calver";
+                t.ProjectPath = Path.Combine(_root, "Root.csproj");
+            }));
+        }
+
+        [Fact]
+        public void OtherProjectFileExtensions_WithConventionalCommits_Bump()
+        {
+            Write("src/Setup/Setup.wixproj", "<Project Sdk=\"WixToolset.Sdk/4.0.0\" />");
+            Commit("add setup");
+            _repo.ApplyTag("v1.0.0");
+            Write("src/Setup/Product.wxs", "<Wix />");
+            Commit("fix: installer");
+            Assert.Equal("1.0.1", Version(t =>
+            {
+                Conventional(t);
+                t.ProjectPath = Path.Combine(_root, "src", "Setup", "Setup.wixproj");
+            }));
+        }
+
         [Theory]
         [InlineData("[ABC-123] chore: bump deps", "1.0.0")]
         [InlineData("[ABC-123] feat: add login", "1.1.0")]
@@ -245,6 +294,10 @@ namespace Mister.Version.Tests
         [InlineData("\u2728 feat: add login", "1.1.0")]
         [InlineData(":sparkles: feat: add login", "1.1.0")]
         [InlineData("BREAKING CHANGE: drop net6 support", "2.0.0")]
+        [InlineData("\u2B06\uFE0F chore: bump deps", "1.0.0")]
+        [InlineData("\u26A1\uFE0F feat: faster", "1.1.0")]
+        [InlineData("[ABC-123]: feat: add login", "1.1.0")]
+        [InlineData("#123 feat: add login", "1.1.0")]
         public void PrefixedSubjects_KeepTheirConventionalType(string message, string expected)
         {
             _repo.ApplyTag("v1.0.0");

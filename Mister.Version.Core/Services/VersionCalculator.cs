@@ -990,13 +990,19 @@ namespace Mister.Version.Core.Services
                 // their own (effective) subject is typed, e.g. a merge titled with the pull request title
                 // ("feat: add login (#12)", or GitHub's "Merge pull request #12 ..." with the title in the body).
                 // A generic "Merge branch ..." of chore-only commits is therefore not a release, as with a squash
-                // merge. When only merge commits brought the change (git subtree pull, conflict resolutions), they
-                // are all kept so the change is not lost.
+                // merge. A generic merge whose brought-in commits do not touch the project itself carries the change
+                // (git subtree pull, conflict resolutions, evil merges) and is kept.
                 var nonMerges = commits.Where(c => c.Parents.Count() <= 1).ToList();
-                var merges = commits.Where(c => c.Parents.Count() > 1).ToList();
-                commits = nonMerges.Count == 0
-                    ? merges
-                    : nonMerges.Concat(merges.Where(m => ConventionalCommitAnalyzer.HasConventionalType(m.Message))).ToList();
+                var scopedShas = new HashSet<string>(nonMerges.Select(c => c.Sha), StringComparer.Ordinal);
+                var kept = new List<LibGit2Sharp.Commit>(nonMerges);
+                foreach (var merge in commits.Where(c => c.Parents.Count() > 1))
+                {
+                    if (ConventionalCommitAnalyzer.HasConventionalType(merge.Message) || !BringsInAnyOf(merge, scopedShas))
+                    {
+                        kept.Add(merge);
+                    }
+                }
+                commits = kept;
 
                 if (commits.Count == 0)
                 {
@@ -1370,25 +1376,22 @@ namespace Mister.Version.Core.Services
                 }
                 else
                 {
-                    // Same period, check for actual code changes
-                    var relativeProjectPath = "";
+                    // Same period, check for actual code changes ("" is the repository root: a project at the root)
+                    string relativeProjectPath = null;
                     if (!string.IsNullOrWhiteSpace(options.ProjectPath))
                     {
                         try
                         {
                             var projectDir = Path.GetDirectoryName(options.ProjectPath);
-                            if (!string.IsNullOrEmpty(projectDir))
-                            {
-                                relativeProjectPath = RelativeProjectDirectory(options, projectDir);
-                            }
+                            relativeProjectPath = string.IsNullOrEmpty(projectDir) ? "" : RelativeProjectDirectory(options, projectDir);
                         }
                         catch (ArgumentException)
                         {
-                            relativeProjectPath = "";
+                            relativeProjectPath = null;
                         }
                     }
 
-                    if (!string.IsNullOrEmpty(relativeProjectPath))
+                    if (relativeProjectPath != null)
                     {
                         var projectChanges = _gitService.ClassifyProjectChanges(
                             projectVersionTag.Commit,
@@ -1479,6 +1482,27 @@ namespace Mister.Version.Core.Services
         /// <summary>
         /// Creates a version result for skipped projects (test projects or non-packable projects)
         /// </summary>
+        /// <summary>Whether a merge commit brings in (from its other parents) any of the given commits.</summary>
+        private bool BringsInAnyOf(LibGit2Sharp.Commit merge, HashSet<string> shas)
+        {
+            if (shas.Count == 0)
+                return false;
+            try
+            {
+                var filter = new LibGit2Sharp.CommitFilter
+                {
+                    IncludeReachableFrom = merge.Parents.Skip(1).ToList(),
+                    ExcludeReachableFrom = merge.Parents.First(),
+                    SortBy = LibGit2Sharp.CommitSortStrategies.None
+                };
+                return _gitService.Repository.Commits.QueryBy(filter).Any(c => shas.Contains(c.Sha));
+            }
+            catch (Exception)
+            {
+                return true; // keep the previous behaviour: classified by its commits
+            }
+        }
+
         /// <summary>
         /// The project directory relative to the repository root ("/" separators), resolving symbolic links when the
         /// project is reached through a link into the repository; a "../"-path when it is outside the repository.
@@ -1539,7 +1563,9 @@ namespace Mister.Version.Core.Services
         /// </summary>
         private VersionResult CreateSkipVersionResult(VersionOptions options, string kind)
         {
-            var baseVersion = options.BaseVersion;
+            // A configured base version is applied by the build to non-packable projects only: test projects keep
+            // their own version (the MSBuild targets do not version them at all)
+            var baseVersion = kind == "Test project" ? null : options.BaseVersion;
             string skipVersion;
             string reason;
             if (!string.IsNullOrEmpty(baseVersion))

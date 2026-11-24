@@ -324,7 +324,7 @@ namespace Mister.Version.Tests
         }
 
         [Fact]
-        public void UnflowedClosure_FollowsOnlyCertainGeneratorAndPrivateEdges()
+        public void UnflowedClosure_FollowsGeneratorAndPrivateEdgesInAnyTargetFramework()
         {
             Lib("Gen");
             Lib("GenHelper");
@@ -332,18 +332,20 @@ namespace Mister.Version.Tests
             Lib("MaybeNet472");
             Lib("Normal");
             Write("src/Gen/Gen.csproj", Project("<ProjectReference Include=\"../GenHelper/GenHelper.csproj\" />"));
-            var lib = Write("src/Lib/Lib.csproj", Project(
+            var lib = Write("src/Lib/Lib.csproj",
+                "<Project Sdk=\"Microsoft.NET.Sdk\"><PropertyGroup><TargetFrameworks>net472;net8.0</TargetFrameworks></PropertyGroup><ItemGroup>" +
                 "<ProjectReference Include=\"../Gen/Gen.csproj\" OutputItemType=\"Analyzer\" ReferenceOutputAssembly=\"false\" />" +
                 "<ProjectReference Include=\"../Priv/Priv.csproj\" PrivateAssets=\"all\" />" +
                 "<ProjectReference Include=\"../Normal/Normal.csproj\" />" +
-                "<ProjectReference Include=\"../MaybeNet472/MaybeNet472.csproj\" ReferenceOutputAssembly=\"false\" Condition=\"'$(TargetFramework)' == 'net472'\" />"));
+                "<ProjectReference Include=\"../MaybeNet472/MaybeNet472.csproj\" ReferenceOutputAssembly=\"false\" Condition=\"'$(TargetFramework)' == 'net472'\" />" +
+                "</ItemGroup></Project>");
 
             var added = ProjectReferenceReader.GetUnflowedReferenceClosure(new[] { lib })
                 .Select(p => Path.GetFileNameWithoutExtension(p))
                 .OrderBy(n => n, StringComparer.Ordinal)
                 .ToArray();
-            // Normal is NuGet's job; MaybeNet472 depends on the target framework
-            Assert.Equal(new[] { "Gen", "GenHelper", "Priv" }, added);
+            // Normal is NuGet's job; MaybeNet472 applies to one target framework, and a version is per project
+            Assert.Equal(new[] { "Gen", "GenHelper", "MaybeNet472", "Priv" }, added);
         }
 
         [Fact]

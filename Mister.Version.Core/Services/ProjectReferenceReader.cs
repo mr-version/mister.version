@@ -111,6 +111,8 @@ namespace Mister.Version.Core.Services
         {
             public List<Tuple<string, DateTime, long>> Stamps;
             public ProjectEvaluation Evaluation;
+            /// <summary>The validation scope (e.g. one MSBuild build) in which the stamps were last checked.</summary>
+            public object ValidatedScope;
         }
 
         /// <summary>Clears the in-memory caches (tests).</summary>
@@ -169,13 +171,21 @@ namespace Mister.Version.Core.Services
         }
 
         /// <summary>
-        /// The projects a build depends on that NuGet's restore closure (project.assets.json) leaves out: given the
-        /// closure MSBuild/NuGet report (<paramref name="buildClosure"/>), follows from each of those projects only its
-        /// ReferenceOutputAssembly="false" and PrivateAssets="all" references - edges NuGet does not record or flow -
-        /// and below the projects reached that way, every reference. Only references whose conditions are certain are
-        /// followed, so this never adds an edge MSBuild might not have.
+        /// The projects a build depends on that NuGet's restore closure (project.assets.json) leaves out. NuGet does
+        /// not record ReferenceOutputAssembly="false" references (source generators, analyzers, build-order
+        /// references) and does not flow PrivateAssets="all" references to consumers, so: from each project of the
+        /// build closure (<paramref name="buildClosure"/>, which should include the project itself), follow those
+        /// references, and below the projects reached that way, every reference. Conditions are not required to be
+        /// certain: a version is per project, so a reference that applies to any target framework or configuration
+        /// counts (otherwise the outer build and each target framework would get different versions). Ordinary
+        /// references of the build closure are left to NuGet's closure, which already holds the union over target
+        /// frameworks.
         /// </summary>
-        public static List<string> GetUnflowedReferenceClosure(IEnumerable<string> buildClosure, Action<string, string> logger = null)
+        /// <param name="validationScope">
+        /// When given, a cached evaluation already checked in this scope is reused without checking its files
+        /// again (the MSBuild task passes one object per build).
+        /// </param>
+        public static List<string> GetUnflowedReferenceClosure(IEnumerable<string> buildClosure, object validationScope = null, Action<string, string> logger = null)
         {
             var known = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
             var outside = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
@@ -193,14 +203,14 @@ namespace Mister.Version.Core.Services
             while (queue.Count > 0)
             {
                 var current = queue.Dequeue();
-                var evaluation = Evaluate(current, logger);
+                var evaluation = Evaluate(current, logger, validationScope);
                 if (evaluation == null)
                     continue;
 
                 var belowUnflowedEdge = outside.Contains(current);
                 foreach (var item in evaluation.ReferenceItems)
                 {
-                    if (!item.Certain || !(belowUnflowedEdge || item.NoOutputAssembly || item.PrivateAssetsAll))
+                    if (!(belowUnflowedEdge || item.NoOutputAssembly || item.PrivateAssetsAll))
                         continue;
                     if (known.Add(item.Path))
                     {
@@ -219,7 +229,9 @@ namespace Mister.Version.Core.Services
         /// the files it depends on changed (including files that were looked for and not found). Returns null when the
         /// project file does not exist.
         /// </summary>
-        public static ProjectEvaluation Evaluate(string projectPath, Action<string, string> logger = null)
+        public static ProjectEvaluation Evaluate(string projectPath, Action<string, string> logger = null) => Evaluate(projectPath, logger, null);
+
+        private static ProjectEvaluation Evaluate(string projectPath, Action<string, string> logger, object validationScope)
         {
             if (string.IsNullOrEmpty(projectPath))
                 return null;
@@ -228,8 +240,16 @@ namespace Mister.Version.Core.Services
             if (!File.Exists(fullPath))
                 return null;
 
-            if (Cache.TryGetValue(fullPath, out var cached) && IsCurrent(cached.Stamps))
-                return cached.Evaluation;
+            if (Cache.TryGetValue(fullPath, out var cached))
+            {
+                if (validationScope != null && ReferenceEquals(cached.ValidatedScope, validationScope))
+                    return cached.Evaluation;
+                if (IsCurrent(cached.Stamps))
+                {
+                    cached.ValidatedScope = validationScope;
+                    return cached.Evaluation;
+                }
+            }
 
             ProjectEvaluation evaluation;
             try
@@ -249,7 +269,8 @@ namespace Mister.Version.Core.Services
             Cache[fullPath] = new CachedEvaluation
             {
                 Evaluation = evaluation,
-                Stamps = evaluation.Dependencies.Distinct(StringComparer.OrdinalIgnoreCase).Select(Stamp).ToList()
+                Stamps = evaluation.Dependencies.Distinct(StringComparer.OrdinalIgnoreCase).Select(Stamp).ToList(),
+                ValidatedScope = validationScope
             };
             return evaluation;
         }
