@@ -10,6 +10,17 @@ public class VersionResult
 {
     public string Version { get; set; }
     public SemVer SemVer { get; set; }
+
+    /// <summary>
+    /// True when the project was not versioned (test project, or non-packable with SkipNonPackableProjects).
+    /// </summary>
+    public bool Skipped { get; set; }
+
+    /// <summary>
+    /// For skipped projects: whether <see cref="Version"/> comes from a configured base version (otherwise it
+    /// is only a placeholder and callers should keep the project's own version).
+    /// </summary>
+    public bool SkippedWithConfiguredVersion { get; set; }
     public bool VersionChanged { get; set; }
     public string ChangeReason { get; set; }
     public string CommitSha { get; set; }

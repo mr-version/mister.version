@@ -191,7 +191,7 @@ namespace Mister.Version.Core.Services
                 }
 
                 // Find ProjectReference elements
-                var matches = Regex.Matches(projectContent, PATTERN_PROJECT_REFERENCE, RegexOptions.IgnoreCase);
+                var matches = Regex.Matches(projectContent, PATTERN_PROJECT_REFERENCE, RegexOptions.IgnoreCase | RegexOptions.CultureInvariant);
                 
                 foreach (Match match in matches)
                 {
@@ -368,27 +368,27 @@ namespace Mister.Version.Core.Services
         private bool IsTestProject(string projectContent)
         {
             // Check for explicit test project marker
-            if (Regex.IsMatch(projectContent, PATTERN_IS_TEST_PROJECT, RegexOptions.IgnoreCase))
+            if (Regex.IsMatch(projectContent, PATTERN_IS_TEST_PROJECT, RegexOptions.IgnoreCase | RegexOptions.CultureInvariant))
             {
                 return true;
             }
 
             // Check for common test frameworks
             return TEST_FRAMEWORKS.Any(framework =>
-                Regex.IsMatch(projectContent, string.Format(PATTERN_PACKAGE_REFERENCE, Regex.Escape(framework)), RegexOptions.IgnoreCase));
+                Regex.IsMatch(projectContent, string.Format(PATTERN_PACKAGE_REFERENCE, Regex.Escape(framework)), RegexOptions.IgnoreCase | RegexOptions.CultureInvariant));
         }
 
         private bool IsPackable(string projectContent)
         {
             // Check for explicit IsPackable setting
-            var isPackableMatch = Regex.Match(projectContent, PATTERN_IS_PACKABLE, RegexOptions.IgnoreCase);
+            var isPackableMatch = Regex.Match(projectContent, PATTERN_IS_PACKABLE, RegexOptions.IgnoreCase | RegexOptions.CultureInvariant);
             if (isPackableMatch.Success)
             {
                 return string.Equals(isPackableMatch.Groups[1].Value, "true", StringComparison.OrdinalIgnoreCase);
             }
 
             // Check project type - some types are not packable by default
-            if (Regex.IsMatch(projectContent, @"<OutputType\s*>\s*Exe\s*</OutputType>", RegexOptions.IgnoreCase))
+            if (Regex.IsMatch(projectContent, @"<OutputType\s*>\s*Exe\s*</OutputType>", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant))
             {
                 // Console applications are typically not packable unless explicitly set
                 return false;

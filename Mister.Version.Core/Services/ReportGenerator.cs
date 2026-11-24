@@ -54,7 +54,7 @@ namespace Mister.Version.Core.Services
 
         public string GenerateReport(VersionReport report, ReportOptions options)
         {
-            return options.OutputFormat.ToLower() switch
+            return options.OutputFormat.ToLowerInvariant() switch
             {
                 "json" => GenerateJsonReport(report, options),
                 "csv" => GenerateCsvReport(report, options),
@@ -332,7 +332,7 @@ namespace Mister.Version.Core.Services
                 filteredProjects = filteredProjects.Where(p => p.Version?.VersionChanged == true).ToList();
             }
 
-            return options.GraphFormat.ToLower() switch
+            return options.GraphFormat.ToLowerInvariant() switch
             {
                 "dot" => GenerateDotGraph(filteredProjects, options),
                 "ascii" => GenerateAsciiGraph(filteredProjects, options),
