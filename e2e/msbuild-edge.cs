@@ -141,7 +141,8 @@ try
         Check(CliVersion(r, "src/a/Utils/Utils.csproj") == "1.0.0", "CLI: a/Utils 1.0.0");
         Check(CliVersion(r, "src/b/Utils/Utils.csproj") == "1.0.1", "CLI: b/Utils 1.0.1");
         var report = Cli(r, "report", "-r", ".", "-o", "json");
-        Check(report.ExitCode == 0 && report.Output.Contains("src/a/Utils") && report.Output.Contains("src/b/Utils"), "CLI report lists both Utils projects");
+        var utilsEntries = System.Text.RegularExpressions.Regex.Matches(report.Output, "\"name\":\\s*\"Utils\"").Count;
+        Check(report.ExitCode == 0 && utilsEntries == 2, $"CLI report lists both Utils projects (found {utilsEntries})");
     });
 
     Scenario("submodule-reference", () =>
