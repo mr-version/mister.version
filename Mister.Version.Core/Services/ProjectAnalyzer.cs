@@ -3,6 +3,8 @@ using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using System.Text.RegularExpressions;
+using System.Xml;
+using System.Xml.Linq;
 using Mister.Version.Core.Models;
 
 namespace Mister.Version.Core.Services
@@ -16,23 +18,30 @@ namespace Mister.Version.Core.Services
         void BuildDependencyGraph(List<ProjectInfo> projects);
     }
 
+    /// <summary>
+    /// Project kind as MSBuild would evaluate it (IsTestProject / IsPackable).
+    /// </summary>
+    public sealed class ProjectTypeInfo
+    {
+        public bool IsTestProject { get; set; }
+        public bool IsPackable { get; set; } = true;
+    }
+
     public class ProjectAnalyzer : IProjectAnalyzer
     {
         // Regex patterns for project file parsing
         private const string PATTERN_PROJECT_REFERENCE = @"<ProjectReference\s+Include\s*=\s*""([^""]+)""";
-        private const string PATTERN_IS_TEST_PROJECT = @"<IsTestProject\s*>\s*true\s*</IsTestProject>";
+        private const string PATTERN_IS_TEST_PROJECT = @"<IsTestProject\s*>\s*(true|false)\s*</IsTestProject>";
         private const string PATTERN_IS_PACKABLE = @"<IsPackable\s*>\s*(true|false)\s*</IsPackable>";
-        private const string PATTERN_PACKAGE_REFERENCE = @"<PackageReference[^>]+Include\s*=\s*""{0}""";
+        private const string PATTERN_TEST_SDK_REFERENCE = @"<PackageReference[^>]+Include\s*=\s*""Microsoft\.NET\.Test\.Sdk""";
 
-        // Test framework names
-        private static readonly string[] TEST_FRAMEWORKS = new[]
-        {
-            "Microsoft.NET.Test.Sdk",
-            "xunit",
-            "NUnit",
-            "MSTest",
-            "MSTest.TestFramework"
-        };
+        /// <summary>
+        /// The package whose build props set IsTestProject=true (test framework packages such as xunit, NUnit or
+        /// MSTest.TestFramework do not, so a library referencing only those is not a test project).
+        /// </summary>
+        private const string TEST_SDK_PACKAGE = "Microsoft.NET.Test.Sdk";
+
+        private const string DIRECTORY_BUILD_PROPS = "Directory.Build.props";
 
         private readonly IVersionCalculator _versionCalculator;
         private readonly IGitService _gitService;
@@ -105,64 +114,87 @@ namespace Mister.Version.Core.Services
 
         public ProjectInfo AnalyzeProject(string projectPath, string repositoryPath, VersionOptions additionalOptions)
         {
+            return AnalyzeProjectWith(projectPath, repositoryPath, (path, projectType, transitiveDependencies) =>
+            {
+                var versionOptions = new VersionOptions
+                {
+                    RepoRoot = repositoryPath,
+                    ProjectPath = path,
+                    ProjectName = Path.GetFileNameWithoutExtension(path),
+                    Dependencies = transitiveDependencies,
+                    IsTestProject = projectType.IsTestProject,
+                    IsPackable = projectType.IsPackable,
+                    BaseVersion = additionalOptions?.BaseVersion
+                };
+
+                // Apply additional options if provided
+                if (additionalOptions != null)
+                {
+                    versionOptions.PrereleaseType = additionalOptions.PrereleaseType;
+                    versionOptions.Debug = additionalOptions.Debug;
+                    versionOptions.TagPrefix = additionalOptions.TagPrefix;
+                    versionOptions.ForceVersion = additionalOptions.ForceVersion;
+
+                    // Override dependencies if provided in additional options
+                    if (additionalOptions.Dependencies != null && additionalOptions.Dependencies.Count > 0)
+                    {
+                        versionOptions.Dependencies = additionalOptions.Dependencies;
+                    }
+                }
+
+                return _versionCalculator.CalculateVersion(versionOptions);
+            });
+        }
+
+        /// <summary>
+        /// Analyzes a project (type, direct and transitive dependencies) and obtains its version from
+        /// <paramref name="calculateVersion"/>, which receives the project path, its type and its transitive
+        /// dependencies (full paths). Lets callers compute versions exactly like the MSBuild task does
+        /// (through <see cref="VersioningService"/>).
+        /// </summary>
+        public ProjectInfo AnalyzeProjectWith(string projectPath, string repositoryPath, Func<string, ProjectTypeInfo, List<string>, VersionResult> calculateVersion)
+        {
             if (!File.Exists(projectPath))
             {
                 _logger("Error", $"Project file does not exist: {projectPath}");
                 return null;
             }
 
-            var projectContent = File.ReadAllText(projectPath);
             var projectName = Path.GetFileNameWithoutExtension(projectPath);
-
-            // Extract project properties
-            var isTestProject = IsTestProject(projectContent);
-            var isPackable = IsPackable(projectContent);
+            var projectType = DetectProjectType(projectPath, repositoryPath);
 
             // Get dependencies (including transitive)
             var dependencies = GetProjectDependencies(projectPath, repositoryPath);
             var transitiveDependencies = GetTransitiveDependencies(projectPath, repositoryPath, dependencies);
 
-            // Calculate version using the version calculator
-            var versionOptions = new VersionOptions
-            {
-                RepoRoot = repositoryPath,
-                ProjectPath = projectPath,
-                ProjectName = projectName,
-                Dependencies = transitiveDependencies,
-                IsTestProject = isTestProject,
-                IsPackable = isPackable,
-                BaseVersion = additionalOptions?.BaseVersion
-            };
+            var versionResult = calculateVersion(projectPath, projectType, transitiveDependencies);
 
-            // Apply additional options if provided
-            if (additionalOptions != null)
-            {
-                versionOptions.PrereleaseType = additionalOptions.PrereleaseType;
-                versionOptions.Debug = additionalOptions.Debug;
-                versionOptions.TagPrefix = additionalOptions.TagPrefix;
-                versionOptions.ForceVersion = additionalOptions.ForceVersion;
-
-                // Override dependencies if provided in additional options
-                if (additionalOptions.Dependencies != null && additionalOptions.Dependencies.Count > 0)
-                {
-                    versionOptions.Dependencies = additionalOptions.Dependencies;
-                }
-            }
-
-            var versionResult = _versionCalculator.CalculateVersion(versionOptions);
-
-            var projectInfo = new ProjectInfo
+            return new ProjectInfo
             {
                 Name = projectName,
                 Path = PathUtils.GetRelativePath(repositoryPath, projectPath),
                 FullPath = projectPath,
                 Version = versionResult,
                 DirectDependencies = dependencies.Select(d => Path.GetFileNameWithoutExtension(d)).ToList(),
-                IsTestProject = isTestProject,
-                IsPackable = isPackable
+                IsTestProject = projectType.IsTestProject,
+                IsPackable = projectType.IsPackable
             };
+        }
 
-            return projectInfo;
+        /// <summary>
+        /// Direct and transitive ProjectReferences of a project (full paths), resolved by parsing project files.
+        /// </summary>
+        public List<string> GetTransitiveDependencies(string projectPath, string repositoryPath)
+        {
+            return GetTransitiveDependencies(projectPath, repositoryPath, GetProjectDependencies(projectPath, repositoryPath));
+        }
+
+        /// <summary>
+        /// All project files (*.csproj, *.fsproj, *.vbproj) under <paramref name="repositoryPath"/>.
+        /// </summary>
+        public List<string> FindAllProjects(string repositoryPath)
+        {
+            return DiscoverAllProjects(repositoryPath);
         }
 
         public List<string> GetProjectDependencies(string projectPath, string repositoryPath)
@@ -365,37 +397,249 @@ namespace Mister.Version.Core.Services
             return result;
         }
 
-        private bool IsTestProject(string projectContent)
+        /// <summary>
+        /// Whether a project file (content only, without Directory.Build.props) is a test project:
+        /// &lt;IsTestProject&gt;true&lt;/IsTestProject&gt;, or a reference to Microsoft.NET.Test.Sdk (whose build props set
+        /// IsTestProject=true) not overridden by &lt;IsTestProject&gt;false&lt;/IsTestProject&gt;.
+        /// </summary>
+        public static bool IsTestProject(string projectContent)
         {
-            // Check for explicit test project marker
-            if (Regex.IsMatch(projectContent, PATTERN_IS_TEST_PROJECT, RegexOptions.IgnoreCase | RegexOptions.CultureInvariant))
-            {
-                return true;
-            }
-
-            // Check for common test frameworks
-            return TEST_FRAMEWORKS.Any(framework =>
-                Regex.IsMatch(projectContent, string.Format(PATTERN_PACKAGE_REFERENCE, Regex.Escape(framework)), RegexOptions.IgnoreCase | RegexOptions.CultureInvariant));
+            return Evaluate(Enumerable.Empty<ProjectFileFacts>(), ReadFacts(projectContent)).IsTestProject;
         }
 
-        private bool IsPackable(string projectContent)
+        /// <summary>
+        /// Whether a project file (content only, without Directory.Build.props) is packable. As in the .NET SDK,
+        /// every project (console apps included) is packable unless &lt;IsPackable&gt;false&lt;/IsPackable&gt;; test projects
+        /// default to not packable (NuGet's pack targets).
+        /// </summary>
+        public static bool IsPackable(string projectContent)
         {
-            // Check for explicit IsPackable setting
-            var isPackableMatch = Regex.Match(projectContent, PATTERN_IS_PACKABLE, RegexOptions.IgnoreCase | RegexOptions.CultureInvariant);
-            if (isPackableMatch.Success)
+            return Evaluate(Enumerable.Empty<ProjectFileFacts>(), ReadFacts(projectContent)).IsPackable;
+        }
+
+        /// <summary>
+        /// Determines IsTestProject / IsPackable the way MSBuild evaluates them, approximated without MSBuild:
+        /// unconditional properties from the Directory.Build.props files that apply to the project (the nearest one,
+        /// plus the ones it imports further up, never above <paramref name="repositoryRoot"/>), then the
+        /// Microsoft.NET.Test.Sdk package props, then the project file itself; last value wins. Conditional
+        /// properties and items are ignored because they cannot be evaluated here.
+        /// </summary>
+        public static ProjectTypeInfo DetectProjectType(string projectPath, string repositoryRoot = null)
+        {
+            var propsFacts = new List<ProjectFileFacts>();
+            foreach (var propsFile in GetDirectoryBuildPropsChain(projectPath, repositoryRoot))
             {
-                return string.Equals(isPackableMatch.Groups[1].Value, "true", StringComparison.OrdinalIgnoreCase);
+                propsFacts.Add(ReadFacts(SafeReadAllText(propsFile)));
             }
 
-            // Check project type - some types are not packable by default
-            if (Regex.IsMatch(projectContent, @"<OutputType\s*>\s*Exe\s*</OutputType>", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant))
+            return Evaluate(propsFacts, ReadFacts(SafeReadAllText(projectPath)));
+        }
+
+        /// <summary>
+        /// Directory.Build.props files that MSBuild imports for a project, outermost first: the nearest one walking
+        /// up from the project directory, and its ancestors as long as each one imports the next one up.
+        /// The search stops at <paramref name="repositoryRoot"/> when given.
+        /// </summary>
+        internal static List<string> GetDirectoryBuildPropsChain(string projectPath, string repositoryRoot)
+        {
+            var chain = new List<string>();
+            var directory = Path.GetDirectoryName(Path.GetFullPath(projectPath));
+            var root = string.IsNullOrEmpty(repositoryRoot) ? null : TrimDirectory(Path.GetFullPath(repositoryRoot));
+
+            while (!string.IsNullOrEmpty(directory))
             {
-                // Console applications are typically not packable unless explicitly set
+                var candidate = Path.Combine(directory, DIRECTORY_BUILD_PROPS);
+                if (File.Exists(candidate))
+                {
+                    chain.Add(candidate);
+                    if (!ImportsParentDirectoryBuildProps(SafeReadAllText(candidate)))
+                    {
+                        break;
+                    }
+                }
+
+                if (root != null && string.Equals(TrimDirectory(directory), root, StringComparison.OrdinalIgnoreCase))
+                {
+                    break;
+                }
+
+                directory = Path.GetDirectoryName(directory);
+            }
+
+            chain.Reverse();
+            return chain;
+        }
+
+        private sealed class ProjectFileFacts
+        {
+            public bool? IsTestProject { get; set; }
+            public bool? IsPackable { get; set; }
+            public bool ReferencesTestSdk { get; set; }
+        }
+
+        private static ProjectTypeInfo Evaluate(IEnumerable<ProjectFileFacts> directoryBuildProps, ProjectFileFacts project)
+        {
+            bool? isTestProject = null;
+            bool? isPackable = null;
+            var referencesTestSdk = project.ReferencesTestSdk;
+
+            foreach (var props in directoryBuildProps)
+            {
+                isTestProject = props.IsTestProject ?? isTestProject;
+                isPackable = props.IsPackable ?? isPackable;
+                referencesTestSdk |= props.ReferencesTestSdk;
+            }
+
+            // NuGet package props are imported after Directory.Build.props and before the project body
+            if (referencesTestSdk)
+            {
+                isTestProject = true;
+            }
+
+            isTestProject = project.IsTestProject ?? isTestProject;
+            isPackable = project.IsPackable ?? isPackable;
+
+            var test = isTestProject ?? false;
+            return new ProjectTypeInfo
+            {
+                IsTestProject = test,
+                // NuGet.Build.Tasks.Pack.targets: IsPackable defaults to false for test projects, true otherwise
+                IsPackable = isPackable ?? !test
+            };
+        }
+
+        private static ProjectFileFacts ReadFacts(string content)
+        {
+            var facts = new ProjectFileFacts();
+            if (string.IsNullOrWhiteSpace(content))
+            {
+                return facts;
+            }
+
+            XElement root;
+            try
+            {
+                root = XDocument.Parse(content).Root;
+            }
+            catch (XmlException)
+            {
+                return ReadFactsWithRegex(content);
+            }
+
+            if (root == null)
+            {
+                return facts;
+            }
+
+            foreach (var group in root.Elements().Where(e => !HasCondition(e)))
+            {
+                if (NameIs(group, "PropertyGroup"))
+                {
+                    foreach (var property in group.Elements().Where(e => !HasCondition(e)))
+                    {
+                        if (NameIs(property, "IsTestProject"))
+                        {
+                            facts.IsTestProject = ParseBool(property.Value) ?? facts.IsTestProject;
+                        }
+                        else if (NameIs(property, "IsPackable"))
+                        {
+                            facts.IsPackable = ParseBool(property.Value) ?? facts.IsPackable;
+                        }
+                    }
+                }
+                else if (NameIs(group, "ItemGroup"))
+                {
+                    foreach (var item in group.Elements().Where(e => !HasCondition(e) && NameIs(e, "PackageReference")))
+                    {
+                        var include = (string)item.Attribute("Include") ?? string.Empty;
+                        if (include.Split(';').Any(p => string.Equals(p.Trim(), TEST_SDK_PACKAGE, StringComparison.OrdinalIgnoreCase)))
+                        {
+                            facts.ReferencesTestSdk = true;
+                        }
+                    }
+                }
+            }
+
+            return facts;
+        }
+
+        private static ProjectFileFacts ReadFactsWithRegex(string content)
+        {
+            const RegexOptions options = RegexOptions.IgnoreCase | RegexOptions.CultureInvariant;
+            var facts = new ProjectFileFacts
+            {
+                ReferencesTestSdk = Regex.IsMatch(content, PATTERN_TEST_SDK_REFERENCE, options)
+            };
+
+            var isTestProject = Regex.Matches(content, PATTERN_IS_TEST_PROJECT, options).Cast<Match>().LastOrDefault();
+            if (isTestProject != null)
+            {
+                facts.IsTestProject = ParseBool(isTestProject.Groups[1].Value);
+            }
+
+            var isPackable = Regex.Matches(content, PATTERN_IS_PACKABLE, options).Cast<Match>().LastOrDefault();
+            if (isPackable != null)
+            {
+                facts.IsPackable = ParseBool(isPackable.Groups[1].Value);
+            }
+
+            return facts;
+        }
+
+        private static bool ImportsParentDirectoryBuildProps(string content)
+        {
+            if (string.IsNullOrWhiteSpace(content))
+            {
                 return false;
             }
 
-            // Default to packable for library projects
-            return true;
+            try
+            {
+                var root = XDocument.Parse(content).Root;
+                return root != null && root.Descendants()
+                    .Where(e => NameIs(e, "Import"))
+                    .Any(e => ((string)e.Attribute("Project") ?? string.Empty).IndexOf(DIRECTORY_BUILD_PROPS, StringComparison.OrdinalIgnoreCase) >= 0);
+            }
+            catch (XmlException)
+            {
+                return false;
+            }
+        }
+
+        private static bool NameIs(XElement element, string name) =>
+            string.Equals(element.Name.LocalName, name, StringComparison.OrdinalIgnoreCase);
+
+        private static bool HasCondition(XElement element) =>
+            element.Attributes().Any(a => string.Equals(a.Name.LocalName, "Condition", StringComparison.OrdinalIgnoreCase) &&
+                                          !string.IsNullOrWhiteSpace(a.Value));
+
+        private static bool? ParseBool(string value)
+        {
+            var trimmed = value?.Trim();
+            if (string.Equals(trimmed, "true", StringComparison.OrdinalIgnoreCase))
+                return true;
+            if (string.Equals(trimmed, "false", StringComparison.OrdinalIgnoreCase))
+                return false;
+            return null; // e.g. $(SomeProperty): cannot be evaluated here
+        }
+
+        private static string TrimDirectory(string path) =>
+            path.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
+
+        private static string SafeReadAllText(string path)
+        {
+            try
+            {
+                return File.ReadAllText(path);
+            }
+            catch (IOException)
+            {
+                return null;
+            }
+            catch (UnauthorizedAccessException)
+            {
+                return null;
+            }
         }
     }
 }
