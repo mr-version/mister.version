@@ -561,6 +561,11 @@ public class MonoRepoVersionTask : Task
                 }
             }
             
+            if (GenerateChangelog && !string.IsNullOrEmpty(Version))
+            {
+                WriteChangelog(gitRepoRoot, versionResult.ProjectName, logger);
+            }
+
             // Create git tag if requested
             if (CreateTag && !string.IsNullOrEmpty(Version))
             {
@@ -578,6 +583,78 @@ public class MonoRepoVersionTask : Task
         {
             Log.LogErrorFromException(ex, true);
             return false;
+        }
+    }
+
+    /// <summary>
+    /// Generates the project's changelog (commits since the previous version tag that touch the project
+    /// directory) and writes it to <see cref="ChangelogOutputPath"/> (relative to the project directory).
+    /// The file is only rewritten when its content changes.
+    /// </summary>
+    private void WriteChangelog(string gitRepoRoot, string projectName, Action<string, string> logger)
+    {
+        try
+        {
+            var config = ConfigurationService.LoadConfiguration(ConfigFile, gitRepoRoot, logger);
+            var changelogConfig = config?.Changelog ?? new ChangelogConfig { Enabled = true };
+            changelogConfig.RepositoryUrl = string.IsNullOrEmpty(ChangelogRepositoryUrl) ? changelogConfig.RepositoryUrl : ChangelogRepositoryUrl;
+            changelogConfig.IncludeAuthors = changelogConfig.IncludeAuthors || ChangelogIncludeAuthors;
+
+            var conventions = config?.CommitConventions ?? new ConventionalCommitConfig
+            {
+                Enabled = true,
+                MajorPatterns = SplitPatterns(MajorPatterns),
+                MinorPatterns = SplitPatterns(MinorPatterns),
+                PatchPatterns = SplitPatterns(PatchPatterns),
+                IgnorePatterns = SplitPatterns(IgnorePatterns)
+            };
+            if (conventions.MajorPatterns == null || conventions.MajorPatterns.Count == 0)
+            {
+                conventions = new ConventionalCommitConfig { Enabled = true };
+            }
+
+            var projectDirectory = Path.GetDirectoryName(Path.GetFullPath(ProjectPath));
+            var relativeDirectory = PathUtilsForTask.GetRelativePath(gitRepoRoot, projectDirectory);
+
+            string output;
+            using (var repo = new LibGit2Sharp.Repository(gitRepoRoot))
+            {
+                var range = ChangelogRange.Resolve(repo, repo.Head?.Tip, TagPrefix, projectName, relativeDirectory, excludeTagsOnTarget: true);
+                var generator = new ChangelogGenerator(new ConventionalCommitAnalyzer());
+                var changelog = generator.GenerateChangelog(range.Commits, Version, range.FromVersion, changelogConfig, conventions, projectName);
+
+                switch ((ChangelogFormat ?? "markdown").ToLowerInvariant())
+                {
+                    case "text":
+                    case "txt":
+                        output = generator.FormatAsText(changelog, changelogConfig);
+                        break;
+                    case "json":
+                        output = generator.FormatAsJson(changelog);
+                        break;
+                    default:
+                        output = generator.FormatAsMarkdown(changelog, changelogConfig);
+                        break;
+                }
+            }
+
+            var outputPath = Path.Combine(projectDirectory, string.IsNullOrEmpty(ChangelogOutputPath) ? "CHANGELOG.md" : ChangelogOutputPath);
+            if (File.Exists(outputPath) && File.ReadAllText(outputPath) == output)
+            {
+                return;
+            }
+
+            var outputDirectory = Path.GetDirectoryName(outputPath);
+            if (!string.IsNullOrEmpty(outputDirectory))
+            {
+                Directory.CreateDirectory(outputDirectory);
+            }
+            File.WriteAllText(outputPath, output);
+            Log.LogMessage(MessageImportance.Normal, $"[Mister.Version] Changelog written to {outputPath}");
+        }
+        catch (Exception ex)
+        {
+            Log.LogWarning($"[Mister.Version] Failed to generate changelog: {ex.Message}");
         }
     }
 
@@ -719,6 +796,23 @@ public class MonoRepoVersionTask : Task
         return sb.ToString();
     }
 
+    private static List<string> SplitPatterns(string value) =>
+        string.IsNullOrWhiteSpace(value)
+            ? new List<string>()
+            : value.Split(new[] { ';' }, StringSplitOptions.RemoveEmptyEntries).Select(p => p.Trim()).Where(p => p.Length > 0).ToList();
+
     private static string NormalizeForKey(string path) => path?.Replace('\\', '/');
 
+}
+
+internal static class PathUtilsForTask
+{
+    public static string GetRelativePath(string relativeTo, string path)
+    {
+#if NET472
+        return Mister.Version.Core.PathUtils.GetRelativePath(relativeTo, path);
+#else
+        return Path.GetRelativePath(relativeTo, path);
+#endif
+    }
 }
