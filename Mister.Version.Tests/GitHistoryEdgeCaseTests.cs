@@ -190,6 +190,79 @@ namespace Mister.Version.Tests
             Assert.Equal("1.0.0", Version(Conventional));
         }
 
+        private void MergeTopic(string mergeMessage, params string[] topicCommits)
+        {
+            _repo.ApplyTag("v1.0.0");
+            var main = _repo.Head;
+            var topic = _repo.CreateBranch("topic");
+            Commands.Checkout(_repo, topic);
+            foreach (var message in topicCommits)
+                Change(message);
+            Commands.Checkout(_repo, main);
+            Write("other.txt", Guid.NewGuid().ToString());
+            Commit("docs: unrelated");
+            var merged = _repo.Merge(topic, _sig, new MergeOptions { FastForwardStrategy = FastForwardStrategy.NoFastForward, CommitOnSuccess = false });
+            Assert.NotEqual(MergeStatus.Conflicts, merged.Status);
+            _repo.Commit(mergeMessage, _sig, _sig);
+        }
+
+        [Theory]
+        [InlineData("feat: add login (#12)", "1.1.0")]
+        [InlineData("feat!: drop legacy auth (#13)", "2.0.0")]
+        [InlineData("Merge pull request #12 from contoso/login\n\nfeat: add login", "1.1.0")]
+        [InlineData("Merged PR 12: feat: add login", "1.1.0")]
+        [InlineData("Merge branch 'topic'", "1.0.1")]
+        public void MergeCommitTitledWithThePullRequest_CarriesItsBump(string mergeMessage, string expected)
+        {
+            MergeTopic(mergeMessage, "wip", "address review comments");
+            Assert.Equal(expected, Version(Conventional));
+        }
+
+        [Fact]
+        public void ChangeBroughtOnlyByAMergeCommit_StillBumps()
+        {
+            _repo.ApplyTag("v1.0.0");
+            var main = _repo.Head;
+            var topic = _repo.CreateBranch("topic");
+            Commands.Checkout(_repo, topic);
+            Write("elsewhere.txt", "x");
+            Commit("fix: elsewhere");
+            Commands.Checkout(_repo, main);
+            Write("other.txt", "y");
+            Commit("docs: other");
+            _repo.Merge(topic, _sig, new MergeOptions { FastForwardStrategy = FastForwardStrategy.NoFastForward, CommitOnSuccess = false });
+            // The merge itself edits the project (conflict resolution / evil merge)
+            Write("src/Core/A.cs", "class A { } // resolved");
+            Commands.Stage(_repo, "*");
+            _repo.Commit("Merge branch 'topic'", _sig, _sig);
+            Assert.Equal("1.0.1", Version(Conventional));
+        }
+
+        [Theory]
+        [InlineData("[ABC-123] chore: bump deps", "1.0.0")]
+        [InlineData("[ABC-123] feat: add login", "1.1.0")]
+        [InlineData("ABC-123 feat: add login", "1.1.0")]
+        [InlineData("\u2728 feat: add login", "1.1.0")]
+        [InlineData(":sparkles: feat: add login", "1.1.0")]
+        [InlineData("BREAKING CHANGE: drop net6 support", "2.0.0")]
+        public void PrefixedSubjects_KeepTheirConventionalType(string message, string expected)
+        {
+            _repo.ApplyTag("v1.0.0");
+            Change(message);
+            Assert.Equal(expected, Version(Conventional));
+        }
+
+        [Fact]
+        public void ProjectWithAnotherFileExtension_BumpsWhenItsDirectoryChanges()
+        {
+            Write("src/Setup/Setup.wixproj", "<Project Sdk=\"WixToolset.Sdk/4.0.0\" />");
+            Commit("add setup");
+            _repo.ApplyTag("v1.0.0");
+            Write("src/Setup/Product.wxs", "<Wix />");
+            Commit("fix: installer");
+            Assert.Equal("1.0.1", Version(t => t.ProjectPath = Path.Combine(_root, "src", "Setup", "Setup.wixproj")));
+        }
+
         // ------------------------------------------------------------------ release tags
 
         [Fact]

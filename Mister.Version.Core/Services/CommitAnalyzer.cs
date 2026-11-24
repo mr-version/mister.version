@@ -47,9 +47,62 @@ namespace Mister.Version.Core.Services
         // Case-sensitive as the Conventional Commits spec requires, so prose such as "not a breaking change:" in a
         // description does not make a fix a major release.
         private static readonly Regex BreakingChangePattern = new Regex(
-            @"\n(?:BREAKING CHANGE|BREAKING-CHANGE):[ \t]*(?<description>[^\r\n]*)",
+            @"(?:\A|\n)(?:BREAKING CHANGE|BREAKING-CHANGE):[ \t]*(?<description>[^\r\n]*)",
             RegexOptions.Compiled
         );
+
+        // Prefixes in front of the conventional type that teams commonly add: "[ABC-123] ", "ABC-123: ", gitmoji
+        // (":sparkles: " or an emoji), Azure DevOps "Merged PR 12: "
+        private static readonly Regex SubjectPrefixPattern = new Regex(
+            @"^(?:\s*(?:\[[^\]\r\n]+\]|\(?[A-Z][A-Z0-9]+-\d+\)?:?|:[a-z0-9_+\-]+:|Merged PR \d+:|[^\w\s\[\]('""`:]+)\s*)+",
+            RegexOptions.Compiled | RegexOptions.CultureInvariant
+        );
+
+        // Merge commits whose own subject says nothing; GitHub puts the pull request title in the body
+        private static readonly Regex GenericMergeSubjectPattern = new Regex(
+            @"^Merge (?:pull request|branch|remote-tracking branch|commit|tag)\b",
+            RegexOptions.Compiled | RegexOptions.CultureInvariant
+        );
+
+        /// <summary>
+        /// The message with its subject reduced to what conventional-commit parsing should see: for a generic
+        /// "Merge pull request #12 from ..." the pull request title from the body, and without ticket, gitmoji or
+        /// "Merged PR 12:" prefixes. The body is kept (for "BREAKING CHANGE:" footers).
+        /// </summary>
+        public static string GetEffectiveMessage(string message)
+        {
+            if (string.IsNullOrEmpty(message))
+                return message ?? string.Empty;
+
+            var normalized = message.Replace("\r\n", "\n");
+            var newline = normalized.IndexOf('\n');
+            var subject = newline >= 0 ? normalized.Substring(0, newline) : normalized;
+            var body = newline >= 0 ? normalized.Substring(newline + 1) : string.Empty;
+
+            if (GenericMergeSubjectPattern.IsMatch(subject))
+            {
+                var title = body.Split('\n').Select(l => l.Trim()).FirstOrDefault(l => l.Length > 0);
+                if (title != null)
+                {
+                    subject = title;
+                }
+            }
+
+            if (!subject.StartsWith("Revert ", StringComparison.Ordinal))
+            {
+                var prefix = SubjectPrefixPattern.Match(subject);
+                if (prefix.Success && prefix.Length < subject.Length)
+                {
+                    subject = subject.Substring(prefix.Length);
+                }
+            }
+
+            return body.Length > 0 ? subject + "\n" + body : subject;
+        }
+
+        /// <summary>Whether a commit message has a recognizable conventional type (after <see cref="GetEffectiveMessage"/>).</summary>
+        public static bool HasConventionalType(string message) =>
+            ConventionalCommitPattern.IsMatch(GetEffectiveMessage(message ?? string.Empty));
 
         public ConventionalCommitAnalyzer(Action<string, string> logger = null)
         {
@@ -122,7 +175,7 @@ namespace Mister.Version.Core.Services
                 };
             }
 
-            var message = commit.Message ?? string.Empty;
+            var message = GetEffectiveMessage(commit.Message ?? string.Empty);
             var shortSha = commit.Sha?.Substring(0, Math.Min(7, commit.Sha.Length)) ?? "unknown";
 
             var classification = new CommitClassification
