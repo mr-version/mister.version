@@ -74,6 +74,13 @@ public class MonoRepoVersionTask : Task
     public string ProjectAssetsFile { get; set; }
 
     /// <summary>
+    /// Branch name to version as. Overrides the checked-out branch; useful for detached-HEAD CI checkouts.
+    /// When empty and HEAD is detached, the branch is taken from the CI environment (when it describes the
+    /// checked-out commit) or from a branch whose tip is HEAD.
+    /// </summary>
+    public string BranchName { get; set; }
+
+    /// <summary>
     /// When true, building outside a git repository is an error. By default it is a warning (MRV003) and the
     /// project's own version is kept, so source archives and Docker contexts without .git still build.
     /// </summary>
@@ -504,6 +511,7 @@ public class MonoRepoVersionTask : Task
                 TagPrefix = TagPrefix,
                 ForceVersion = ForceVersion,
                 Dependencies = dependencies,
+                BranchName = BranchName,
                 Debug = Debug,
                 ExtraDebug = ExtraDebug,
                 SkipTestProjects = SkipTestProjects,
@@ -554,7 +562,14 @@ public class MonoRepoVersionTask : Task
             
             if (!versionResult.Success)
             {
-                Log.LogError($"Version calculation failed: {versionResult.ErrorMessage}");
+                if (versionResult.ValidationFailed)
+                {
+                    Log.LogError(null, "MRV004", null, ProjectPath, 0, 0, 0, 0, "[Mister.Version] " + versionResult.ErrorMessage);
+                }
+                else
+                {
+                    Log.LogError($"Version calculation failed: {versionResult.ErrorMessage}");
+                }
                 return false;
             }
 

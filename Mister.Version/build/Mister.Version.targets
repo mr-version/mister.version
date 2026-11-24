@@ -23,8 +23,8 @@
   <UsingTask TaskName="Mister.Version.MonoRepoVersionTask" AssemblyFile="$(_MrVersionTaskAssembly)" />
   <UsingTask TaskName="Mister.Version.HasChangesTask" AssemblyFile="$(_MrVersionTaskAssembly)" />
 
-  <!-- Test projects are never versioned -->
-  <PropertyGroup Condition="'$(IsTestProject)' == 'true'">
+  <!-- Test projects are not versioned unless MonoRepoSkipTestProjects=false -->
+  <PropertyGroup Condition="'$(IsTestProject)' == 'true' and '$(MonoRepoSkipTestProjects)' != 'false'">
     <MonoRepoVersioningEnabled>false</MonoRepoVersioningEnabled>
   </PropertyGroup>
 
@@ -43,7 +43,7 @@
        Version calculation
        ============================================================ -->
   <Target Name="_MonoRepoSetVersion"
-          Condition="'$(MonoRepoVersioningEnabled)' == 'true' and '$(IsTestProject)' != 'true'">
+          Condition="'$(MonoRepoVersioningEnabled)' == 'true' and ('$(IsTestProject)' != 'true' or '$(MonoRepoSkipTestProjects)' == 'false')">
 
     <ItemGroup>
       <_MonoRepoDependencies Remove="@(_MonoRepoDependencies)" />
@@ -110,6 +110,7 @@
       CacheFile="$(_MrVersionCacheFile)"
       ProjectAssetsFile="$(ProjectAssetsFile)"
       RequireGitRepository="$(MonoRepoRequireGitRepository)"
+      BranchName="$(MonoRepoBranchName)"
       Dependencies="@(_MonoRepoDependencies)">
       <Output TaskParameter="Version" PropertyName="FullVersion" />
       <Output TaskParameter="VersionChanged" PropertyName="VersionChanged" />
@@ -139,7 +140,7 @@
   <Target Name="_MonoRepoCalculateVersion"
           BeforeTargets="PrepareForBuild;GetAssemblyVersion"
           DependsOnTargets="_MonoRepoSetVersion"
-          Condition="'$(MonoRepoVersioningEnabled)' == 'true' and '$(IsTestProject)' != 'true' and '$(DesignTimeBuild)' != 'true'" />
+          Condition="'$(MonoRepoVersioningEnabled)' == 'true' and ('$(IsTestProject)' != 'true' or '$(MonoRepoSkipTestProjects)' == 'false') and '$(DesignTimeBuild)' != 'true'" />
 
   <!-- ============================================================
        HasChanges - standalone change detection (opt-in, not part of the normal build)

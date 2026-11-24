@@ -204,6 +204,7 @@ namespace Mister.Version.Core.Services
                     DefaultIncrement = configOverrides.DefaultIncrement ?? "patch",
                     ForceVersion = configOverrides.ForceVersion,
                     Dependencies = request.Dependencies ?? new List<string>(),
+                    BranchName = string.IsNullOrWhiteSpace(request.BranchName) ? null : request.BranchName.Trim(),
                     // Monitored paths count as changes even when file-pattern change detection is off
                     AdditionalMonitorPaths = ParsePatternString(request.AdditionalMonitorPaths)
                         .Concat(config?.Projects != null && !string.IsNullOrEmpty(projectName) &&
@@ -225,15 +226,20 @@ namespace Mister.Version.Core.Services
                     ChangeDetection = changeDetectionConfig,
                     GitIntegration = gitIntegrationConfig,
                     VersionPolicy = versionPolicyConfig,
-                    Scheme = ParseVersionScheme(request.VersionScheme),
-                    CalVer = new CalVerConfig
+                    // YAML configuration takes precedence over MSBuild properties (documented precedence)
+                    Scheme = string.Equals(config?.Scheme, "calver", StringComparison.OrdinalIgnoreCase)
+                        ? VersionScheme.CalVer
+                        : ParseVersionScheme(request.VersionScheme),
+                    CalVer = config?.CalVer ?? new CalVerConfig
                     {
                         Format = request.CalVerFormat ?? "YYYY.MM.PATCH",
                         StartDate = request.CalVerStartDate,
                         ResetPatchPeriodically = request.CalVerResetPatch,
                         Separator = request.CalVerSeparator ?? "."
                     },
-                    Constraints = request.ValidationEnabled ? new VersionConstraints
+                    MajorVersionApproved = request.MajorVersionApproved,
+                    Constraints = config?.Constraints != null && config.Constraints.Enabled ? config.Constraints :
+                    request.ValidationEnabled ? new VersionConstraints
                     {
                         Enabled = request.ValidationEnabled,
                         MinimumVersion = request.MinimumVersion,
@@ -250,6 +256,21 @@ namespace Mister.Version.Core.Services
                 var versionResult = _versionCalculator.CalculateVersion(versionOptions);
 
                 _logger("Info", $"Calculated version: {versionResult.Version} for {projectName}");
+
+                // Violated validation constraints fail the calculation (they used to be logged and ignored)
+                if (versionResult.ValidationResult != null && !versionResult.ValidationResult.IsValid)
+                {
+                    return new VersioningResult
+                    {
+                        Success = false,
+                        Version = versionResult.Version,
+                        ProjectName = projectName,
+                        Details = versionResult,
+                        ValidationFailed = true,
+                        ErrorMessage = $"Version {versionResult.Version} violates the configured version constraints: " +
+                            string.Join("; ", versionResult.ValidationResult.Errors.Select(e => e.Message))
+                    };
+                }
 
                 var result = new VersioningResult
                 {
@@ -491,6 +512,9 @@ namespace Mister.Version.Core.Services
         public string TagPrefix { get; set; } = "v";
         public string ForceVersion { get; set; }
         public List<string> Dependencies { get; set; }
+
+        /// <summary>Branch name to version as (overrides the checked-out branch, e.g. detached HEAD in CI).</summary>
+        public string BranchName { get; set; }
         public bool Debug { get; set; }
         public bool ExtraDebug { get; set; }
         public bool SkipTestProjects { get; set; } = true;
@@ -573,6 +597,9 @@ namespace Mister.Version.Core.Services
 
         /// <summary>True when the project was not versioned (test or non-packable project).</summary>
         public bool Skipped { get; set; }
+
+        /// <summary>True when the calculated version violates the configured validation constraints.</summary>
+        public bool ValidationFailed { get; set; }
 
         /// <summary>For skipped projects: whether Version comes from a configured base version.</summary>
         public bool SkippedWithConfiguredVersion { get; set; }

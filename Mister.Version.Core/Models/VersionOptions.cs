@@ -13,6 +13,11 @@ public class VersionOptions
     public string TagPrefix { get; set; } = "v";
     public string ForceVersion { get; set; }
     public List<string> Dependencies { get; set; } = new List<string>();
+
+    /// <summary>
+    /// Branch name to version as (overrides the checked-out branch, e.g. for detached-HEAD CI checkouts).
+    /// </summary>
+    public string BranchName { get; set; }
     public bool Debug { get; set; } = false;
     public bool ExtraDebug { get; set; } = false;
     public bool SkipTestProjects { get; set; } = true;
@@ -81,6 +86,11 @@ public class VersionOptions
     /// Version validation constraints
     /// </summary>
     public VersionConstraints Constraints { get; set; }
+
+    /// <summary>
+    /// Whether a major version bump has been explicitly approved (for RequireMajorApproval constraints)
+    /// </summary>
+    public bool MajorVersionApproved { get; set; }
 
     /// <summary>
     /// Enable file-based caching of version results.

@@ -157,7 +157,99 @@ namespace Mister.Version.Core.Services
         private Action<string, string> _logger;
 
         public Repository Repository => _repository;
-        public string CurrentBranch => _repository?.Head?.FriendlyName ?? "HEAD";
+        private string _resolvedBranch;
+
+        /// <summary>
+        /// The branch being built: the checked-out branch, or for a detached HEAD (the default in most CI
+        /// systems) the CI system's branch when it describes this commit, else a local or remote branch whose tip
+        /// is HEAD, else "(no branch)".
+        /// </summary>
+        public string CurrentBranch => _resolvedBranch ?? (_resolvedBranch = ResolveCurrentBranch());
+
+        /// <summary>CI environment variables that name the branch being built (checked in order).</summary>
+        public static readonly string[] CiBranchVariables =
+        {
+            "GITHUB_HEAD_REF",                        // GitHub Actions pull requests (source branch)
+            "CI_MERGE_REQUEST_SOURCE_BRANCH_NAME",    // GitLab merge requests
+            "CI_COMMIT_BRANCH",                       // GitLab branch pipelines
+            "SYSTEM_PULLREQUEST_SOURCEBRANCH",        // Azure Pipelines pull requests
+            "BUILD_SOURCEBRANCH",                     // Azure Pipelines
+            "BITBUCKET_BRANCH",                       // Bitbucket Pipelines
+            "BRANCH_NAME",                            // Jenkins multibranch
+            "GIT_BRANCH",                             // Jenkins git plugin
+            "GITHUB_REF_NAME"                         // GitHub Actions push (only when GITHUB_REF_TYPE=branch)
+        };
+
+        /// <summary>CI environment variables that name the commit being built.</summary>
+        public static readonly string[] CiCommitVariables =
+        {
+            "GITHUB_SHA", "CI_COMMIT_SHA", "BUILD_SOURCEVERSION", "BITBUCKET_COMMIT", "GIT_COMMIT"
+        };
+
+        private string ResolveCurrentBranch()
+        {
+            var head = _repository?.Head;
+            if (head == null)
+                return "HEAD";
+            if (!_repository.Info.IsHeadDetached)
+                return head.FriendlyName;
+
+            var tip = head.Tip?.Sha;
+
+            // 1. The CI system's branch, but only if the CI system is building this very commit (other
+            //    repositories built in the same job must not pick it up).
+            if (tip != null && CiCommitVariables.Any(v => string.Equals(Environment.GetEnvironmentVariable(v), tip, StringComparison.OrdinalIgnoreCase)))
+            {
+                foreach (var variable in CiBranchVariables)
+                {
+                    var value = Environment.GetEnvironmentVariable(variable);
+                    if (string.IsNullOrWhiteSpace(value))
+                        continue;
+                    if (variable == "GITHUB_REF_NAME" &&
+                        !string.Equals(Environment.GetEnvironmentVariable("GITHUB_REF_TYPE"), "branch", StringComparison.OrdinalIgnoreCase))
+                        continue;
+
+                    var name = value.Trim();
+                    foreach (var prefix in new[] { "refs/heads/", "origin/" })
+                    {
+                        if (name.StartsWith(prefix, StringComparison.Ordinal))
+                            name = name.Substring(prefix.Length);
+                    }
+                    if (name.StartsWith("refs/", StringComparison.Ordinal))
+                        continue; // e.g. refs/pull/1/merge: not a branch name
+                    _logger?.Invoke("Info", $"Detached HEAD: using branch '{name}' from {variable}");
+                    return name;
+                }
+            }
+
+            // 2. A branch whose tip is HEAD (local first, then remote), preferring main/master, release, dev
+            if (tip != null)
+            {
+                var candidates = _repository.Branches
+                    .Where(b => b.Tip?.Sha == tip && !b.CanonicalName.EndsWith("/HEAD", StringComparison.Ordinal))
+                    .Select(b => new
+                    {
+                        Name = b.IsRemote && b.FriendlyName.IndexOf('/') >= 0
+                            ? b.FriendlyName.Substring(b.FriendlyName.IndexOf('/') + 1)
+                            : b.FriendlyName,
+                        b.IsRemote
+                    })
+                    .ToList();
+                if (candidates.Count > 0)
+                {
+                    int Rank(string n)
+                    {
+                        var t = GetBranchType(n);
+                        return t == BranchType.Main ? 0 : t == BranchType.Release ? 1 : t == BranchType.Dev ? 2 : 3;
+                    }
+                    var best = candidates.OrderBy(c => c.IsRemote).ThenBy(c => Rank(c.Name)).ThenBy(c => c.Name, StringComparer.Ordinal).First();
+                    _logger?.Invoke("Info", $"Detached HEAD: using branch '{best.Name}' whose tip is HEAD");
+                    return best.Name;
+                }
+            }
+
+            return head.FriendlyName; // "(no branch)"
+        }
         public bool IsShallowClone => _repository?.Info?.IsShallow ?? false;
         public VersionCache Cache
         {
@@ -292,14 +384,15 @@ namespace Mister.Version.Core.Services
             if (branchType == BranchType.Release)
             {
                 // Check for detached HEAD state
-                if ((_repository.Head.Tip != null && _repository.Head.CanonicalName == "HEAD"))
+                var releaseBranch = !string.IsNullOrEmpty(options.BranchName) ? options.BranchName : CurrentBranch;
+                if (_repository.Head.Tip != null && _repository.Info.IsHeadDetached && releaseBranch == _repository.Head.FriendlyName)
                 {
                     _logger?.Invoke("Info", "Repository is in detached HEAD state");
                     // Skip release branch filtering in detached HEAD state
                 }
                 else
                 {
-                    var releaseVersion = ExtractReleaseVersion(_repository.Head.FriendlyName, options.TagPrefix);
+                    var releaseVersion = ExtractReleaseVersion(releaseBranch, options.TagPrefix);
                     if (releaseVersion != null)
                     {
                         globalVersionTags = globalVersionTags
@@ -478,14 +571,15 @@ namespace Mister.Version.Core.Services
             if (branchType == BranchType.Release)
             {
                 // Check for detached HEAD state
-                if ((_repository.Head.Tip != null && _repository.Head.CanonicalName == "HEAD"))
+                var releaseBranch = !string.IsNullOrEmpty(options?.BranchName) ? options.BranchName : CurrentBranch;
+                if (_repository.Head.Tip != null && _repository.Info.IsHeadDetached && releaseBranch == _repository.Head.FriendlyName)
                 {
                     _logger?.Invoke("Info", "Repository is in detached HEAD state");
                     // Skip release branch filtering in detached HEAD state
                 }
                 else
                 {
-                    var releaseVersion = ExtractReleaseVersion(_repository.Head.FriendlyName, tagPrefix);
+                    var releaseVersion = ExtractReleaseVersion(releaseBranch, tagPrefix);
                     if (releaseVersion != null)
                     {
                         projectVersionTags = projectVersionTags
