@@ -68,6 +68,12 @@ public class MonoRepoVersionTask : Task
     public ITaskItem[] Dependencies { get; set; }
 
     /// <summary>
+    /// The project's NuGet assets file ($(ProjectAssetsFile)). Used to find transitive project references,
+    /// so a change in a dependency's dependency also bumps this project (the CLI already did this).
+    /// </summary>
+    public string ProjectAssetsFile { get; set; }
+
+    /// <summary>
     /// Custom tag prefix for version tags (default: v)
     /// </summary>
     public string TagPrefix { get; set; } = "v";
@@ -436,7 +442,8 @@ public class MonoRepoVersionTask : Task
             string resultCacheKey = null;
             if (EnableCache && repositoryState != null && !UpdateProjectFile && !CreateTag && !GenerateChangelog)
             {
-                resultCacheKey = VersionResultCache.CreateKey(repositoryState, DescribeInputs());
+                resultCacheKey = VersionResultCache.CreateKey(repositoryState,
+                    DescribeInputs() + "AllDependencies=" + string.Join("|", GetAllProjectDependencies().Select(NormalizeForKey)) + "\n");
                 if (VersionResultCache.TryGet(resultCacheKey, CacheFile, out var cached))
                 {
                     Version = cached.Version;
@@ -462,7 +469,7 @@ public class MonoRepoVersionTask : Task
             using var versioningService = new VersioningService(gitRepoRoot, logger, cache);
 
             // Prepare version request
-            var dependencies = Dependencies?.Select(d => d.ItemSpec).ToList() ?? new List<string>();
+            var dependencies = GetAllProjectDependencies();
             var versionRequest = new VersioningRequest
             {
                 RepoRoot = gitRepoRoot,
@@ -800,6 +807,100 @@ public class MonoRepoVersionTask : Task
         string.IsNullOrWhiteSpace(value)
             ? new List<string>()
             : value.Split(new[] { ';' }, StringSplitOptions.RemoveEmptyEntries).Select(p => p.Trim()).Where(p => p.Length > 0).ToList();
+
+    private List<string> _allDependencies;
+
+    /// <summary>
+    /// Direct ProjectReferences plus every transitive project reference NuGet restore recorded in the assets
+    /// file, as full paths.
+    /// </summary>
+    internal List<string> GetAllProjectDependencies()
+    {
+        if (_allDependencies != null)
+            return _allDependencies;
+
+        var projectDirectory = Path.GetDirectoryName(Path.GetFullPath(ProjectPath));
+        var all = new List<string>();
+        foreach (var item in Dependencies ?? Array.Empty<ITaskItem>())
+        {
+            var full = item.GetMetadata("FullPath");
+            all.Add(string.IsNullOrEmpty(full) ? Path.GetFullPath(Path.Combine(projectDirectory, item.ItemSpec)) : full);
+        }
+        all.AddRange(ReadProjectReferenceClosure(ProjectAssetsFile, projectDirectory));
+
+        var self = Path.GetFullPath(ProjectPath);
+        _allDependencies = all
+            .Where(d => !string.Equals(d, self, StringComparison.OrdinalIgnoreCase))
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .OrderBy(d => d, StringComparer.OrdinalIgnoreCase)
+            .ToList();
+        return _allDependencies;
+    }
+
+    private static readonly System.Collections.Concurrent.ConcurrentDictionary<string, Tuple<DateTime, long, List<string>>> AssetsClosureCache =
+        new System.Collections.Concurrent.ConcurrentDictionary<string, Tuple<DateTime, long, List<string>>>(StringComparer.OrdinalIgnoreCase);
+
+    /// <summary>
+    /// Reads every "type": "project" library from a project.assets.json: the full transitive closure of project
+    /// references as resolved by NuGet restore (conditions and TFMs already evaluated).
+    /// </summary>
+    internal static List<string> ReadProjectReferenceClosure(string assetsFile, string projectDirectory)
+    {
+        var result = new List<string>();
+        if (string.IsNullOrEmpty(assetsFile))
+            return result;
+
+        try
+        {
+            var path = Path.IsPathRooted(assetsFile) ? assetsFile : Path.Combine(projectDirectory, assetsFile);
+            var info = new FileInfo(path);
+            if (!info.Exists)
+                return result;
+
+            if (AssetsClosureCache.TryGetValue(info.FullName, out var cached) &&
+                cached.Item1 == info.LastWriteTimeUtc && cached.Item2 == info.Length)
+            {
+                return cached.Item3;
+            }
+
+            using (var stream = File.OpenRead(info.FullName))
+            using (var document = System.Text.Json.JsonDocument.Parse(stream))
+            {
+                if (document.RootElement.TryGetProperty("libraries", out var libraries) &&
+                    libraries.ValueKind == System.Text.Json.JsonValueKind.Object)
+                {
+                    foreach (var library in libraries.EnumerateObject())
+                    {
+                        var value = library.Value;
+                        if (value.ValueKind != System.Text.Json.JsonValueKind.Object ||
+                            !value.TryGetProperty("type", out var type) || type.GetString() != "project")
+                        {
+                            continue;
+                        }
+
+                        string relative = null;
+                        if (value.TryGetProperty("msbuildProject", out var msbuildProject))
+                            relative = msbuildProject.GetString();
+                        else if (value.TryGetProperty("path", out var libraryPath))
+                            relative = libraryPath.GetString();
+
+                        if (!string.IsNullOrEmpty(relative))
+                        {
+                            result.Add(Path.GetFullPath(Path.Combine(projectDirectory, relative)));
+                        }
+                    }
+                }
+            }
+
+            AssetsClosureCache[info.FullName] = Tuple.Create(info.LastWriteTimeUtc, info.Length, result);
+        }
+        catch (Exception)
+        {
+            // Fall back to direct references only
+        }
+
+        return result;
+    }
 
     private static string NormalizeForKey(string path) => path?.Replace('\\', '/');
 
