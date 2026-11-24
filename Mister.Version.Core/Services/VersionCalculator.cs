@@ -142,6 +142,8 @@ namespace Mister.Version.Core.Services
                 }
             }
 
+            WarnIfShallowCloneWithoutTags(options, globalVersionTag, projectVersionTag);
+
             if (options.Debug)
             {
                 LogVersionTagInfo(globalVersionTag, projectVersionTag, baseVersionTag);
@@ -199,6 +201,37 @@ namespace Mister.Version.Core.Services
             }
 
             return result;
+        }
+
+        private static readonly System.Collections.Concurrent.ConcurrentDictionary<string, bool> ShallowCloneWarnings =
+            new System.Collections.Concurrent.ConcurrentDictionary<string, bool>(StringComparer.OrdinalIgnoreCase);
+
+        /// <summary>
+        /// CI checkouts are often shallow (e.g. actions/checkout defaults to fetch-depth: 1) and carry no tags, which
+        /// silently made every project 0.1.0. Warn once per repository per process.
+        /// </summary>
+        private void WarnIfShallowCloneWithoutTags(VersionOptions options, VersionTag globalTag, VersionTag projectTag)
+        {
+            try
+            {
+                if (!_gitService.IsShallowClone || globalTag?.Commit != null || projectTag?.Commit != null ||
+                    !string.IsNullOrEmpty(options.BaseVersion) ||
+                    !string.IsNullOrEmpty(options.GitIntegration?.ShallowCloneFallbackVersion))
+                {
+                    return;
+                }
+
+                if (ShallowCloneWarnings.TryAdd(options.RepoRoot ?? string.Empty, true))
+                {
+                    _logger("Warning", "The repository is a shallow clone and no version tag is reachable, so versions " +
+                        $"fall back to {globalTag?.SemVer?.ToVersionString() ?? "0.1.0"}. Fetch the history and tags " +
+                        "(for example actions/checkout with 'fetch-depth: 0'), or set MonoRepoShallowCloneFallbackVersion.");
+                }
+            }
+            catch (Exception)
+            {
+                // Diagnostics only
+            }
         }
 
         private VersionTag DetermineBaseVersion(VersionTag globalTag, VersionTag projectTag, BranchType branchType)
@@ -1193,7 +1226,7 @@ namespace Mister.Version.Core.Services
             if (options.CalVer == null)
             {
                 options.CalVer = new CalVerConfig();
-                _logger("Warning", "CalVer config not provided, using defaults");
+                _logger("Info", "CalVer config not provided, using defaults");
             }
 
             // Validate CalVer format
@@ -1371,7 +1404,9 @@ namespace Mister.Version.Core.Services
                 Version = skipVersion,
                 SemVer = skipSemVer,
                 VersionChanged = false,
-                ChangeReason = reason
+                ChangeReason = reason,
+                Skipped = true,
+                SkippedWithConfiguredVersion = !string.IsNullOrEmpty(baseVersion)
             };
         }
     }

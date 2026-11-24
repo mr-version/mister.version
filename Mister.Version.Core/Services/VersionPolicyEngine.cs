@@ -250,7 +250,7 @@ namespace Mister.Version.Core.Services
             // Anchor the pattern
             regexPattern = "^" + regexPattern + "$";
 
-            return new Regex(regexPattern, RegexOptions.IgnoreCase);
+            return new Regex(regexPattern, RegexOptions.IgnoreCase | RegexOptions.CultureInvariant);
         }
     }
 }

@@ -259,7 +259,9 @@ namespace Mister.Version.Core.Services
                     ChangeReason = versionResult.ChangeReason,
                     ProjectName = projectName,
                     SemVer = _gitService.ParseSemVer(versionResult.Version),
-                    ConfigurationApplied = config != null
+                    ConfigurationApplied = config != null,
+                    Skipped = versionResult.Skipped,
+                    SkippedWithConfiguredVersion = versionResult.SkippedWithConfiguredVersion
                 };
 
                 // Save to file cache if enabled
@@ -567,5 +569,11 @@ namespace Mister.Version.Core.Services
         public SemVer SemVer { get; set; }
         public bool ConfigurationApplied { get; set; }
         public string ErrorMessage { get; set; }
+
+        /// <summary>True when the project was not versioned (test or non-packable project).</summary>
+        public bool Skipped { get; set; }
+
+        /// <summary>For skipped projects: whether Version comes from a configured base version.</summary>
+        public bool SkippedWithConfiguredVersion { get; set; }
     }
 }

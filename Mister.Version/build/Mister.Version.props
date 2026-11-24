@@ -25,6 +25,9 @@
     <MonoRepoVersioningEnabled Condition="'$(MonoRepoVersioningEnabled)' == ''">true</MonoRepoVersioningEnabled>
     <!-- Where to start looking for the git repository (defaults to the project directory) -->
     <MonoRepoRoot Condition="'$(MonoRepoRoot)' == ''">$(MSBuildProjectDirectory)</MonoRepoRoot>
+    <!-- Building outside a git repository (source archive, Docker context without .git) is a warning (MRV003) that
+         keeps the project's own version; set to true to make it an error -->
+    <MonoRepoRequireGitRepository Condition="'$(MonoRepoRequireGitRepository)' == ''">false</MonoRepoRequireGitRepository>
     <MonoRepoTagPrefix Condition="'$(MonoRepoTagPrefix)' == ''">v</MonoRepoTagPrefix>
     <!-- Default to NOT updating project files to avoid requiring commits -->
     <MonoRepoUpdateProjectFile Condition="'$(MonoRepoUpdateProjectFile)' == ''">false</MonoRepoUpdateProjectFile>

@@ -204,8 +204,8 @@ namespace Mister.Version.Core.Services
                 return BranchType.Dev;
             }
             else if (branchName.StartsWith("release/", StringComparison.OrdinalIgnoreCase) ||
-                     Regex.IsMatch(branchName, @"^v\d+\.\d+(\.\d+)?$", RegexOptions.IgnoreCase) ||
-                     Regex.IsMatch(branchName, @"^release-\d+\.\d+(\.\d+)?$", RegexOptions.IgnoreCase))
+                     Regex.IsMatch(branchName, @"^v\d+\.\d+(\.\d+)?$", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant) ||
+                     Regex.IsMatch(branchName, @"^release-\d+\.\d+(\.\d+)?$", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant))
             {
                 return BranchType.Release;
             }
@@ -294,7 +294,7 @@ namespace Mister.Version.Core.Services
                 // Check for detached HEAD state
                 if ((_repository.Head.Tip != null && _repository.Head.CanonicalName == "HEAD"))
                 {
-                    _logger?.Invoke("Warning", "Repository is in detached HEAD state");
+                    _logger?.Invoke("Info", "Repository is in detached HEAD state");
                     // Skip release branch filtering in detached HEAD state
                 }
                 else
@@ -480,7 +480,7 @@ namespace Mister.Version.Core.Services
                 // Check for detached HEAD state
                 if ((_repository.Head.Tip != null && _repository.Head.CanonicalName == "HEAD"))
                 {
-                    _logger?.Invoke("Warning", "Repository is in detached HEAD state");
+                    _logger?.Invoke("Info", "Repository is in detached HEAD state");
                     // Skip release branch filtering in detached HEAD state
                 }
                 else

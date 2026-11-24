@@ -164,24 +164,57 @@ namespace Mister.Version.Core.Services
             return bumpType;
         }
 
+        private static readonly System.Collections.Concurrent.ConcurrentDictionary<string, Regex> RegexCache =
+            new System.Collections.Concurrent.ConcurrentDictionary<string, Regex>(StringComparer.Ordinal);
+
         /// <summary>
-        /// Convert a glob pattern to a regular expression
+        /// Convert a glob pattern to a regular expression (cached per pattern: it used to compile a new
+        /// RegexOptions.Compiled regex for every file x pattern, seconds per project for large change sets).
+        /// '**/' matches zero or more directories, a trailing '/**' matches everything below, any other '**'
+        /// matches across '/', '*' matches within one path segment and '?' one character.
         /// </summary>
-        private Regex GlobToRegex(string pattern)
+        private static Regex GlobToRegex(string pattern)
         {
-            // Escape special regex characters except * and ?
-            var regexPattern = Regex.Escape(pattern)
-                .Replace("\\*\\*/", "DOUBLE_STAR_SLASH")  // Temporarily replace **/
-                .Replace("\\*", "SINGLE_STAR")            // Temporarily replace *
-                .Replace("\\?", "SINGLE_CHAR")            // Temporarily replace ?
-                .Replace("DOUBLE_STAR_SLASH", "(.*/)?")   // **/ matches zero or more directories
-                .Replace("SINGLE_STAR", "[^/]*")           // * matches any characters except /
-                .Replace("SINGLE_CHAR", "[^/]");           // ? matches any single character except /
-
-            // Ensure pattern matches the entire path
-            regexPattern = "^" + regexPattern + "$";
-
-            return new Regex(regexPattern, RegexOptions.IgnoreCase | RegexOptions.Compiled);
+            return RegexCache.GetOrAdd(pattern, p =>
+            {
+                var sb = new System.Text.StringBuilder("^", p.Length * 2 + 2);
+                var i = 0;
+                while (i < p.Length)
+                {
+                    if (string.CompareOrdinal(p, i, "**/", 0, 3) == 0)
+                    {
+                        sb.Append("(?:.*/)?");
+                        i += 3;
+                    }
+                    else if (i + 3 == p.Length && string.CompareOrdinal(p, i, "/**", 0, 3) == 0)
+                    {
+                        sb.Append("(?:/.*)?");
+                        i += 3;
+                    }
+                    else if (string.CompareOrdinal(p, i, "**", 0, 2) == 0)
+                    {
+                        sb.Append(".*");
+                        i += 2;
+                    }
+                    else if (p[i] == '*')
+                    {
+                        sb.Append("[^/]*");
+                        i++;
+                    }
+                    else if (p[i] == '?')
+                    {
+                        sb.Append("[^/]");
+                        i++;
+                    }
+                    else
+                    {
+                        sb.Append(Regex.Escape(p[i].ToString()));
+                        i++;
+                    }
+                }
+                sb.Append('$');
+                return new Regex(sb.ToString(), RegexOptions.IgnoreCase | RegexOptions.CultureInvariant);
+            });
         }
     }
 }

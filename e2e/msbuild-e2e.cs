@@ -86,6 +86,7 @@ try
     Check(AsmVer(mono, "Core", "net10.0") == "1.0.1.0", $"Core AssemblyVersion is 1.0.1.0 (got {AsmVer(mono, "Core", "net10.0")})");
     Check(!File.Exists(Path.Combine(mono, "tests", "Core.Tests", "obj", "Release", "net10.0", "Core.Tests.mrv.g.cs")),
         "test projects are not versioned");
+    Check(Ver(mono, "Svc", "net10.0") == "5.2.0", $"non-packable project keeps its explicit <Version> 5.2.0 (got {Ver(mono, "Svc", "net10.0")})");
 
     // ---------------------------------------------------------------- incremental (no-op) build
     Step("No-op incremental build");
@@ -180,6 +181,21 @@ try
     Require(off.ExitCode == 0, "build with MonoRepoVersioningEnabled=false", off.Output);
     var offVersion = Ver(mono, "Core", "net8.0", "Debug");
     Check(offVersion == "1.0.0", $"MonoRepoVersioningEnabled=false leaves the SDK default version (got {offVersion})");
+
+    // ---------------------------------------------------------------- outside a git repository
+    Step("Build outside a git repository (source archive / Docker context)");
+    var nogit = Path.Combine(work, "nogit");
+    CopyTree(mono, nogit);
+    var nogitRestore = msbuildExe == null ? Dotnet(nogit, "restore") : Run(nogit, msbuildExe, "Mono.slnx", "-nologo", "-v:m", "-t:Restore");
+    Require(nogitRestore.ExitCode == 0, "restore outside git", nogitRestore.Output);
+    var nogitBuild = BuildIn(nogit, "Release");
+    Check(nogitBuild.ExitCode == 0, "build outside a git repository succeeds");
+    Check(nogitBuild.Output.Contains("MRV003"), "building outside a git repository reports warning MRV003");
+    Check(Ver(nogit, "Lib", "net10.0") == "1.0.0", $"outside git the project's own version is kept (got {Ver(nogit, "Lib", "net10.0")})");
+    var nogitForced = BuildIn(nogit, "Release", "-p:ForceVersion=7.7.7");
+    Check(nogitForced.ExitCode == 0 && Ver(nogit, "Lib", "net10.0") == "7.7.7", $"ForceVersion works outside git (got {Ver(nogit, "Lib", "net10.0")})");
+    var nogitStrict = BuildIn(nogit, "Release", "-p:MonoRepoRequireGitRepository=true");
+    Check(nogitStrict.ExitCode != 0, "MonoRepoRequireGitRepository=true makes a missing repository an error");
 
     // ================================================================ dependency tree scenario
     var tree = Path.Combine(work, "tree");
@@ -556,6 +572,25 @@ static void CreateTreeRepo(string root, string feed, string pkgVersion)
         """);
 }
 
+static void CopyTree(string from, string to)
+{
+    foreach (var dir in Directory.EnumerateDirectories(from, "*", SearchOption.AllDirectories))
+    {
+        var rel = Path.GetRelativePath(from, dir);
+        var parts = rel.Split(Path.DirectorySeparatorChar);
+        if (parts.Contains(".git") || parts.Contains("bin") || parts.Contains("obj")) continue;
+        Directory.CreateDirectory(Path.Combine(to, rel));
+    }
+    foreach (var file in Directory.EnumerateFiles(from, "*", SearchOption.AllDirectories))
+    {
+        var rel = Path.GetRelativePath(from, file);
+        var parts = rel.Split(Path.DirectorySeparatorChar);
+        if (parts.Contains(".git") || parts.Contains("bin") || parts.Contains("obj")) continue;
+        Directory.CreateDirectory(Path.GetDirectoryName(Path.Combine(to, rel))!);
+        File.Copy(file, Path.Combine(to, rel), true);
+    }
+}
+
 static void TryDelete(string dir)
 {
     try { Directory.Delete(dir, true); } catch { /* best effort; git objects can be read-only on Windows */ }
@@ -622,6 +657,20 @@ static void CreateMonorepo(string root, string feed, string pkgVersion)
         </Project>
         """);
     W("src/App/Program.cs", "System.Console.WriteLine(Lib.L.V);\n");
+    W("src/Svc/Svc.csproj", """
+        <Project Sdk="Microsoft.NET.Sdk">
+          <PropertyGroup>
+            <OutputType>Exe</OutputType>
+            <TargetFramework>net10.0</TargetFramework>
+            <IsPackable>false</IsPackable>
+            <Version>5.2.0</Version>
+          </PropertyGroup>
+          <ItemGroup>
+            <ProjectReference Include="../Lib/Lib.csproj" />
+          </ItemGroup>
+        </Project>
+        """);
+    W("src/Svc/Program.cs", "System.Console.WriteLine(Lib.L.V);\n");
     W("tests/Core.Tests/Core.Tests.csproj", """
         <Project Sdk="Microsoft.NET.Sdk">
           <PropertyGroup>
@@ -640,6 +689,7 @@ static void CreateMonorepo(string root, string feed, string pkgVersion)
           <Project Path="src/Core/Core.csproj" />
           <Project Path="src/Lib/Lib.csproj" />
           <Project Path="src/App/App.csproj" />
+          <Project Path="src/Svc/Svc.csproj" />
           <Project Path="tests/Core.Tests/Core.Tests.csproj" />
         </Solution>
         """);

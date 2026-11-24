@@ -74,6 +74,12 @@ public class MonoRepoVersionTask : Task
     public string ProjectAssetsFile { get; set; }
 
     /// <summary>
+    /// When true, building outside a git repository is an error. By default it is a warning (MRV003) and the
+    /// project's own version is kept, so source archives and Docker contexts without .git still build.
+    /// </summary>
+    public bool RequireGitRepository { get; set; } = false;
+
+    /// <summary>
     /// Custom tag prefix for version tags (default: v)
     /// </summary>
     public string TagPrefix { get; set; } = "v";
@@ -426,12 +432,31 @@ public class MonoRepoVersionTask : Task
             var logger = MSBuildLoggerFactory.CreateMSBuildLogger(Log, Debug, ExtraDebug);
 
             // Discover Git repository root
-            var gitRepoRoot = RepositoryService.DiscoverRepository(searchStartPath, logger, "search start path");
+            var gitRepoRoot = GitRepositoryHelper.DiscoverRepositoryRoot(searchStartPath);
             if (gitRepoRoot == null)
             {
-                Log.LogError(string.Format(RepositoryService.NoRepositoryFoundError, searchStartPath));
-                Log.LogError(RepositoryService.EnsureGitRepositoryMessage);
-                return false;
+                if (!string.IsNullOrEmpty(ForceVersion))
+                {
+                    // An explicit version needs no git history
+                    Version = ForceVersion;
+                    VersionChanged = true;
+                    return true;
+                }
+
+                if (RequireGitRepository)
+                {
+                    Log.LogError(string.Format(RepositoryService.NoRepositoryFoundError, searchStartPath));
+                    Log.LogError(RepositoryService.EnsureGitRepositoryMessage);
+                    return false;
+                }
+
+                Log.LogWarning(null, "MRV003", null, null, 0, 0, 0, 0,
+                    "[Mister.Version] " + string.Format(RepositoryService.NoRepositoryFoundError, searchStartPath) +
+                    ". The version is not calculated" +
+                    (string.IsNullOrEmpty(ShallowCloneFallbackVersion) ? " and the project's own version is kept" : $"; using {ShallowCloneFallbackVersion}") +
+                    ". Set MonoRepoRequireGitRepository=true to make this an error.");
+                Version = ShallowCloneFallbackVersion ?? string.Empty;
+                return true;
             }
 
             // Fingerprint of everything the version depends on (HEAD, branch, tags, config, ...).
@@ -533,8 +558,9 @@ public class MonoRepoVersionTask : Task
                 return false;
             }
 
-            // Set output parameters
-            Version = versionResult.Version;
+            // Set output parameters. Skipped projects without a configured base version keep their own version
+            // (previously they were stamped with a placeholder 1.0.0, overriding an explicit <Version>).
+            Version = versionResult.Skipped && !versionResult.SkippedWithConfiguredVersion ? string.Empty : versionResult.Version;
             VersionChanged = versionResult.VersionChanged;
             DiscoveredRepoRoot = gitRepoRoot;
 
@@ -545,11 +571,11 @@ public class MonoRepoVersionTask : Task
                 Log.LogMessage(Debug ? MessageImportance.High : MessageImportance.Normal, $"Version changed: {versionResult.ChangeReason}");
             }
 
-            if (resultCacheKey != null)
+            if (resultCacheKey != null && !string.IsNullOrEmpty(Version))
             {
                 VersionResultCache.Store(resultCacheKey, CacheFile, new CachedVersionResult
                 {
-                    Version = versionResult.Version,
+                    Version = Version,
                     VersionChanged = versionResult.VersionChanged,
                     ChangeReason = versionResult.ChangeReason
                 });

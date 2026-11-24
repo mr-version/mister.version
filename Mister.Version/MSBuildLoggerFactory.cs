@@ -9,8 +9,17 @@ namespace Mister.Version
     /// </summary>
     public static class MSBuildLoggerFactory
     {
+        /// <summary>Warning code for problems reported by the versioning core.</summary>
+        public const string CoreWarningCode = "MRV001";
+
+        /// <summary>Warning code for errors reported by the versioning core (the build continues with a fallback).</summary>
+        public const string CoreErrorCode = "MRV002";
+
         /// <summary>
-        /// Creates a logger for MSBuild task contexts
+        /// Creates a logger for MSBuild task contexts.
+        /// Core warnings and errors are reported as real MSBuild warnings (so they show in the build summary and
+        /// honor -warnaserror / -nowarn:MRV001); information goes to normal verbosity and debug output to
+        /// detailed verbosity unless MonoRepoDebug/MonoRepoExtraDebug is set.
         /// </summary>
         /// <param name="taskLoggingHelper">MSBuild task logging helper</param>
         /// <param name="debug">Whether debug logging is enabled</param>
@@ -18,20 +27,23 @@ namespace Mister.Version
         /// <returns>Logger action</returns>
         public static Action<string, string> CreateMSBuildLogger(TaskLoggingHelper taskLoggingHelper, bool debug, bool extraDebug = false)
         {
+            var verbose = debug || extraDebug;
             return (level, message) =>
             {
-                var importance = level switch
+                switch (level)
                 {
-                    "Error" => MessageImportance.High,
-                    "Warning" => MessageImportance.Normal,
-                    "Info" => MessageImportance.High,
-                    "Debug" when debug || extraDebug => MessageImportance.High,
-                    _ => MessageImportance.Low
-                };
-
-                if (importance != MessageImportance.Low)
-                {
-                    taskLoggingHelper.LogMessage(importance, $"[{level}] {message}");
+                    case "Error":
+                        taskLoggingHelper.LogWarning(null, CoreErrorCode, null, null, 0, 0, 0, 0, "[Mister.Version] " + message);
+                        break;
+                    case "Warning":
+                        taskLoggingHelper.LogWarning(null, CoreWarningCode, null, null, 0, 0, 0, 0, "[Mister.Version] " + message);
+                        break;
+                    case "Info":
+                        taskLoggingHelper.LogMessage(verbose ? MessageImportance.High : MessageImportance.Normal, $"[Info] {message}");
+                        break;
+                    default:
+                        taskLoggingHelper.LogMessage(verbose ? MessageImportance.High : MessageImportance.Low, $"[{level}] {message}");
+                        break;
                 }
             };
         }
