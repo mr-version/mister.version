@@ -29,7 +29,7 @@ namespace Mister.Version.Core.Services
             var gitRepoRoot = GitRepositoryHelper.DiscoverRepositoryRoot(startPath);
             if (gitRepoRoot == null)
             {
-                logger?.Invoke("Error", string.Format(NoRepositoryFoundError, startPath));
+                logger?.Invoke("Error", GitRepositoryHelper.DescribeDiscoveryFailure(startPath) ?? string.Format(NoRepositoryFoundError, startPath));
                 return null;
             }
             
@@ -48,7 +48,7 @@ namespace Mister.Version.Core.Services
             var gitRepoRoot = DiscoverRepository(startPath, logger);
             if (gitRepoRoot == null)
             {
-                Console.Error.WriteLine(string.Format(NoRepositoryFoundError, startPath));
+                Console.Error.WriteLine(GitRepositoryHelper.DescribeDiscoveryFailure(startPath) ?? string.Format(NoRepositoryFoundError, startPath));
                 Console.Error.WriteLine(EnsureGitRepositoryCliMessage);
                 return null;
             }

@@ -1,3 +1,4 @@
+using System.Linq;
 using System;
 using System.Text.RegularExpressions;
 
@@ -185,41 +186,54 @@ public class SemVer : IComparable<SemVer>, IEquatable<SemVer>
         if (!match.Success)
             return false;
 
-        try
-        {
-            result = new SemVer
-            {
-                Major = int.Parse(match.Groups[1].Value),
-                Minor = int.Parse(match.Groups[2].Value),
-                Patch = match.Groups.Count > 3 && match.Groups[3].Success ? int.Parse(match.Groups[3].Value) : 0,
-                PreRelease = match.Groups.Count > 4 && match.Groups[4].Success ? match.Groups[4].Value : null,
-                BuildMetadata = match.Groups.Count > 5 && match.Groups[5].Success ? match.Groups[5].Value : null
-            };
-            return true;
-        }
-        catch
-        {
+        // Numbers too large for an int (v99999999999.0.0) are not versions
+        if (!int.TryParse(match.Groups[1].Value, System.Globalization.NumberStyles.None, System.Globalization.CultureInfo.InvariantCulture, out var major) ||
+            !int.TryParse(match.Groups[2].Value, System.Globalization.NumberStyles.None, System.Globalization.CultureInfo.InvariantCulture, out var minor))
             return false;
+        var patch = 0;
+        if (match.Groups[3].Success &&
+            !int.TryParse(match.Groups[3].Value, System.Globalization.NumberStyles.None, System.Globalization.CultureInfo.InvariantCulture, out patch))
+            return false;
+
+        var preRelease = match.Groups[4].Success ? match.Groups[4].Value : null;
+        if (preRelease != null && !IsValidPreRelease(preRelease))
+            return false;
+
+        var buildMetadata = match.Groups[5].Success ? match.Groups[5].Value : null;
+        if (buildMetadata != null && buildMetadata.Split('.').Any(identifier => identifier.Length == 0))
+            return false;
+
+        result = new SemVer
+        {
+            Major = major,
+            Minor = minor,
+            Patch = patch,
+            PreRelease = preRelease,
+            BuildMetadata = buildMetadata
+        };
+        return true;
+    }
+
+    /// <summary>
+    /// SemVer 2.0 prerelease: dot-separated non-empty identifiers; numeric identifiers without leading zeros (NuGet
+    /// rejects "1.0.0-01").
+    /// </summary>
+    public static bool IsValidPreRelease(string preRelease)
+    {
+        if (string.IsNullOrEmpty(preRelease))
+            return false;
+        foreach (var identifier in preRelease.Split('.'))
+        {
+            if (identifier.Length == 0)
+                return false;
+            if (identifier.Length > 1 && identifier[0] == '0' && identifier.All(char.IsDigit))
+                return false;
         }
+        return true;
     }
 
     public static implicit operator SemVer(string version)
     {
-        if (string.IsNullOrEmpty(version))
-            return null;
-
-        // Handle semver with prerelease and build metadata
-        var match = Regex.Match(version, @"^(\d+)\.(\d+)(?:\.(\d+))?(?:-([0-9A-Za-z\-\.]+))?(?:\+([0-9A-Za-z\-\.]+))?$");
-        if (!match.Success)
-            return null;
-
-        return new SemVer
-        {
-            Major = int.Parse(match.Groups[1].Value),
-            Minor = int.Parse(match.Groups[2].Value),
-            Patch = match.Groups.Count > 3 && match.Groups[3].Success ? int.Parse(match.Groups[3].Value) : 0,
-            PreRelease = match.Groups.Count > 4 && match.Groups[4].Success ? match.Groups[4].Value : null,
-            BuildMetadata = match.Groups.Count > 5 && match.Groups[5].Success ? match.Groups[5].Value : null
-        };
+        return TryParse(version, out var result) ? result : null;
     }
 }

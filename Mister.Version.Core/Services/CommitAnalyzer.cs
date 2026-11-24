@@ -43,10 +43,12 @@ namespace Mister.Version.Core.Services
             RegexOptions.Compiled | RegexOptions.Singleline
         );
 
-        // Regex to find BREAKING CHANGE in commit body/footer
+        // "BREAKING CHANGE:" footer (or its synonym "BREAKING-CHANGE:") at the start of a line after the subject.
+        // Case-sensitive as the Conventional Commits spec requires, so prose such as "not a breaking change:" in a
+        // description does not make a fix a major release.
         private static readonly Regex BreakingChangePattern = new Regex(
-            @"^BREAKING CHANGE:\s*(?<description>.+?)(?:\r?\n|$)",
-            RegexOptions.Compiled | RegexOptions.Multiline
+            @"\n(?:BREAKING CHANGE|BREAKING-CHANGE):[ \t]*(?<description>[^\r\n]*)",
+            RegexOptions.Compiled
         );
 
         public ConventionalCommitAnalyzer(Action<string, string> logger = null)
@@ -256,19 +258,26 @@ namespace Mister.Version.Core.Services
             if (trimmed.Equals("BREAKING CHANGE:", StringComparison.OrdinalIgnoreCase) ||
                 trimmed.Equals("BREAKING-CHANGE:", StringComparison.OrdinalIgnoreCase))
             {
-                return BreakingChangePattern.IsMatch(message) ||
-                       message.IndexOf(trimmed, StringComparison.OrdinalIgnoreCase) >= 0;
+                return BreakingChangePattern.IsMatch(message.Replace("\r\n", "\n"));
             }
 
+            var newline = message.IndexOf('\n');
+            var subject = (newline >= 0 ? message.Substring(0, newline) : message).TrimEnd('\r');
+
             var typeMatch = TypePattern.Match(trimmed);
-            if (typeMatch.Success && !string.IsNullOrEmpty(type) && type != "unknown")
+            if (typeMatch.Success)
             {
-                return string.Equals(type, typeMatch.Groups["type"].Value, StringComparison.OrdinalIgnoreCase);
+                if (!string.IsNullOrEmpty(type) && type != "unknown")
+                {
+                    return string.Equals(type, typeMatch.Groups["type"].Value, StringComparison.OrdinalIgnoreCase);
+                }
+
+                // A type pattern only describes the start of a subject: 'Revert "feat: x"' or
+                // "Merge branch 'fix: y'" are not features or fixes
+                return subject.TrimStart().StartsWith(trimmed, StringComparison.OrdinalIgnoreCase);
             }
 
             // Free-form pattern: case-insensitive match within the subject (first) line
-            var newline = message.IndexOf('\n');
-            var subject = newline >= 0 ? message.Substring(0, newline) : message;
             return subject.IndexOf(trimmed, StringComparison.OrdinalIgnoreCase) >= 0;
         }
 

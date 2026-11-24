@@ -86,6 +86,51 @@ namespace Mister.Version.Core.Services
             }
         }
 
+        /// <summary>
+        /// Why <see cref="DiscoverRepositoryRoot"/> found no repository although a .git entry exists above
+        /// <paramref name="startPath"/> (for example a repository owned by another user, which git refuses as
+        /// "dubious ownership"), or null when there simply is no repository.
+        /// </summary>
+        public static string DescribeDiscoveryFailure(string startPath)
+        {
+            if (string.IsNullOrEmpty(startPath))
+                return null;
+
+            try
+            {
+                for (var dir = Path.GetFullPath(startPath); !string.IsNullOrEmpty(dir); dir = Path.GetDirectoryName(dir))
+                {
+                    var dotGit = Path.Combine(dir, ".git");
+                    if (!Directory.Exists(dotGit) && !File.Exists(dotGit))
+                        continue;
+
+                    try
+                    {
+                        using (new Repository(dir))
+                        {
+                            return null; // opens fine
+                        }
+                    }
+                    catch (Exception ex)
+                    {
+                        var message = GetInnermostMessage(ex);
+                        var ownership = message.IndexOf("owner", StringComparison.OrdinalIgnoreCase) >= 0 ||
+                                        message.IndexOf("safe.directory", StringComparison.OrdinalIgnoreCase) >= 0;
+                        return $"The Git repository at {dir} cannot be opened: {message}" +
+                               (ownership
+                                   ? $". It is owned by another user; if you trust it, run: git config --global --add safe.directory {dir.Replace('\\', '/')}"
+                                   : string.Empty);
+                    }
+                }
+            }
+            catch (Exception)
+            {
+                // Diagnostics only
+            }
+
+            return null;
+        }
+
         private static bool IsNativeLoadFailure(Exception ex)
         {
             for (var e = ex; e != null; e = e.InnerException)
@@ -209,12 +254,7 @@ namespace Mister.Version.Core.Services
                         !string.Equals(Environment.GetEnvironmentVariable("GITHUB_REF_TYPE"), "branch", StringComparison.OrdinalIgnoreCase))
                         continue;
 
-                    var name = value.Trim();
-                    foreach (var prefix in new[] { "refs/heads/", "origin/" })
-                    {
-                        if (name.StartsWith(prefix, StringComparison.Ordinal))
-                            name = name.Substring(prefix.Length);
-                    }
+                    var name = NormalizeBranchName(value);
                     if (name.StartsWith("refs/", StringComparison.Ordinal))
                         continue; // e.g. refs/pull/1/merge: not a branch name
                     _logger?.Invoke("Info", $"Detached HEAD: using branch '{name}' from {variable}");
@@ -373,7 +413,7 @@ namespace Mister.Version.Core.Services
             // walk per tag (which was O(tags x history) and dominated build time on long-lived repositories).
             var selected = options.GitIntegration?.ValidateTagAncestry == true && !IsShallowClone
                 ? candidates.FirstOrDefault(IsCandidateReachable)
-                : candidates.FirstOrDefault();
+                : candidates.FirstOrDefault(PointsAtCommit);
             var globalVersionTags = selected == null
                 ? new List<VersionTag>()
                 : new List<VersionTag> { Materialize(selected, isGlobal: true, projectName: null) };
@@ -534,7 +574,7 @@ namespace Mister.Version.Core.Services
             // Lazily pick the first (highest-precedence) tag reachable from HEAD - see GetGlobalVersionTag
             var selectedProjectTag = options?.GitIntegration?.ValidateTagAncestry == true && !IsShallowClone
                 ? projectCandidates.FirstOrDefault(IsCandidateReachable)
-                : projectCandidates.FirstOrDefault();
+                : projectCandidates.FirstOrDefault(PointsAtCommit);
             var projectVersionTags = selectedProjectTag == null
                 ? new List<VersionTag>()
                 : new List<VersionTag> { Materialize(selectedProjectTag, isGlobal: false, projectName: projectName) };
@@ -765,6 +805,30 @@ namespace Mister.Version.Core.Services
         }
 
         /// <summary>
+        /// A branch name as CI systems and users write it, reduced to the short name: "refs/heads/main",
+        /// "refs/remotes/origin/main" and "origin/main" all become "main". Other refs (refs/pull/1/merge, tags) are
+        /// returned unchanged.
+        /// </summary>
+        public static string NormalizeBranchName(string branchName)
+        {
+            if (string.IsNullOrWhiteSpace(branchName))
+                return branchName;
+
+            var name = branchName.Trim();
+            if (name.StartsWith("refs/heads/", StringComparison.Ordinal))
+                return name.Substring("refs/heads/".Length);
+            if (name.StartsWith("refs/remotes/", StringComparison.Ordinal))
+            {
+                var rest = name.Substring("refs/remotes/".Length);
+                var slash = rest.IndexOf('/');
+                return slash >= 0 ? rest.Substring(slash + 1) : rest;
+            }
+            if (name.StartsWith("origin/", StringComparison.Ordinal))
+                return name.Substring("origin/".Length);
+            return name;
+        }
+
+        /// <summary>
         /// Whether the file or directory at <paramref name="relativePath"/> differs between two trees.
         /// A null <paramref name="baseTree"/> means "before the first commit".
         /// </summary>
@@ -966,9 +1030,6 @@ namespace Mister.Version.Core.Services
         {
             try
             {
-                if (fromCommit == null)
-                    return 0;
-
                 toCommit = toCommit ?? _repository?.Head?.Tip;
                 if (toCommit == null)
                 {
@@ -976,8 +1037,9 @@ namespace Mister.Version.Core.Services
                     return 0;
                 }
 
-                // Check cache first (use from and to commit SHAs as key)
-                var cacheKey = $"{fromCommit.Sha}_{toCommit?.Sha ?? "HEAD"}";
+                // Check cache first (use from and to commit SHAs as key). Without a base commit (no version tag
+                // yet) the height counts every commit, so successive commits still get distinct prerelease numbers.
+                var cacheKey = $"{fromCommit?.Sha ?? "ROOT"}_{toCommit?.Sha ?? "HEAD"}";
                 if (_cache != null)
                 {
                     var cachedHeight = _cache.GetCommitHeight(cacheKey);
@@ -989,11 +1051,14 @@ namespace Mister.Version.Core.Services
 
                 var filter = new CommitFilter
                 {
-                    ExcludeReachableFrom = fromCommit,
                     IncludeReachableFrom = toCommit,
                     // Counting needs no ordering; the default (time) sort makes libgit2 walk everything up front
                     SortBy = CommitSortStrategies.None
                 };
+                if (fromCommit != null)
+                {
+                    filter.ExcludeReachableFrom = fromCommit;
+                }
 
                 var height = _repository.Commits.QueryBy(filter).Count();
 
@@ -1034,19 +1099,7 @@ namespace Mister.Version.Core.Services
             if (string.IsNullOrEmpty(version))
                 return null;
 
-            // Handle semver with prerelease and build metadata
-            var match = Regex.Match(version, @"^(\d+)\.(\d+)(?:\.(\d+))?(?:-([0-9A-Za-z\-\.]+))?(?:\+([0-9A-Za-z\-\.]+))?$");
-            if (!match.Success)
-                return null;
-
-            return new SemVer
-            {
-                Major = int.Parse(match.Groups[1].Value),
-                Minor = int.Parse(match.Groups[2].Value),
-                Patch = match.Groups.Count > 3 && match.Groups[3].Success ? int.Parse(match.Groups[3].Value) : 0,
-                PreRelease = match.Groups.Count > 4 && match.Groups[4].Success ? match.Groups[4].Value : null,
-                BuildMetadata = match.Groups.Count > 5 && match.Groups[5].Success ? match.Groups[5].Value : null
-            };
+            return SemVer.TryParse(version, out var parsed) ? parsed : null;
         }
 
         public List<ChangeInfo> GetChangesSinceCommit(Commit sinceCommit, string projectPath = null)
@@ -1479,8 +1532,25 @@ namespace Mister.Version.Core.Services
 
         private bool IsCandidateReachable(TagCandidate candidate)
         {
+            // A tag on a tree or blob is not a version of any commit
             var commit = Peel(candidate);
-            return commit == null || IsReachableFromHead(commit);
+            return commit != null && IsReachableFromHead(commit);
+        }
+
+        /// <summary>
+        /// Candidates usable without an ancestry check (shallow clones): skip tags on trees or blobs, keep tags whose
+        /// commit is not in the shallow history.
+        /// </summary>
+        private bool PointsAtCommit(TagCandidate candidate)
+        {
+            try
+            {
+                return Peel(candidate) != null || _repository.Lookup(candidate.TargetSha) == null;
+            }
+            catch (Exception)
+            {
+                return true;
+            }
         }
 
         private VersionTag Materialize(TagCandidate candidate, bool isGlobal, string projectName)
