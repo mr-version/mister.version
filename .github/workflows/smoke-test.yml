@@ -11,6 +11,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 10
     strategy:
+      fail-fast: false
       matrix:
         dotnet-version: ['8.0.x', '9.0.x', '10.0.x']
 
@@ -25,46 +26,78 @@ jobs:
       with:
         dotnet-version: ${{ matrix.dotnet-version }}
 
-    - name: Restore Dependencies
-      run: dotnet restore
+    # Without an "sdk" entry in global.json the newest SDK on the runner builds every leg, whatever
+    # setup-dotnet installed. Merge a pin for this leg's SDK into the repository's global.json (which
+    # keeps its "test": {"runner": "Microsoft.Testing.Platform"} section).
+    - name: Pin .NET SDK ${{ matrix.dotnet-version }}
+      run: |
+        want="${{ matrix.dotnet-version }}"
+        want="${want%.x}"
+        sdk=$(dotnet --list-sdks | awk -v p="$want." 'index($1, p) == 1 { print $1 }' | sort -V | tail -n 1)
+        if [ -z "$sdk" ]; then
+          echo "::error::No .NET SDK $want.x is installed"
+          exit 1
+        fi
+        jq --arg v "$sdk" '.sdk = {version: $v, rollForward: "latestFeature"}' global.json > "$RUNNER_TEMP/global.json"
+        mv "$RUNNER_TEMP/global.json" global.json
+        cat global.json
+        actual=$(dotnet --version)
+        echo "dotnet --version: $actual"
+        case "$actual" in
+          "$want".*) ;;
+          *) echo "::error::Expected .NET SDK $want.x but dotnet resolved $actual"; exit 1 ;;
+        esac
 
-    - name: Build
-      run: dotnet build --no-restore --configuration Release
+    # Mister.Version.Core also targets net9.0/net10.0 and the tests target net10.0, which older SDKs
+    # cannot build (NETSDK1045). Those legs build the CLI and the MSBuild task for net8.0 only - the
+    # target framework of the shipped CLI and of the dotnet-hosted task - and skip the unit tests.
+    - name: Restrict build to net8.0 (SDK older than 10)
+      if: matrix.dotnet-version != '10.0.x'
+      run: echo '-p:TargetFrameworks=net8.0' > Directory.Build.rsp
+
+    - name: Restore and Build (solution)
+      if: matrix.dotnet-version == '10.0.x'
+      run: |
+        dotnet restore
+        dotnet build --no-restore --configuration Release
+
+    - name: Build CLI and MSBuild task (net8.0)
+      if: matrix.dotnet-version != '10.0.x'
+      run: |
+        dotnet build ./Mister.Version.CLI/Mister.Version.CLI.csproj --configuration Release
+        dotnet build ./Mister.Version/Mister.Version.csproj --configuration Release
 
     - name: Run Critical Unit Tests
+      if: matrix.dotnet-version == '10.0.x'
       run: |
         echo "Running critical unit tests..."
-        
+
         # Run VersionResolutionTests (new critical tests)
-        dotnet test --no-build --configuration Release --filter-class "Mister.Version.Tests.VersionResolutionTests" --verbosity minimal
-        if [ $? -ne 0 ]; then
-          echo "❌ CRITICAL: Version resolution tests failed!"
-          exit 1
-        fi
-        
+        dotnet test --no-build --configuration Release --filter-class "Mister.Version.Tests.VersionResolutionTests" --verbosity minimal \
+          || { echo "❌ CRITICAL: Version resolution tests failed!"; exit 1; }
+
         # Run VersionCalculatorTests
-        dotnet test --no-build --configuration Release --filter-class "Mister.Version.Tests.VersionCalculatorTests" --verbosity minimal
-        if [ $? -ne 0 ]; then
-          echo "❌ CRITICAL: Version calculator tests failed!"
-          exit 1
-        fi
-        
+        dotnet test --no-build --configuration Release --filter-class "Mister.Version.Tests.VersionCalculatorTests" --verbosity minimal \
+          || { echo "❌ CRITICAL: Version calculator tests failed!"; exit 1; }
+
         # Run SemVerTests
-        dotnet test --no-build --configuration Release --filter-class "Mister.Version.Tests.SemVerTests" --verbosity minimal
-        if [ $? -ne 0 ]; then
-          echo "❌ CRITICAL: SemVer tests failed!"
-          exit 1
-        fi
-        
+        dotnet test --no-build --configuration Release --filter-class "Mister.Version.Tests.SemVerTests" --verbosity minimal \
+          || { echo "❌ CRITICAL: SemVer tests failed!"; exit 1; }
+
         echo "✅ All critical tests passed!"
 
     - name: Quick Integration Test
       run: |
         echo "Running quick integration test..."
 
+        # Target framework of the generated test project: the one matching this leg's SDK (8.0.x -> net8.0)
+        DOTNET_VERSION="${{ matrix.dotnet-version }}"
+        TARGET_FX="net${DOTNET_VERSION%.x}"
+        echo "Test project target framework: $TARGET_FX"
+
         # Create a simple test repo
         TEST_DIR=$(mktemp -d)
-        cd $TEST_DIR
+        cd "$TEST_DIR"
 
         # Initialize git
         git init
@@ -87,9 +120,11 @@ jobs:
         git add .
         git commit -m "Initial commit"
 
-        # Test version calculation
+        # Test version calculation (the CLI itself targets net8.0)
         TOOL_PATH="$GITHUB_WORKSPACE/Mister.Version.CLI/bin/Release/net8.0/mr-version.dll"
-        VERSION=$(dotnet "$TOOL_PATH" version --repo . --project ./src/TestProject/TestProject.csproj | grep "^Version:" | cut -d' ' -f2)
+        OUTPUT=$(dotnet "$TOOL_PATH" version --repo . --project ./src/TestProject/TestProject.csproj)
+        echo "$OUTPUT"
+        VERSION=$(echo "$OUTPUT" | grep "^Version:" | cut -d' ' -f2)
 
         if [ "$VERSION" != "0.1.0" ]; then
           echo "❌ CRITICAL: Expected version 0.1.0 but got $VERSION"
@@ -100,17 +135,20 @@ jobs:
 
         # Cleanup
         cd /
-        rm -rf $TEST_DIR
+        rm -rf "$TEST_DIR"
 
     - name: Summary
       if: always()
+      env:
+        JOB_STATUS: ${{ job.status }}
       run: |
-        echo "## Smoke Test Summary" >> $GITHUB_STEP_SUMMARY
-        echo "" >> $GITHUB_STEP_SUMMARY
-        if [ $? -eq 0 ]; then
-          echo "✅ **All smoke tests passed!**" >> $GITHUB_STEP_SUMMARY
-          echo "The PR is safe to review." >> $GITHUB_STEP_SUMMARY
+        echo "## Smoke Test Summary (.NET SDK ${{ matrix.dotnet-version }})" >> "$GITHUB_STEP_SUMMARY"
+        echo "" >> "$GITHUB_STEP_SUMMARY"
+        # job.status reflects the outcome of every previous step of this job
+        if [ "$JOB_STATUS" = "success" ]; then
+          echo "✅ **All smoke tests passed!**" >> "$GITHUB_STEP_SUMMARY"
+          echo "The PR is safe to review." >> "$GITHUB_STEP_SUMMARY"
         else
-          echo "❌ **Smoke tests failed!**" >> $GITHUB_STEP_SUMMARY
-          echo "Please fix the failing tests before merging." >> $GITHUB_STEP_SUMMARY
+          echo "❌ **Smoke tests failed!** (job status: $JOB_STATUS)" >> "$GITHUB_STEP_SUMMARY"
+          echo "Please fix the failing tests before merging." >> "$GITHUB_STEP_SUMMARY"
         fi
