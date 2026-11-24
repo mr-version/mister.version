@@ -30,7 +30,6 @@ namespace Mister.Version.Core.Services
     public class ProjectAnalyzer : IProjectAnalyzer
     {
         // Regex patterns for project file parsing
-        private const string PATTERN_PROJECT_REFERENCE = @"<ProjectReference\s+Include\s*=\s*""([^""]+)""";
         private const string PATTERN_IS_TEST_PROJECT = @"<IsTestProject\s*>\s*(true|false)\s*</IsTestProject>";
         private const string PATTERN_IS_PACKABLE = @"<IsPackable\s*>\s*(true|false)\s*</IsPackable>";
         private const string PATTERN_TEST_SDK_REFERENCE = @"<PackageReference[^>]+Include\s*=\s*""Microsoft\.NET\.Test\.Sdk""";
@@ -78,10 +77,9 @@ namespace Mister.Version.Core.Services
             }
 
             // Find all project files
-            var projectFiles = Directory.GetFiles(searchPath, "*.csproj", SearchOption.AllDirectories)
-                .Concat(Directory.GetFiles(searchPath, "*.vbproj", SearchOption.AllDirectories))
-                .Concat(Directory.GetFiles(searchPath, "*.fsproj", SearchOption.AllDirectories))
-                .ToList();
+            var projectFiles = string.IsNullOrEmpty(projectDirectory)
+                ? DiscoverAllProjects(repositoryPath)
+                : ProjectDiscovery.FindProjectFiles(searchPath, _logger);
 
             _logger("Info", $"Found {projectFiles.Count} project files");
 
@@ -198,6 +196,12 @@ namespace Mister.Version.Core.Services
             return DiscoverAllProjects(repositoryPath);
         }
 
+        /// <summary>
+        /// Direct ProjectReferences of a project (full paths of existing project files), read the way MSBuild
+        /// evaluates them: properties ($(MSBuildThisFileDirectory), properties from Directory.Build.props, ...),
+        /// ';'-separated lists, imports and references added by Directory.Build.props/targets
+        /// (see <see cref="ProjectReferenceReader"/>).
+        /// </summary>
         public List<string> GetProjectDependencies(string projectPath, string repositoryPath)
         {
             // Check cache first
@@ -211,48 +215,9 @@ namespace Mister.Version.Core.Services
             }
 
             var dependencies = new List<string>();
-
             try
             {
-                var projectContent = File.ReadAllText(projectPath);
-                var projectDir = Path.GetDirectoryName(projectPath);
-
-                if (string.IsNullOrEmpty(projectDir))
-                {
-                    _logger("Error", $"Cannot determine directory for project: {projectPath}");
-                    return dependencies;
-                }
-
-                // Find ProjectReference elements
-                var matches = Regex.Matches(projectContent, PATTERN_PROJECT_REFERENCE, RegexOptions.IgnoreCase | RegexOptions.CultureInvariant);
-                
-                foreach (Match match in matches)
-                {
-                    var dependencyPath = match.Groups[1].Value;
-                    
-                    // Normalize path separators for cross-platform compatibility
-                    dependencyPath = dependencyPath.Replace('\\', Path.DirectorySeparatorChar);
-                    
-                    // Resolve relative path to absolute path
-                    if (!Path.IsPathRooted(dependencyPath))
-                    {
-                        dependencyPath = Path.GetFullPath(Path.Combine(projectDir, dependencyPath));
-                    }
-                    else
-                    {
-                        // Even for rooted paths, ensure they're fully resolved
-                        dependencyPath = Path.GetFullPath(dependencyPath);
-                    }
-                    
-                    if (File.Exists(dependencyPath))
-                    {
-                        dependencies.Add(dependencyPath);
-                    }
-                    else
-                    {
-                        _logger("Warning", $"Referenced project not found: {dependencyPath}");
-                    }
-                }
+                dependencies = ProjectReferenceReader.GetDirectReferences(projectPath, _logger);
             }
             catch (Exception ex)
             {
@@ -268,59 +233,48 @@ namespace Mister.Version.Core.Services
             return dependencies;
         }
 
+        /// <summary>
+        /// Direct and transitive project references (full paths), following every ProjectReference edge from the
+        /// project's direct references. Projects are identified by path, so projects with the same file name in
+        /// different directories are told apart.
+        /// </summary>
         private List<string> GetTransitiveDependencies(string projectPath, string repositoryPath, List<string> directDependencies)
         {
             try
             {
-                // For performance, we'll do a lightweight discovery of all projects in the repo
-                var allProjects = DiscoverAllProjects(repositoryPath);
-                // Build a lookup of project name -> project info
-                var projectLookup = new Dictionary<string, (string Path, List<string> Dependencies)>(StringComparer.OrdinalIgnoreCase);
-                
-                foreach (var proj in allProjects)
+                var self = Path.GetFullPath(projectPath);
+                var result = new List<string>();
+                var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase) { self };
+                var queue = new Queue<string>();
+                foreach (var dependency in directDependencies ?? new List<string>())
                 {
-                    var projName = Path.GetFileNameWithoutExtension(proj);
-                    var projDeps = GetProjectDependencies(proj, repositoryPath);
-                    projectLookup[projName] = (proj, projDeps);
+                    var full = Path.GetFullPath(dependency);
+                    if (seen.Add(full))
+                    {
+                        result.Add(full);
+                        queue.Enqueue(full);
+                    }
                 }
-                
-                // Build transitive dependencies for our target project
-                var targetProjectName = Path.GetFileNameWithoutExtension(projectPath);
-                var transitiveDeps = new List<string>();
-                var visited = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-                
-                BuildTransitiveDependencyList(targetProjectName, projectLookup, transitiveDeps, visited);
-                
-                return transitiveDeps;
+
+                while (queue.Count > 0)
+                {
+                    foreach (var dependency in GetProjectDependencies(queue.Dequeue(), repositoryPath))
+                    {
+                        if (seen.Add(dependency))
+                        {
+                            result.Add(dependency);
+                            queue.Enqueue(dependency);
+                        }
+                    }
+                }
+
+                return result;
             }
             catch (Exception ex)
             {
                 _logger("Warning", $"Failed to calculate transitive dependencies for {projectPath}: {ex.Message}");
                 // Fallback to direct dependencies only
                 return directDependencies;
-            }
-        }
-
-        private void BuildTransitiveDependencyList(string projectName, Dictionary<string, (string Path, List<string> Dependencies)> projectLookup, List<string> result, HashSet<string> visited)
-        {
-            if (visited.Contains(projectName))
-                return; // Avoid circular dependencies
-
-            visited.Add(projectName);
-
-            if (projectLookup.TryGetValue(projectName, out var projectInfo))
-            {
-                foreach (var depPath in projectInfo.Dependencies)
-                {
-                    if (!result.Contains(depPath))
-                    {
-                        result.Add(depPath);
-                    }
-                    
-                    // Recursively add transitive dependencies
-                    var depName = Path.GetFileNameWithoutExtension(depPath);
-                    BuildTransitiveDependencyList(depName, projectLookup, result, visited);
-                }
             }
         }
 
@@ -336,14 +290,7 @@ namespace Mister.Version.Core.Services
                 }
             }
 
-            var projects = new List<string>();
-            var projectExtensions = new[] { "*.csproj", "*.fsproj", "*.vbproj" };
-
-            foreach (var extension in projectExtensions)
-            {
-                var foundProjects = Directory.GetFiles(repositoryPath, extension, SearchOption.AllDirectories);
-                projects.AddRange(foundProjects);
-            }
+            var projects = ProjectDiscovery.FindProjectFiles(repositoryPath, _logger);
 
             // Cache the result
             if (_cache != null)

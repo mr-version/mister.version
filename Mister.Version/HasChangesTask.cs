@@ -159,9 +159,14 @@ public class HasChangesTask : Task
 
             // Prepare request
             var projectDirectory = Path.GetDirectoryName(Path.GetFullPath(ProjectPath));
-            var dependencies = (Dependencies ?? Array.Empty<ITaskItem>())
+            var direct = (Dependencies ?? Array.Empty<ITaskItem>())
                 .Select(d => d.GetMetadata("FullPath") is string full && full.Length > 0 ? full : Path.GetFullPath(Path.Combine(projectDirectory, d.ItemSpec)))
                 .Concat(MonoRepoVersionTask.ReadProjectReferenceClosure(ProjectAssetsFile, projectDirectory))
+                .ToList();
+            var self = Path.GetFullPath(ProjectPath);
+            var dependencies = direct
+                .Concat(MonoRepoVersionTask.ReadProjectFileClosure(direct))
+                .Where(d => !string.Equals(d, self, StringComparison.OrdinalIgnoreCase))
                 .Distinct(StringComparer.OrdinalIgnoreCase)
                 .ToList();
             var request = new HasChangesRequest
