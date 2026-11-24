@@ -176,6 +176,7 @@ namespace Mister.Version.Core.Services
                 FullPath = projectPath,
                 Version = versionResult,
                 DirectDependencies = dependencies.Select(d => Path.GetFileNameWithoutExtension(d)).ToList(),
+                DirectDependencyPaths = dependencies.ToList(),
                 IsTestProject = projectType.IsTestProject,
                 IsPackable = projectType.IsPackable
             };
@@ -353,48 +354,29 @@ namespace Mister.Version.Core.Services
             return projects;
         }
 
+        /// <summary>
+        /// Fills <see cref="ProjectInfo.AllDependencies"/> (names of direct and transitive dependencies among
+        /// <paramref name="projects"/>). Projects are matched by path, so duplicate project names are allowed.
+        /// </summary>
         public void BuildDependencyGraph(List<ProjectInfo> projects)
         {
-            var projectLookup = projects.ToDictionary(p => p.Name, StringComparer.OrdinalIgnoreCase);
-
-            foreach (var project in projects)
+            var graph = new ProjectGraph(projects);
+            foreach (var project in graph.Projects)
             {
-                project.AllDependencies = BuildTransitiveDependencies(project.Name, projectLookup, new HashSet<string>(StringComparer.OrdinalIgnoreCase));
-            }
-        }
-
-        private List<string> BuildTransitiveDependencies(string projectName, Dictionary<string, ProjectInfo> projectLookup, HashSet<string> visited)
-        {
-            if (visited.Contains(projectName))
-            {
-                return new List<string>(); // Avoid circular dependencies
-            }
-
-            visited.Add(projectName);
-            var result = new List<string>();
-
-            if (projectLookup.TryGetValue(projectName, out var project))
-            {
-                foreach (var dependency in project.DirectDependencies)
+                var all = new List<string>();
+                // Keep direct dependencies first, including ones outside the analyzed set
+                foreach (var name in project.DirectDependencies ?? new List<string>())
                 {
-                    if (!result.Contains(dependency, StringComparer.OrdinalIgnoreCase))
-                    {
-                        result.Add(dependency);
-                    }
-
-                    // Add transitive dependencies
-                    var transitiveDeps = BuildTransitiveDependencies(dependency, projectLookup, new HashSet<string>(visited, StringComparer.OrdinalIgnoreCase));
-                    foreach (var transitiveDep in transitiveDeps)
-                    {
-                        if (!result.Contains(transitiveDep, StringComparer.OrdinalIgnoreCase))
-                        {
-                            result.Add(transitiveDep);
-                        }
-                    }
+                    if (!all.Contains(name, StringComparer.OrdinalIgnoreCase))
+                        all.Add(name);
                 }
+                foreach (var dependency in graph.AllDependencies(project))
+                {
+                    if (!all.Contains(dependency.Name, StringComparer.OrdinalIgnoreCase))
+                        all.Add(dependency.Name);
+                }
+                project.AllDependencies = all;
             }
-
-            return result;
         }
 
         /// <summary>
