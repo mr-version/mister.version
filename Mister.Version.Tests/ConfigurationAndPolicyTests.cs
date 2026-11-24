@@ -68,7 +68,9 @@ namespace Mister.Version.Tests
         {
             var readme = FindRepositoryFile("README.md");
             Assert.NotNull(readme);
-            var blocks = Regex.Matches(File.ReadAllText(readme), "```yaml\\n(.*?)```", RegexOptions.Singleline)
+            // Normalize line endings: Windows checkouts typically have CRLF (core.autocrlf)
+            var text = File.ReadAllText(readme).Replace("\r\n", "\n");
+            var blocks = Regex.Matches(text, "```yaml\\n(.*?)```", RegexOptions.Singleline)
                 .Cast<Match>()
                 .Select(m => m.Groups[1].Value)
                 .Where(b => !b.Contains("jobs:") && !b.Contains("uses:") && !b.StartsWith("on:"))
