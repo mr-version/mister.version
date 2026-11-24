@@ -24,20 +24,47 @@ namespace Mister.Version.Core.Services
 
             try
             {
-                // Use LibGit2Sharp to discover the repository
+                // Walk up from the start path in the caller's own path namespace. libgit2 returns
+                // symlink-resolved paths (e.g. /private/var/... for /var/... on macOS), and for worktrees
+                // and submodules it returns the git dir (.git/worktrees/x, .git/modules/x) rather than the
+                // working directory, both of which break repo-relative paths computed from MSBuild paths.
+                string full;
+                try
+                {
+                    full = Path.GetFullPath(startPath);
+                }
+                catch (Exception)
+                {
+                    full = startPath;
+                }
+
+                for (var dir = full; !string.IsNullOrEmpty(dir); dir = Path.GetDirectoryName(dir))
+                {
+                    var dotGit = Path.Combine(dir, ".git");
+                    if ((Directory.Exists(dotGit) || File.Exists(dotGit)) && Repository.IsValid(dir))
+                    {
+                        return TrimTrailingSeparators(dir);
+                    }
+                }
+
                 var discoveredPath = Repository.Discover(startPath);
                 if (discoveredPath == null)
                     return null;
 
-                // Remove trailing slashes for consistency
-                var gitRepoRoot = discoveredPath.TrimEnd('/', '\\');
+                using (var repo = new Repository(discoveredPath))
+                {
+                    if (!string.IsNullOrEmpty(repo.Info.WorkingDirectory))
+                    {
+                        return TrimTrailingSeparators(repo.Info.WorkingDirectory);
+                    }
+                }
 
-                // If the path ends with .git, get the parent directory (the actual repo root)
+                // Bare repository: keep the historical behaviour
+                var gitRepoRoot = discoveredPath.TrimEnd('/', '\\');
                 if (gitRepoRoot.EndsWith(".git"))
                 {
                     gitRepoRoot = Path.GetDirectoryName(gitRepoRoot);
                 }
-
                 return gitRepoRoot;
             }
             catch
@@ -45,6 +72,17 @@ namespace Mister.Version.Core.Services
                 // Return null if discovery fails
                 return null;
             }
+        }
+
+        private static string TrimTrailingSeparators(string path)
+        {
+            var trimmed = path.TrimEnd('/', '\\');
+            // Keep filesystem roots ("/", "C:\\") intact
+            if (trimmed.Length == 0 || (trimmed.Length == 2 && trimmed[1] == ':'))
+            {
+                return path;
+            }
+            return trimmed;
         }
     }
 
@@ -58,6 +96,11 @@ namespace Mister.Version.Core.Services
         VersionTag GetGlobalVersionTag(BranchType branchType, VersionOptions options);
         VersionTag GetProjectVersionTag(string projectName, BranchType branchType, string tagPrefix, VersionOptions options = null);
         bool ProjectHasChangedSinceTag(Commit tagCommit, string projectPath, List<string> dependencies, string repoRoot, bool debug = false);
+        /// <summary>
+        /// Whether a file or directory (absolute, repository-relative, or "./"/"../"-relative to
+        /// <paramref name="baseDirectory"/>) changed between <paramref name="sinceCommit"/> and HEAD.
+        /// </summary>
+        bool HasPathChangedSinceCommit(Commit sinceCommit, string path, string repoRoot, string baseDirectory = null);
         ChangeClassification ClassifyProjectChanges(Commit tagCommit, string projectPath, List<string> dependencies, string repoRoot, ChangeDetectionConfig config);
         int GetCommitHeight(Commit fromCommit, Commit toCommit = null);
         string GetCommitShortHash(Commit commit);
@@ -213,14 +256,6 @@ namespace Mister.Version.Core.Services
                 .Where(vt => vt.SemVer != null)
                 .ToList();
 
-            // Filter by tag ancestry if validation is enabled and not a shallow clone
-            if (options.GitIntegration?.ValidateTagAncestry == true && !IsShallowClone)
-            {
-                globalVersionTags = globalVersionTags
-                    .Where(vt => vt.Commit == null || IsCommitReachable(vt.Commit))
-                    .ToList();
-            }
-
             // Sort version tags by precedence
             globalVersionTags = SortVersionTagsByPrecedence(globalVersionTags).ToList();
 
@@ -244,6 +279,15 @@ namespace Mister.Version.Core.Services
                             .ToList();
                     }
                 }
+            }
+
+            // Only the highest-precedence tag that is an ancestor of HEAD is used. Checking candidates lazily in
+            // precedence order against one shared incremental history walk is O(history) once, instead of one
+            // walk per tag (which was O(tags x history) and dominated build time on long-lived repositories).
+            if (options.GitIntegration?.ValidateTagAncestry == true && !IsShallowClone)
+            {
+                var firstReachable = globalVersionTags.FirstOrDefault(vt => vt.Commit == null || IsReachableFromHead(vt.Commit));
+                globalVersionTags = firstReachable == null ? new List<VersionTag>() : new List<VersionTag> { firstReachable };
             }
 
             // Consider BaseVersion from config as a potential global version
@@ -304,6 +348,11 @@ namespace Mister.Version.Core.Services
         {
             // Check cache first
             var cacheKey = $"{projectName}_{branchType}_{tagPrefix}";
+            if (options?.GitIntegration != null)
+            {
+                // The lookup also depends on these settings
+                cacheKey += $"_{options.GitIntegration.ValidateTagAncestry}_{string.Join(";", options.GitIntegration.CustomTagPatterns ?? new List<string>())}";
+            }
             if (_cache != null)
             {
                 var cachedTag = _cache.GetProjectVersionTag(cacheKey);
@@ -393,14 +442,6 @@ namespace Mister.Version.Core.Services
                 .Where(vt => vt.SemVer != null)
                 .ToList();
 
-            // Filter by tag ancestry if validation is enabled and not a shallow clone
-            if (options?.GitIntegration?.ValidateTagAncestry == true && !IsShallowClone)
-            {
-                projectVersionTags = projectVersionTags
-                    .Where(vt => vt.Commit == null || IsCommitReachable(vt.Commit))
-                    .ToList();
-            }
-
             // Sort version tags by precedence
             projectVersionTags = SortVersionTagsByPrecedence(projectVersionTags).ToList();
 
@@ -426,6 +467,15 @@ namespace Mister.Version.Core.Services
                 }
             }
 
+            // Lazily pick the first (highest-precedence) tag reachable from HEAD - see GetGlobalVersionTag
+            if (options?.GitIntegration?.ValidateTagAncestry == true && !IsShallowClone)
+            {
+                projectVersionTags = projectVersionTags
+                    .Where(vt => vt.Commit == null || IsReachableFromHead(vt.Commit))
+                    .Take(1)
+                    .ToList();
+            }
+
             var result = projectVersionTags.FirstOrDefault();
 
             // Cache the result (even if null)
@@ -443,7 +493,8 @@ namespace Mister.Version.Core.Services
                 return true;
 
             // Validate HEAD and Tip are available
-            if (_repository?.Head?.Tip == null)
+            var head = _repository?.Head?.Tip;
+            if (head == null)
             {
                 _logger?.Invoke("Warning", "Repository HEAD or Tip is null, assuming changes exist");
                 return true;
@@ -452,9 +503,9 @@ namespace Mister.Version.Core.Services
             // Create cache key from commit SHA, project path, and dependencies
             var commitSha = tagCommit.Sha;
             var depKey = dependencies != null && dependencies.Any()
-                ? string.Join("|", dependencies.OrderBy(d => d))
+                ? string.Join("|", dependencies.OrderBy(d => d, StringComparer.Ordinal))
                 : "";
-            var cacheKey = $"{commitSha}_{projectPath}_{depKey}";
+            var cacheKey = $"{commitSha}_{head.Sha}_{projectPath}_{depKey}";
 
             // Check cache first
             if (_cache != null)
@@ -468,65 +519,45 @@ namespace Mister.Version.Core.Services
 
             try
             {
-                var compareOptions = new CompareOptions();
-                var diff = _repository.Diff.Compare<TreeChanges>(
-                    tagCommit.Tree,
-                    _repository.Head.Tip.Tree,
-                    compareOptions);
+                bool hasChanges;
+                string reason = null;
+                if (tagCommit.Sha == head.Sha)
+                {
+                    hasChanges = false;
+                }
+                else
+                {
+                    var baseTree = tagCommit.Tree;
+                    var headTree = head.Tree;
 
-                string normalizedProjectPath = NormalizePath(projectPath);
+                    // "Did <dir> change?" is answered by comparing the directory's tree ids in both commits:
+                    // O(depth), exact on directory boundaries (src/Lib1 vs src/Lib10), and it also sees files
+                    // moved out of the directory (which a rename-detecting diff reports only under the new path).
+                    var projectDirectory = ToRepoRelativePath(projectPath, repoRoot);
+                    hasChanges = projectDirectory == null || PathChanged(baseTree, headTree, projectDirectory);
+                    if (hasChanges)
+                    {
+                        reason = projectDirectory ?? projectPath;
+                    }
 
-                // Check for direct changes in project
-                bool hasChanges = diff.Any(c => NormalizePath(c.Path).StartsWith(normalizedProjectPath));
+                    if (!hasChanges && dependencies != null)
+                    {
+                        foreach (var dependency in dependencies)
+                        {
+                            var dependencyDirectory = ToRepoRelativePath(dependency, repoRoot);
+                            if (dependencyDirectory != null && PathChanged(baseTree, headTree, dependencyDirectory))
+                            {
+                                hasChanges = true;
+                                reason = dependencyDirectory;
+                                break;
+                            }
+                        }
+                    }
+                }
 
                 if (hasChanges && debug)
                 {
-                    var changedFiles = diff.Where(c => NormalizePath(c.Path).StartsWith(normalizedProjectPath))
-                        .Take(5)
-                        .Select(c => $"{c.Path} ({c.Status})");
-                    // Log would need to be passed in or abstracted
-                }
-
-                // Check for dependency changes
-                if (!hasChanges && dependencies != null)
-                {
-                    foreach (var dependency in dependencies)
-                    {
-#if NET472
-                        var relativeDependencyPath = NormalizePath(Mister.Version.Core.PathUtils.GetRelativePath(repoRoot, dependency));
-#else
-                        var relativeDependencyPath = NormalizePath(Path.GetRelativePath(repoRoot, dependency));
-#endif
-                        string dependencyDirectory = NormalizePath(Path.GetDirectoryName(relativeDependencyPath) ?? relativeDependencyPath);
-
-                        var dependencyChanges = diff.Where(c => NormalizePath(c.Path).StartsWith(dependencyDirectory)).ToList();
-                        if (dependencyChanges.Any())
-                        {
-                            hasChanges = true;
-                            break;
-                        }
-                    }
-                }
-
-                // Check for packages.lock.json changes
-                if (!hasChanges)
-                {
-                    string projectDir = Path.GetDirectoryName(projectPath);
-                    if (string.IsNullOrEmpty(projectDir))
-                    {
-                        projectDir = projectPath; // Use project path itself if at root
-                    }
-                    string lockFilePath = projectDir == "" ? "packages.lock.json" : Path.Combine(projectDir, "packages.lock.json");
-                    string normalizedLockFilePath = NormalizePath(lockFilePath);
-
-                    foreach (var change in diff)
-                    {
-                        if (NormalizePath(change.Path).Equals(normalizedLockFilePath, StringComparison.OrdinalIgnoreCase))
-                        {
-                            hasChanges = true;
-                            break;
-                        }
-                    }
+                    _logger?.Invoke("Debug", $"Changes detected since {tagCommit.Sha.Substring(0, Math.Min(7, tagCommit.Sha.Length))} in {reason}");
                 }
 
                 // Cache the result
@@ -544,6 +575,159 @@ namespace Mister.Version.Core.Services
                 // Don't cache exception results as they may be transient
                 return true; // Assume changes if we can't determine
             }
+        }
+
+        public bool HasPathChangedSinceCommit(Commit sinceCommit, string path, string repoRoot, string baseDirectory = null)
+        {
+            if (string.IsNullOrWhiteSpace(path))
+                return false;
+
+            var head = _repository?.Head?.Tip;
+            if (head == null)
+                return true;
+            if (sinceCommit == null)
+                return true;
+
+            try
+            {
+                var relative = ToRepoRelativePath(path, repoRoot, projectFileToDirectory: false, baseDirectory: baseDirectory);
+                if (relative == null)
+                {
+                    _logger?.Invoke("Warning", $"Monitored path is outside the repository and is ignored: {path}");
+                    return false;
+                }
+                return sinceCommit.Sha != head.Sha && PathChanged(sinceCommit.Tree, head.Tree, relative);
+            }
+            catch (Exception ex)
+            {
+                _logger?.Invoke("Warning", $"Error detecting changes in {path}: {ex.Message}");
+                return true;
+            }
+        }
+
+        private static readonly string[] ProjectFileExtensions =
+        {
+            ".csproj", ".fsproj", ".vbproj", ".proj", ".sqlproj", ".shproj", ".esproj", ".vcxproj"
+        };
+
+        /// <summary>
+        /// Converts a path to a repository-relative path with '/' separators and no leading/trailing
+        /// separator ("" is the repository root). Accepts absolute paths, repository-relative paths and,
+        /// when <paramref name="baseDirectory"/> is given, "./" or "../"-relative paths resolved against it.
+        /// Project files are mapped to their directory when <paramref name="projectFileToDirectory"/> is true.
+        /// Returns null when the path is outside the repository.
+        /// </summary>
+        public static string ToRepoRelativePath(string path, string repoRoot, bool projectFileToDirectory = true, string baseDirectory = null)
+        {
+            if (string.IsNullOrWhiteSpace(path))
+                return "";
+
+            var value = path.Trim();
+            string relative;
+            if (Path.IsPathRooted(value))
+            {
+                relative = GetRelativePath(repoRoot, Path.GetFullPath(value));
+            }
+            else if (baseDirectory != null &&
+                     (value.StartsWith("../", StringComparison.Ordinal) || value.StartsWith("..\\", StringComparison.Ordinal) ||
+                      value.StartsWith("./", StringComparison.Ordinal) || value.StartsWith(".\\", StringComparison.Ordinal)))
+            {
+                relative = GetRelativePath(repoRoot, Path.GetFullPath(Path.Combine(baseDirectory, value)));
+            }
+            else
+            {
+                relative = value;
+            }
+
+            relative = relative.Replace('\\', '/');
+            if (projectFileToDirectory && ProjectFileExtensions.Any(ext => relative.EndsWith(ext, StringComparison.OrdinalIgnoreCase)))
+            {
+                var slash = relative.LastIndexOf('/');
+                relative = slash < 0 ? "" : relative.Substring(0, slash);
+            }
+
+            while (relative.StartsWith("./", StringComparison.Ordinal))
+            {
+                relative = relative.Substring(2);
+            }
+            relative = relative.Trim('/');
+            if (relative == ".")
+            {
+                relative = "";
+            }
+
+            if (relative == ".." || relative.StartsWith("../", StringComparison.Ordinal) || Path.IsPathRooted(relative))
+            {
+                return null; // outside the repository
+            }
+            return relative;
+        }
+
+        private static string GetRelativePath(string relativeTo, string path)
+        {
+#if NET472
+            return Mister.Version.Core.PathUtils.GetRelativePath(relativeTo, path);
+#else
+            return Path.GetRelativePath(relativeTo, path);
+#endif
+        }
+
+        /// <summary>
+        /// Whether the file or directory at <paramref name="relativePath"/> differs between two trees.
+        /// A null <paramref name="baseTree"/> means "before the first commit".
+        /// </summary>
+        public static bool PathChanged(Tree baseTree, Tree headTree, string relativePath)
+        {
+            if (string.IsNullOrEmpty(relativePath))
+            {
+                return baseTree == null || headTree == null || baseTree.Id != headTree.Id;
+            }
+
+            var before = baseTree == null ? null : FindEntry(baseTree, relativePath);
+            var after = headTree == null ? null : FindEntry(headTree, relativePath);
+            if (before == null && after == null)
+                return false;
+            if (before == null || after == null)
+                return true;
+            return before.Target.Id != after.Target.Id || before.Mode != after.Mode;
+        }
+
+        /// <summary>
+        /// Looks up a tree entry by repository-relative path; falls back to a case-insensitive match per
+        /// component, because MSBuild paths on Windows/macOS may differ in case from what git stores.
+        /// </summary>
+        private static TreeEntry FindEntry(Tree tree, string relativePath)
+        {
+            var exact = tree[relativePath];
+            if (exact != null)
+                return exact;
+
+            TreeEntry found = null;
+            var current = tree;
+            foreach (var part in relativePath.Split('/'))
+            {
+                if (current == null)
+                    return null;
+                found = current.FirstOrDefault(e => string.Equals(e.Name, part, StringComparison.OrdinalIgnoreCase));
+                if (found == null)
+                    return null;
+                current = found.TargetType == TreeEntryTargetType.Tree ? (Tree)found.Target : null;
+            }
+            return found;
+        }
+
+        /// <summary>
+        /// Whether a repository-relative file path is inside the repository-relative directory (exact
+        /// directory boundary; "" is the repository root).
+        /// </summary>
+        public static bool IsUnderDirectory(string filePath, string directory)
+        {
+            if (string.IsNullOrEmpty(directory))
+                return true;
+            var path = filePath.Replace('\\', '/');
+            return path.Equals(directory, StringComparison.OrdinalIgnoreCase) ||
+                   (path.Length > directory.Length && path[directory.Length] == '/' &&
+                    path.StartsWith(directory, StringComparison.OrdinalIgnoreCase));
         }
 
         public ChangeClassification ClassifyProjectChanges(Commit tagCommit, string projectPath, List<string> dependencies, string repoRoot, ChangeDetectionConfig config)
@@ -578,84 +762,43 @@ namespace Mister.Version.Core.Services
 
             try
             {
-                var compareOptions = new CompareOptions();
-                var diff = _repository.Diff.Compare<TreeChanges>(
-                    tagCommit.Tree,
-                    _repository.Head.Tip.Tree,
-                    compareOptions);
+                var projectDirectory = ToRepoRelativePath(projectPath, repoRoot);
+                var baseDirectory = Path.IsPathRooted(projectPath ?? "")
+                    ? Path.GetDirectoryName(Path.GetFullPath(projectPath))
+                    : Path.Combine(repoRoot ?? "", projectDirectory ?? "");
 
-                string normalizedProjectPath = NormalizePath(projectPath);
-
-                // Collect all changed files for this project
-                var changedFiles = new List<string>();
-
-                // Add direct project changes
-                changedFiles.AddRange(diff
-                    .Where(c => NormalizePath(c.Path).StartsWith(normalizedProjectPath))
-                    .Select(c => c.Path));
-
-                // Add dependency changes
+                // Directories/files whose changes count for this project
+                var scopes = new List<string> { projectDirectory ?? "" };
                 if (dependencies != null)
                 {
-                    foreach (var dependency in dependencies)
-                    {
-#if NET472
-                        var relativeDependencyPath = NormalizePath(Mister.Version.Core.PathUtils.GetRelativePath(repoRoot, dependency));
-#else
-                        var relativeDependencyPath = NormalizePath(Path.GetRelativePath(repoRoot, dependency));
-#endif
-                        string dependencyDirectory = NormalizePath(Path.GetDirectoryName(relativeDependencyPath) ?? relativeDependencyPath);
-
-                        changedFiles.AddRange(diff
-                            .Where(c => NormalizePath(c.Path).StartsWith(dependencyDirectory))
-                            .Select(c => c.Path));
-                    }
+                    scopes.AddRange(dependencies.Select(d => ToRepoRelativePath(d, repoRoot)).Where(d => d != null));
                 }
-
-                // Add additional monitor path changes
                 if (config?.AdditionalMonitorPaths != null)
                 {
-                    foreach (var monitorPath in config.AdditionalMonitorPaths)
+                    scopes.AddRange(config.AdditionalMonitorPaths
+                        .Where(m => !string.IsNullOrWhiteSpace(m))
+                        .Select(m => ToRepoRelativePath(m, repoRoot, projectFileToDirectory: false, baseDirectory: baseDirectory))
+                        .Where(m => m != null));
+                }
+                scopes = scopes.Distinct(StringComparer.OrdinalIgnoreCase).ToList();
+
+                // One diff, limited to the scopes, without rename detection (renames are reported as a
+                // delete of the old path plus an add of the new one, so both projects see the change).
+                var compareOptions = new CompareOptions { Similarity = SimilarityOptions.None };
+                var diff = scopes.Any(string.IsNullOrEmpty)
+                    ? _repository.Diff.Compare<TreeChanges>(tagCommit.Tree, _repository.Head.Tip.Tree, compareOptions)
+                    : _repository.Diff.Compare<TreeChanges>(tagCommit.Tree, _repository.Head.Tip.Tree, scopes, null, compareOptions);
+
+                var changedFiles = new List<string>();
+                foreach (var change in diff)
+                {
+                    foreach (var path in new[] { change.Path, change.OldPath })
                     {
-                        if (string.IsNullOrWhiteSpace(monitorPath))
-                            continue;
-
-                        string normalizedMonitorPath;
-                        if (Path.IsPathRooted(monitorPath))
+                        if (!string.IsNullOrEmpty(path) && scopes.Any(scope => IsUnderDirectory(path, scope)))
                         {
-                            // Absolute path - convert to relative from repo root
-#if NET472
-                            normalizedMonitorPath = NormalizePath(Mister.Version.Core.PathUtils.GetRelativePath(repoRoot, monitorPath));
-#else
-                            normalizedMonitorPath = NormalizePath(Path.GetRelativePath(repoRoot, monitorPath));
-#endif
+                            changedFiles.Add(path.Replace('\\', '/'));
                         }
-                        else
-                        {
-                            // Relative path - use as is
-                            normalizedMonitorPath = NormalizePath(monitorPath);
-                        }
-
-                        changedFiles.AddRange(diff
-                            .Where(c => NormalizePath(c.Path).StartsWith(normalizedMonitorPath))
-                            .Select(c => c.Path));
                     }
-                }
-
-                // Add packages.lock.json changes
-                string projectDir = Path.GetDirectoryName(projectPath);
-                if (string.IsNullOrEmpty(projectDir))
-                {
-                    projectDir = projectPath;
-                }
-                string lockFilePath = projectDir == "" ? "packages.lock.json" : Path.Combine(projectDir, "packages.lock.json");
-                string normalizedLockFilePath = NormalizePath(lockFilePath);
-
-                var lockFileChange = diff.FirstOrDefault(c =>
-                    NormalizePath(c.Path).Equals(normalizedLockFilePath, StringComparison.OrdinalIgnoreCase));
-                if (lockFileChange != null)
-                {
-                    changedFiles.Add(lockFileChange.Path);
                 }
 
                 // Remove duplicates
@@ -673,7 +816,7 @@ namespace Mister.Version.Core.Services
                 // Use pattern matcher to classify changes
                 var patternMatcher = new FilePatternMatcher();
                 classification = patternMatcher.ClassifyChanges(changedFiles, config);
-                var bumpType = patternMatcher.DetermineBumpType(classification, config);
+                patternMatcher.DetermineBumpType(classification, config);
 
                 return classification;
             }
@@ -716,7 +859,9 @@ namespace Mister.Version.Core.Services
                 var filter = new CommitFilter
                 {
                     ExcludeReachableFrom = fromCommit,
-                    IncludeReachableFrom = toCommit
+                    IncludeReachableFrom = toCommit,
+                    // Counting needs no ordering; the default (time) sort makes libgit2 walk everything up front
+                    SortBy = CommitSortStrategies.None
                 };
 
                 var height = _repository.Commits.QueryBy(filter).Count();
@@ -809,7 +954,7 @@ namespace Mister.Version.Core.Services
                         var normalizedProjectPath = NormalizePath(projectPath);
                         var normalizedChangePath = NormalizePath(change.Path);
 
-                        if (normalizedChangePath.StartsWith(normalizedProjectPath))
+                        if (IsUnderDirectory(normalizedChangePath, normalizedProjectPath.Trim('/')))
                         {
                             changeInfo.ProjectName = Path.GetFileName(projectPath);
                         }
@@ -1045,10 +1190,72 @@ namespace Mister.Version.Core.Services
             }
         }
 
+        // One incremental history walk from HEAD shared by every reachability check of this instance
+        private HashSet<ObjectId> _reachableFromHead;
+        private IEnumerator<Commit> _reachabilityWalk;
+        private bool _reachabilityWalkDone;
+
+        /// <summary>
+        /// Whether <paramref name="commit"/> is HEAD or one of its ancestors. All calls share one lazy history
+        /// walk (no ordering), so checking many tags costs at most one pass over the history.
+        /// </summary>
+        private bool IsReachableFromHead(Commit commit)
+        {
+            if (commit == null)
+                return false;
+
+            try
+            {
+                var head = _repository?.Head?.Tip;
+                if (head == null)
+                    return false;
+
+                if (_reachableFromHead == null)
+                {
+                    _reachableFromHead = new HashSet<ObjectId>();
+                    _reachabilityWalk = _repository.Commits.QueryBy(new CommitFilter
+                    {
+                        IncludeReachableFrom = head,
+                        SortBy = CommitSortStrategies.None
+                    }).GetEnumerator();
+                }
+
+                if (_reachableFromHead.Contains(commit.Id))
+                    return true;
+
+                while (!_reachabilityWalkDone)
+                {
+                    if (!_reachabilityWalk.MoveNext())
+                    {
+                        _reachabilityWalkDone = true;
+                        break;
+                    }
+
+                    var id = _reachabilityWalk.Current.Id;
+                    _reachableFromHead.Add(id);
+                    if (id == commit.Id)
+                        return true;
+                }
+
+                return false;
+            }
+            catch (Exception ex)
+            {
+                _logger?.Invoke("Warning", $"Error checking commit reachability: {ex.Message}");
+                // In shallow clones or error cases, assume reachable to avoid false negatives
+                return true;
+            }
+        }
+
         public bool IsCommitReachable(Commit fromCommit, Commit toCommit = null)
         {
             if (fromCommit == null)
                 return false;
+
+            if (toCommit == null)
+            {
+                return IsReachableFromHead(fromCommit);
+            }
 
             try
             {
@@ -1093,6 +1300,7 @@ namespace Mister.Version.Core.Services
 
         public void Dispose()
         {
+            _reachabilityWalk?.Dispose();
             _repository?.Dispose();
         }
     }

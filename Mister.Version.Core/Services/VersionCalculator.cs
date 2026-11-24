@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using Mister.Version.Core.Models;
@@ -371,8 +372,7 @@ namespace Mister.Version.Core.Services
             }
             else
             {
-                hasChanges = _gitService.ProjectHasChangedSinceTag(baseVersionTag.Commit, projectPath,
-                    options.Dependencies, options.RepoRoot, options.Debug);
+                hasChanges = ProjectOrMonitoredPathsChanged(baseVersionTag.Commit, projectPath, options);
             }
 
             return new ChangeDetectionResult
@@ -381,6 +381,75 @@ namespace Mister.Version.Core.Services
                 IsInitialRepository = isInitialRepository,
                 UpdatedBaseVersionTag = updatedBaseVersionTag
             };
+        }
+
+        /// <summary>
+        /// Whether the project directory, any (transitive) dependency directory, or any additional monitored
+        /// path changed since <paramref name="sinceCommit"/>.
+        /// </summary>
+        private bool ProjectOrMonitoredPathsChanged(LibGit2Sharp.Commit sinceCommit, string projectPath, VersionOptions options)
+        {
+            if (_gitService.ProjectHasChangedSinceTag(sinceCommit, projectPath, options.Dependencies, options.RepoRoot, options.Debug))
+            {
+                return true;
+            }
+
+            var projectDirectory = GetProjectDirectory(options);
+            foreach (var monitored in GetMonitoredPaths(options))
+            {
+                if (_gitService.HasPathChangedSinceCommit(sinceCommit, monitored, options.RepoRoot, projectDirectory))
+                {
+                    _logger("Debug", $"Changes detected in monitored path: {monitored}");
+                    return true;
+                }
+            }
+
+            return false;
+        }
+
+        private static IEnumerable<string> GetMonitoredPaths(VersionOptions options)
+        {
+            return (options.AdditionalMonitorPaths ?? new List<string>())
+                .Concat(options.ChangeDetection?.AdditionalMonitorPaths ?? new List<string>())
+                .Where(p => !string.IsNullOrWhiteSpace(p))
+                .Distinct(StringComparer.OrdinalIgnoreCase);
+        }
+
+        private static string GetProjectDirectory(VersionOptions options)
+        {
+            if (string.IsNullOrEmpty(options.ProjectPath))
+                return options.RepoRoot;
+            try
+            {
+                return Path.GetDirectoryName(Path.GetFullPath(options.ProjectPath));
+            }
+            catch (Exception)
+            {
+                return options.RepoRoot;
+            }
+        }
+
+        /// <summary>
+        /// Repository-relative directories whose commits count for this project: its own directory, its
+        /// (transitive) dependencies' directories and any monitored paths. Null means "the whole repository".
+        /// </summary>
+        private List<string> GetChangeScopes(VersionOptions options)
+        {
+            var projectDirectory = GetProjectDirectory(options);
+            var own = GitService.ToRepoRelativePath(options.ProjectPath, options.RepoRoot);
+            if (string.IsNullOrEmpty(own))
+                return null;
+
+            var scopes = new List<string> { own };
+            scopes.AddRange((options.Dependencies ?? new List<string>())
+                .Select(d => GitService.ToRepoRelativePath(d, options.RepoRoot))
+                .Where(d => d != null));
+            scopes.AddRange(GetMonitoredPaths(options)
+                .Select(m => GitService.ToRepoRelativePath(m, options.RepoRoot, projectFileToDirectory: false, baseDirectory: projectDirectory))
+                .Where(m => m != null));
+            if (scopes.Any(string.IsNullOrEmpty))
+                return null;
+            return scopes.Distinct(StringComparer.OrdinalIgnoreCase).ToList();
         }
 
         /// <summary>
@@ -444,14 +513,13 @@ namespace Mister.Version.Core.Services
                 {
                     Tag = existingTag,
                     SemVer = baseVersionTag.SemVer,
-                    Commit = existingTag.Target as LibGit2Sharp.Commit,
+                    Commit = existingTag.PeeledTarget as LibGit2Sharp.Commit, // peel annotated tags
                     IsGlobal = true
                 };
                 _logger("Debug", $"Found existing tag for base version {baseVersionString}, using it for change detection");
 
                 // Now let normal change detection work with the actual tag commit
-                bool hasChanges = _gitService.ProjectHasChangedSinceTag(updatedTag.Commit, projectPath,
-                    options.Dependencies, options.RepoRoot, options.Debug);
+                bool hasChanges = ProjectOrMonitoredPathsChanged(updatedTag.Commit, projectPath, options);
 
                 return new ChangeDetectionResult
                 {
@@ -481,8 +549,7 @@ namespace Mister.Version.Core.Services
             if (lastTaggedCommit != null)
             {
                 // Check if the project has changes since the last tagged commit
-                bool hasChanges = _gitService.ProjectHasChangedSinceTag(lastTaggedCommit, projectPath,
-                    options.Dependencies, options.RepoRoot, options.Debug);
+                bool hasChanges = ProjectOrMonitoredPathsChanged(lastTaggedCommit, projectPath, options);
                 _logger("Debug", $"Checking changes since last tag for {projectName}: {hasChanges}");
 
                 return new ChangeDetectionResult
@@ -502,9 +569,9 @@ namespace Mister.Version.Core.Services
         /// </summary>
         private LibGit2Sharp.Commit FindLastTaggedCommit()
         {
-            foreach (var tag in _gitService.Repository.Tags.OrderByDescending(t => (t.Target as LibGit2Sharp.Commit)?.Author.When))
+            foreach (var tag in _gitService.Repository.Tags.OrderByDescending(t => (t.PeeledTarget as LibGit2Sharp.Commit)?.Author.When))
             {
-                var tagCommit = tag.Target as LibGit2Sharp.Commit;
+                var tagCommit = tag.PeeledTarget as LibGit2Sharp.Commit;
                 if (tagCommit != null)
                 {
                     return tagCommit;
@@ -816,32 +883,38 @@ namespace Mister.Version.Core.Services
 
             try
             {
-                // Get commits between base tag and HEAD
-                System.Collections.Generic.IEnumerable<LibGit2Sharp.Commit> commits = null;
-
-                if (baseVersionTag?.Commit != null && _gitService.Repository?.Head?.Tip != null)
+                // Get commits between base tag and HEAD (materialized once; it used to be re-walked up to 4 times)
+                var head = _gitService.Repository?.Head?.Tip;
+                if (head == null)
                 {
-                    var filter = new LibGit2Sharp.CommitFilter
-                    {
-                        IncludeReachableFrom = _gitService.Repository.Head.Tip,
-                        ExcludeReachableFrom = baseVersionTag.Commit,
-                        SortBy = LibGit2Sharp.CommitSortStrategies.Topological | LibGit2Sharp.CommitSortStrategies.Time
-                    };
-
-                    commits = _gitService.Repository.Commits.QueryBy(filter);
-                }
-                else if (_gitService.Repository?.Head?.Tip != null)
-                {
-                    // No base tag commit, get all commits
-                    var filter = new LibGit2Sharp.CommitFilter
-                    {
-                        IncludeReachableFrom = _gitService.Repository.Head.Tip
-                    };
-
-                    commits = _gitService.Repository.Commits.QueryBy(filter);
+                    _logger("Debug", "No commits to analyze");
+                    return VersionBumpType.None;
                 }
 
-                if (commits == null || !commits.Any())
+                var filter = new LibGit2Sharp.CommitFilter
+                {
+                    IncludeReachableFrom = head,
+                    SortBy = LibGit2Sharp.CommitSortStrategies.Topological | LibGit2Sharp.CommitSortStrategies.Time
+                };
+                if (baseVersionTag?.Commit != null)
+                {
+                    filter.ExcludeReachableFrom = baseVersionTag.Commit;
+                }
+                var commits = _gitService.Repository.Commits.QueryBy(filter).ToList();
+
+                // Only commits that touched this project, its dependencies or its monitored paths decide its bump:
+                // a "feat:" in an unrelated project must not raise this project's minor version.
+                var scopes = GetChangeScopes(options);
+                if (scopes != null)
+                {
+                    commits = commits.Where(c =>
+                    {
+                        var parentTree = c.Parents.FirstOrDefault()?.Tree;
+                        return scopes.Any(scope => GitService.PathChanged(parentTree, c.Tree, scope));
+                    }).ToList();
+                }
+
+                if (commits.Count == 0)
                 {
                     _logger("Debug", "No commits to analyze");
                     return VersionBumpType.None;

@@ -259,74 +259,39 @@ namespace Mister.Version.Core.Services
                 if (headCommit == null)
                     return changedFiles;
 
-                var diff = _gitService.Repository.Diff.Compare<TreeChanges>(
-                    sinceCommit.Tree,
-                    headCommit.Tree);
+                var projectDirectory = GitService.ToRepoRelativePath(projectPath, request.RepoRoot) ?? "";
+                var baseDirectory = Path.Combine(request.RepoRoot ?? "", projectDirectory);
 
-                var normalizedProjectPath = NormalizePath(projectPath);
-
-                // Add direct project changes
-                foreach (var change in diff)
-                {
-                    var normalizedPath = NormalizePath(change.Path);
-                    if (normalizedPath.StartsWith(normalizedProjectPath))
-                    {
-                        changedFiles.Add(change.Path);
-                    }
-                }
-
-                // Add dependency changes
+                var scopes = new List<string> { projectDirectory };
                 if (request.Dependencies != null)
                 {
-                    foreach (var dependency in request.Dependencies)
-                    {
-#if NET472
-                        var relativeDependencyPath = NormalizePath(PathUtils.GetRelativePath(request.RepoRoot, dependency));
-#else
-                        var relativeDependencyPath = NormalizePath(Path.GetRelativePath(request.RepoRoot, dependency));
-#endif
-                        var dependencyDirectory = NormalizePath(Path.GetDirectoryName(relativeDependencyPath) ?? relativeDependencyPath);
-
-                        foreach (var change in diff)
-                        {
-                            var normalizedPath = NormalizePath(change.Path);
-                            if (normalizedPath.StartsWith(dependencyDirectory))
-                            {
-                                changedFiles.Add(change.Path);
-                            }
-                        }
-                    }
+                    scopes.AddRange(request.Dependencies
+                        .Select(d => GitService.ToRepoRelativePath(d, request.RepoRoot))
+                        .Where(d => d != null));
                 }
-
-                // Add additional monitor path changes
                 if (request.AdditionalMonitorPaths != null)
                 {
-                    foreach (var monitorPath in request.AdditionalMonitorPaths)
+                    scopes.AddRange(request.AdditionalMonitorPaths
+                        .Where(m => !string.IsNullOrWhiteSpace(m))
+                        .Select(m => GitService.ToRepoRelativePath(m, request.RepoRoot, projectFileToDirectory: false, baseDirectory: baseDirectory))
+                        .Where(m => m != null));
+                }
+                scopes = scopes.Distinct(StringComparer.OrdinalIgnoreCase).ToList();
+
+                // Pathspec-limited diff without rename detection; both sides of a move are reported, and paths
+                // are matched on directory boundaries (src/Lib1 must not match src/Lib10).
+                var options = new CompareOptions { Similarity = SimilarityOptions.None };
+                var diff = scopes.Any(string.IsNullOrEmpty)
+                    ? _gitService.Repository.Diff.Compare<TreeChanges>(sinceCommit.Tree, headCommit.Tree, options)
+                    : _gitService.Repository.Diff.Compare<TreeChanges>(sinceCommit.Tree, headCommit.Tree, scopes, null, options);
+
+                foreach (var change in diff)
+                {
+                    foreach (var path in new[] { change.Path, change.OldPath })
                     {
-                        if (string.IsNullOrWhiteSpace(monitorPath))
-                            continue;
-
-                        string normalizedMonitorPath;
-                        if (Path.IsPathRooted(monitorPath))
+                        if (!string.IsNullOrEmpty(path) && scopes.Any(scope => GitService.IsUnderDirectory(path, scope)))
                         {
-#if NET472
-                            normalizedMonitorPath = NormalizePath(PathUtils.GetRelativePath(request.RepoRoot, monitorPath));
-#else
-                            normalizedMonitorPath = NormalizePath(Path.GetRelativePath(request.RepoRoot, monitorPath));
-#endif
-                        }
-                        else
-                        {
-                            normalizedMonitorPath = NormalizePath(monitorPath);
-                        }
-
-                        foreach (var change in diff)
-                        {
-                            var normalizedPath = NormalizePath(change.Path);
-                            if (normalizedPath.StartsWith(normalizedMonitorPath))
-                            {
-                                changedFiles.Add(change.Path);
-                            }
+                            changedFiles.Add(path);
                         }
                     }
                 }

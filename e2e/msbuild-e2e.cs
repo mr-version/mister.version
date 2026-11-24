@@ -180,6 +180,73 @@ try
     Require(off.ExitCode == 0, "build with MonoRepoVersioningEnabled=false", off.Output);
     var offVersion = Ver(mono, "Core", "net8.0", "Debug");
     Check(offVersion == "1.0.0", $"MonoRepoVersioningEnabled=false leaves the SDK default version (got {offVersion})");
+
+    // ================================================================ dependency tree scenario
+    var tree = Path.Combine(work, "tree");
+    Directory.CreateDirectory(tree);
+    Step("Tree: create");
+    CreateTreeRepo(tree, feed, pkgVersion);
+    Git(tree, "init", "-q");
+    Git(tree, "checkout", "-q", "-b", "main");
+    Git(tree, "config", "user.email", "e2e@example.com");
+    Git(tree, "config", "user.name", "e2e");
+    Git(tree, "config", "commit.gpgsign", "false");
+    Git(tree, "config", "tag.gpgsign", "false");
+    Git(tree, "add", "-A");
+    Git(tree, "commit", "-q", "-m", "initial");
+    Git(tree, "tag", "v1.0.0");
+    var treeRestore = msbuildExe == null ? Dotnet(tree, "restore") : Run(tree, msbuildExe, "Mono.slnx", "-nologo", "-v:m", "-t:Restore");
+    Require(treeRestore.ExitCode == 0, "restore tree", treeRestore.Output);
+
+    Step("Tree: tagged v1.0.0");
+    var t0 = BuildAndVerifyTree(tree, "tagged");
+    foreach (var p in t0) Check(p.Value == "1.0.0", $"[tagged] {p.Key} is 1.0.0 (got {p.Value})");
+
+    Step("Tree: change only Core");
+    Touch(tree, "src/Core/Core.cs");
+    Git(tree, "commit", "-q", "-am", "fix: core");
+    var t1 = BuildAndVerifyTree(tree, "core-changed");
+    Check(t1["Core"] == "1.0.1", $"[core-changed] Core 1.0.1 (got {t1["Core"]})");
+    foreach (var dependent in new[] { "Shared", "Legacy", "Lib", "App", "Tool" })
+        Check(t1[dependent] != "1.0.0", $"[core-changed] {dependent} is bumped because Core (a direct or transitive dependency) changed (got {t1[dependent]})");
+    Check(t1["LibExtra"] == "1.0.0", $"[core-changed] unrelated LibExtra stays 1.0.0 (got {t1["LibExtra"]})");
+    Check(t1["Shared"].Contains("-beta"), $"[core-changed] Shared uses its own MonoRepoPrereleaseType=beta, also in its multi-targeted pack (got {t1["Shared"]})");
+
+    Step("Tree: project tag Lib/v3.0.0 on HEAD");
+    Git(tree, "tag", "Lib/v3.0.0");
+    var t2 = BuildAndVerifyTree(tree, "lib-tagged");
+    Check(t2["Lib"] == "3.0.0", $"[lib-tagged] Lib uses its project tag 3.0.0 (got {t2["Lib"]})");
+    Check(t2["Tool"] == t1["Tool"], $"[lib-tagged] Tool keeps {t1["Tool"]} (got {t2["Tool"]})");
+
+    Step("Tree: change only Shared");
+    Touch(tree, "src/Shared/Shared.cs");
+    Git(tree, "commit", "-q", "-am", "fix: shared");
+    var t3 = BuildAndVerifyTree(tree, "shared-changed");
+    Check(t3["Core"] == t2["Core"], $"[shared-changed] Core unchanged {t2["Core"]} (got {t3["Core"]})");
+    Check(t3["Legacy"] == t2["Legacy"], $"[shared-changed] Legacy unchanged {t2["Legacy"]} (got {t3["Legacy"]})");
+    Check(t3["Lib"] == "3.0.1", $"[shared-changed] Lib bumped from its project tag to 3.0.1 (got {t3["Lib"]})");
+    Check(t3["Tool"] != "1.0.0", $"[shared-changed] Tool stays bumped (got {t3["Tool"]})");
+
+    Step("Tree: tag v2.0.0, then change only LibExtra (sibling directory name starting with 'Lib')");
+    Git(tree, "tag", "v2.0.0");
+    Touch(tree, "src/LibExtra/LibExtra.cs");
+    Git(tree, "commit", "-q", "-am", "fix: libextra");
+    var t4 = BuildAndVerifyTree(tree, "libextra-changed");
+    Check(t4["LibExtra"] == "2.0.1", $"[libextra-changed] LibExtra bumped to 2.0.1 (got {t4["LibExtra"]})");
+    foreach (var unaffected in new[] { "Core", "Legacy", "App", "Tool" })
+        Check(t4[unaffected] == "2.0.0", $"[libextra-changed] {unaffected} stays 2.0.0: a change in src/LibExtra is not a change in src/Lib (got {t4[unaffected]})");
+
+    Step("Tree: change only Shared after v2.0.0 (transitive: Tool -> Lib -> Shared)");
+    Touch(tree, "src/Shared/Shared.cs");
+    Git(tree, "commit", "-q", "-am", "fix: shared again");
+    var t5 = BuildAndVerifyTree(tree, "shared-changed-2");
+    Check(t5["Tool"] == "2.0.1", $"[shared-changed-2] Tool bumped to 2.0.1 through Lib -> Shared (got {t5["Tool"]})");
+    Check(t5["App"] == "2.0.1", $"[shared-changed-2] App bumped to 2.0.1 through Shared (got {t5["App"]})");
+    Check(t5["Core"] == "2.0.0" && t5["Legacy"] == "2.0.0", $"[shared-changed-2] Core and Legacy stay 2.0.0 (got {t5["Core"]}, {t5["Legacy"]})");
+
+    Step("Tree: pack App alone");
+    var t6 = BuildAndVerifyTree(tree, "app-alone", Path.Combine("src", "App", "App.csproj"));
+    Check(t6.GetValueOrDefault("App") == t5["App"], $"[app-alone] App packed alone has the same version ({t6.GetValueOrDefault("App")} vs {t5["App"]})");
 }
 catch (FatalException ex)
 {
@@ -201,10 +268,72 @@ return failures.Count;
 
 // ==================================================================================== helpers
 
-(int ExitCode, string Output) Build(string configuration, params string[] extra) => msbuildExe == null
-    ? Dotnet(mono, new[] { "build", "--no-restore", "-c", configuration }.Concat(extra).ToArray())
-    : Run(mono, msbuildExe, (extra.Any(e => e.EndsWith("proj")) ? Array.Empty<string>() : new[] { "Mono.slnx" })
+(int ExitCode, string Output) Build(string configuration, params string[] extra) => BuildIn(mono, configuration, extra);
+
+(int ExitCode, string Output) BuildIn(string dir, string configuration, params string[] extra) => msbuildExe == null
+    ? Dotnet(dir, new[] { "build", "--no-restore", "-c", configuration }.Concat(extra).ToArray())
+    : Run(dir, msbuildExe, (extra.Any(e => e.EndsWith("proj")) ? Array.Empty<string>() : new[] { "Mono.slnx" })
         .Concat(new[] { "-nologo", "-v:m", $"-p:Configuration={configuration}" }).Concat(extra).ToArray());
+
+(int ExitCode, string Output) PackIn(string dir, string outDir, params string[] extra) => msbuildExe == null
+    ? Dotnet(dir, new[] { "pack", "--no-restore", "-c", "Release", "-o", outDir }.Concat(extra).ToArray())
+    : Run(dir, msbuildExe, (extra.Any(e => e.EndsWith("proj")) ? Array.Empty<string>() : new[] { "Mono.slnx" })
+        .Concat(new[] { "-nologo", "-v:m", "-t:Pack", "-p:Configuration=Release", $"-p:PackageOutputPath={outDir}" }).Concat(extra).ToArray());
+
+// Builds and packs the dependency-tree repo and verifies, for every project, TFM and edge:
+//   * every TFM's assembly carries the project's package version,
+//   * every nuspec dependency on a repo project uses that project's actual package version,
+//   * every compiled assembly reference to a repo project uses that project's actual AssemblyVersion.
+// Returns project -> package version.
+Dictionary<string, string> BuildAndVerifyTree(string dir, string label, string? onlyProject = null)
+{
+    var outDir = Path.Combine(work, "tree-out-" + label);
+    var build = onlyProject == null ? BuildIn(dir, "Release") : BuildIn(dir, "Release", onlyProject);
+    Require(build.ExitCode == 0, $"[{label}] build", build.Output);
+    var pack = onlyProject == null ? PackIn(dir, outDir) : PackIn(dir, outDir, onlyProject);
+    Require(pack.ExitCode == 0, $"[{label}] pack", pack.Output);
+    // (NU5104 is expected here: stable packages depend on Shared, which is deliberately configured as beta.)
+
+    var versions = new Dictionary<string, string>();
+    foreach (var (project, tfms) in TreeDef.Projects)
+    {
+        var pkg = NuspecFull(outDir, project);
+        if (pkg.Version == "<missing>") continue; // not packed in this step (single-project pack)
+        versions[project] = pkg.Version;
+        foreach (var tfm in tfms)
+        {
+            var v = VerAt(dir, project, tfm);
+            Check(v == pkg.Version, $"[{label}] {project} ({tfm}) assembly version matches its package ({v} vs {pkg.Version})");
+        }
+    }
+
+    foreach (var (project, _) in TreeDef.Projects)
+    {
+        var pkg = NuspecFull(outDir, project);
+        foreach (var (group, depId, depVersion) in pkg.Deps)
+        {
+            if (!versions.TryGetValue(depId, out var actual)) continue;
+            Check(depVersion == actual, $"[{label}] {project}.nupkg [{group}] -> {depId} {depVersion} matches {depId}'s package {actual}");
+        }
+    }
+
+    foreach (var (project, tfms) in TreeDef.Projects)
+    {
+        foreach (var tfm in tfms)
+        {
+            foreach (var (refName, refVersion) in AssemblyRefs(dir, project, tfm))
+            {
+                if (!TreeDef.Projects.Any(p => p.Name == refName)) continue;
+                var depTfm = TreeDef.Projects.First(p => p.Name == refName).Tfms.Contains(tfm) ? tfm : TreeDef.Projects.First(p => p.Name == refName).Tfms[0];
+                var expected = AsmVerAt(dir, refName, depTfm);
+                Check(refVersion == expected, $"[{label}] {project} ({tfm}) compiled against {refName} {refVersion} matches {refName}'s AssemblyVersion {expected}");
+            }
+        }
+    }
+
+    Console.WriteLine("  versions: " + string.Join(", ", versions.OrderBy(k => k.Key).Select(k => $"{k.Key}={k.Value}")));
+    return versions;
+}
 
 void Step(string name) => Console.WriteLine($"\n== {name}");
 
@@ -297,6 +426,136 @@ static (string Version, Dictionary<string, string> Deps) Nuspec(string outDir, s
     return (version, deps);
 }
 
+
+
+static void Touch(string root, string rel) => File.AppendAllText(Path.Combine(root, rel.Replace('/', Path.DirectorySeparatorChar)), "\n// change\n");
+
+static string VerAt(string root, string project, string tfm)
+{
+    var dll = Path.Combine(root, "src", project, "bin", "Release", tfm, project + ".dll");
+    if (!File.Exists(dll)) return "<missing>";
+    var v = FileVersionInfo.GetVersionInfo(dll).ProductVersion ?? "<none>";
+    var plus = v.IndexOf('+');
+    return plus >= 0 ? v[..plus] : v;
+}
+
+static string AsmVerAt(string root, string project, string tfm)
+{
+    var dll = Path.Combine(root, "src", project, "bin", "Release", tfm, project + ".dll");
+    return File.Exists(dll) ? System.Reflection.AssemblyName.GetAssemblyName(dll).Version?.ToString() ?? "<none>" : "<missing>";
+}
+
+static List<(string Name, string Version)> AssemblyRefs(string root, string project, string tfm)
+{
+    var dll = Path.Combine(root, "src", project, "bin", "Release", tfm, project + ".dll");
+    var result = new List<(string, string)>();
+    if (!File.Exists(dll)) return result;
+    using var stream = File.OpenRead(dll);
+    using var pe = new System.Reflection.PortableExecutable.PEReader(stream);
+    var md = System.Reflection.Metadata.PEReaderExtensions.GetMetadataReader(pe);
+    foreach (var handle in md.AssemblyReferences)
+    {
+        var r = md.GetAssemblyReference(handle);
+        result.Add((md.GetString(r.Name), r.Version.ToString()));
+    }
+    return result;
+}
+
+static (string Version, List<(string Group, string Id, string Version)> Deps) NuspecFull(string outDir, string id)
+{
+    if (!Directory.Exists(outDir)) return ("<missing>", new());
+    var nupkg = Directory.GetFiles(outDir, id + ".*.nupkg")
+        .FirstOrDefault(f => System.Text.RegularExpressions.Regex.IsMatch(Path.GetFileName(f), $@"^{id}\.\d"));
+    if (nupkg == null) return ("<missing>", new());
+    using var zip = ZipFile.OpenRead(nupkg);
+    using var s = zip.Entries.First(e => e.FullName.EndsWith(".nuspec")).Open();
+    var doc = XDocument.Load(s);
+    var version = doc.Descendants().First(e => e.Name.LocalName == "version").Value;
+    var deps = doc.Descendants().Where(e => e.Name.LocalName == "dependency")
+        .Select(e => ((string?)e.Parent?.Attribute("targetFramework") ?? "(any)", (string)e.Attribute("id")!,
+            ((string)e.Attribute("version")!).Trim('[', ']', '(', ')', ' ').Split(',')[0]))
+        .ToList();
+    return (version, deps);
+}
+
+static void CreateTreeRepo(string root, string feed, string pkgVersion)
+{
+    void W(string rel, string content)
+    {
+        var path = Path.Combine(root, rel.Replace('/', Path.DirectorySeparatorChar));
+        Directory.CreateDirectory(Path.GetDirectoryName(path)!);
+        File.WriteAllText(path, content);
+    }
+    string Proj(string tfms, string refs, string extra = "", bool exe = false) => $"""
+        <Project Sdk="Microsoft.NET.Sdk">
+          <PropertyGroup>
+            <{(tfms.Contains(';') ? "TargetFrameworks" : "TargetFramework")}>{tfms}</{(tfms.Contains(';') ? "TargetFrameworks" : "TargetFramework")}>
+            <IsPackable>true</IsPackable>{(exe ? "\n    <OutputType>Exe</OutputType>" : "")}{extra}
+          </PropertyGroup>
+          <ItemGroup>{refs}</ItemGroup>
+        </Project>
+        """;
+    string Ref(string name) => $"<ProjectReference Include=\"../{name}/{name}.csproj\" />";
+
+    W("nuget.config", $"""
+        <?xml version="1.0" encoding="utf-8"?>
+        <configuration>
+          <packageSources>
+            <clear />
+            <add key="e2e" value="{feed}" />
+            <add key="nuget" value="https://api.nuget.org/v3/index.json" />
+          </packageSources>
+        </configuration>
+        """);
+    W("Directory.Build.props", $"""
+        <Project>
+          <ItemGroup>
+            <PackageReference Include="Mister.Version" Version="{pkgVersion}" PrivateAssets="all" />
+          </ItemGroup>
+        </Project>
+        """);
+    W(".gitignore", "bin/\nobj/\n");
+    W("src/Core/Core.csproj", Proj("net8.0;net10.0", ""));
+    W("src/Core/Core.cs", "namespace Core; public static class C { public static int V => 1; }\n");
+    W("src/Shared/Shared.csproj", Proj("net8.0;net10.0", Ref("Core"), "\n    <MonoRepoPrereleaseType>beta</MonoRepoPrereleaseType>"));
+    W("src/Shared/Shared.cs", "namespace Shared; public static class S { public static int V => Core.C.V + 1; }\n");
+    W("src/Lib/Lib.csproj", Proj("net10.0", Ref("Shared")));
+    W("src/Lib/Lib.cs", "namespace Lib; public static class L { public static int V => Shared.S.V + 1; }\n");
+    W("src/LibExtra/LibExtra.csproj", Proj("net10.0", ""));
+    W("src/LibExtra/LibExtra.cs", "namespace LibExtra; public static class E { public static int V => 7; }\n");
+    W("src/Legacy/Legacy.csproj", Proj("net8.0", Ref("Core")));
+    W("src/Legacy/Legacy.cs", "namespace Legacy; public static class G { public static int V => Core.C.V + 2; }\n");
+    W("src/App/App.csproj", Proj("net8.0;net10.0", Ref("Shared") + Ref("Legacy"), exe: true));
+    W("src/App/Program.cs", "System.Console.WriteLine(Shared.S.V + Legacy.G.V);\n");
+    W("src/Tool/Tool.csproj", Proj("net10.0", Ref("Lib"), exe: true));
+    W("src/Tool/Program.cs", "System.Console.WriteLine(Lib.L.V);\n");
+    W("tests/App.Tests/App.Tests.csproj", """
+        <Project Sdk="Microsoft.NET.Sdk">
+          <PropertyGroup>
+            <TargetFramework>net10.0</TargetFramework>
+            <IsPackable>false</IsPackable>
+            <IsTestProject>true</IsTestProject>
+          </PropertyGroup>
+          <ItemGroup>
+            <ProjectReference Include="../../src/App/App.csproj" />
+          </ItemGroup>
+        </Project>
+        """);
+    W("tests/App.Tests/X.cs", "namespace T; public class X { }\n");
+    W("Mono.slnx", """
+        <Solution>
+          <Project Path="src/Core/Core.csproj" />
+          <Project Path="src/Shared/Shared.csproj" />
+          <Project Path="src/Lib/Lib.csproj" />
+          <Project Path="src/LibExtra/LibExtra.csproj" />
+          <Project Path="src/Legacy/Legacy.csproj" />
+          <Project Path="src/App/App.csproj" />
+          <Project Path="src/Tool/Tool.csproj" />
+          <Project Path="tests/App.Tests/App.Tests.csproj" />
+        </Solution>
+        """);
+}
+
 static void TryDelete(string dir)
 {
     try { Directory.Delete(dir, true); } catch { /* best effort; git objects can be read-only on Windows */ }
@@ -387,3 +646,17 @@ static void CreateMonorepo(string root, string feed, string pkgVersion)
 }
 
 sealed class FatalException(string message) : Exception(message);
+
+static class TreeDef
+{
+    public static (string Name, string[] Tfms)[] Projects => new[]
+    {
+        ("Core", new[] { "net8.0", "net10.0" }),
+        ("Shared", new[] { "net8.0", "net10.0" }),
+        ("Lib", new[] { "net10.0" }),
+        ("LibExtra", new[] { "net10.0" }),
+        ("Legacy", new[] { "net8.0" }),
+        ("App", new[] { "net8.0", "net10.0" }),
+        ("Tool", new[] { "net10.0" }),
+    };
+}

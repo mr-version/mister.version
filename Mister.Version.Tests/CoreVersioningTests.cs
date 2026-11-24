@@ -252,6 +252,8 @@ namespace Mister.Version.Tests
 
         public virtual bool ProjectHasChangedSinceTag(LibGit2Sharp.Commit tagCommit, string projectPath, System.Collections.Generic.List<string> dependencies, string repoRoot, bool debug = false) => HasChangesOverride;
 
+        public virtual bool HasPathChangedSinceCommit(LibGit2Sharp.Commit sinceCommit, string path, string repoRoot, string baseDirectory = null) => false;
+
         public virtual ChangeClassification ClassifyProjectChanges(LibGit2Sharp.Commit tagCommit, string projectPath, System.Collections.Generic.List<string> dependencies, string repoRoot, ChangeDetectionConfig config)
         {
             // Mock implementation - return basic classification
