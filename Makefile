@@ -55,17 +55,17 @@ smoke-test: build-debug
 
 # Install as global tool (for testing)
 install-global: pack
-	dotnet tool install --global --add-source ./nupkg Mister.Version
+	dotnet tool install --global --add-source ./nupkg Mister.Version.CLI
 
 # Uninstall global tool
 uninstall-global:
-	dotnet tool uninstall --global Mister.Version
+	dotnet tool uninstall --global Mister.Version.CLI
 
 # Run tests with code coverage
 coverage: build-debug
 	@echo "Running tests with code coverage..."
 	@rm -rf coverage
-	@dotnet test --collect:"XPlat Code Coverage" --results-directory:"coverage" --verbosity:normal
+	@dotnet test --coverage --coverage-output-format cobertura --coverage-output coverage.cobertura.xml --results-directory coverage
 	@COVERAGE_FILE=$$(find coverage -name "coverage.cobertura.xml" | head -1); \
 	if [ -n "$$COVERAGE_FILE" ]; then \
 		echo "Generating HTML coverage report..."; \

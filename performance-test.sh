@@ -1,5 +1,13 @@
 #!/bin/bash
 
+# Portable high-resolution clock (BSD date on macOS does not support %N)
+now_seconds() {
+    if [ -n "$EPOCHREALTIME" ]; then echo "$EPOCHREALTIME"
+    elif command -v python3 >/dev/null 2>&1; then python3 -c 'import time; print("%.6f" % time.time())'
+    else date +%s
+    fi
+}
+
 # Performance test script for mr-version
 set -e
 
@@ -39,10 +47,10 @@ measure_time() {
     log_info "Measuring: $description"
     echo "Command: $command"
     
-    local start_time=$(date +%s.%N)
+    local start_time=$(now_seconds)
     eval "$command" > /dev/null 2>&1
     local exit_code=$?
-    local end_time=$(date +%s.%N)
+    local end_time=$(now_seconds)
     
     local duration=$(echo "$end_time - $start_time" | bc -l)
     
