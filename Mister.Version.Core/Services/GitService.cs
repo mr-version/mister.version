@@ -336,49 +336,15 @@ namespace Mister.Version.Core.Services
                 _logger?.Invoke("Info", "Repository is a shallow clone - version tag history may be limited");
             }
 
-            var globalVersionTags = _repository.Tags
-                .Where(t => t.FriendlyName.StartsWith(options.TagPrefix, StringComparison.OrdinalIgnoreCase))
-                .Where(t =>
-                {
-                    // Global tags: v1.0.0, v1.0.0-alpha.1 (no project name prefix)
-                    // Project-specific tags: ProjectName-v1.0.0, v1.0.0-projectname
-                    var tagName = t.FriendlyName;
-
-                    // Validate tag name is long enough to contain version after prefix
-                    if (tagName.Length <= options.TagPrefix.Length)
-                        return false;
-
-                    // Since we don't support suffix format for project tags anymore,
-                    // all tags starting with the tag prefix are potentially global
-                    // (including v1.2.3-projectname which could be feature branch tags)
-
-                    return true; // Treat as global
-                })
-                .Select(t =>
-                {
-                    var tagName = t.FriendlyName;
-                    string versionPart = tagName.Length > options.TagPrefix.Length
-                        ? tagName.Substring(options.TagPrefix.Length)
-                        : "";
-
-                    // Peel annotated tags to get the actual commit
-                    GitObject target = t.Target;
-                    while (target is TagAnnotation annotation)
-                        target = annotation.Target;
-
-                    return new VersionTag
-                    {
-                        Tag = t,
-                        SemVer = ParseSemVer(versionPart),
-                        Commit = target as Commit,
-                        IsGlobal = true
-                    };
-                })
-                .Where(vt => vt.SemVer != null)
+            // All tags starting with the prefix are global candidates (v1.0.0, v1.0.0-alpha.1, ...). Work on
+            // (name, target sha) pairs from one ref enumeration; commits are peeled lazily, in precedence order,
+            // so repositories with thousands of tags don't pay an object lookup per tag per calculation.
+            var prefix = options.TagPrefix ?? string.Empty;
+            var candidates = OrderByPrecedence(GetTagRefs()
+                .Where(t => t.Name.Length > prefix.Length && t.Name.StartsWith(prefix, StringComparison.OrdinalIgnoreCase))
+                .Select(t => new TagCandidate(t.Name, t.TargetSha, ParseSemVer(t.Name.Substring(prefix.Length))))
+                .Where(c => c.SemVer != null))
                 .ToList();
-
-            // Sort version tags by precedence
-            globalVersionTags = SortVersionTagsByPrecedence(globalVersionTags).ToList();
 
             // Filter tags based on branch type
             if (branchType == BranchType.Release)
@@ -395,9 +361,8 @@ namespace Mister.Version.Core.Services
                     var releaseVersion = ExtractReleaseVersion(releaseBranch, options.TagPrefix);
                     if (releaseVersion != null)
                     {
-                        globalVersionTags = globalVersionTags
-                            .Where(vt => vt.SemVer.Major == releaseVersion.Major &&
-                                        vt.SemVer.Minor == releaseVersion.Minor)
+                        candidates = candidates
+                            .Where(c => c.SemVer.Major == releaseVersion.Major && c.SemVer.Minor == releaseVersion.Minor)
                             .ToList();
                     }
                 }
@@ -406,11 +371,12 @@ namespace Mister.Version.Core.Services
             // Only the highest-precedence tag that is an ancestor of HEAD is used. Checking candidates lazily in
             // precedence order against one shared incremental history walk is O(history) once, instead of one
             // walk per tag (which was O(tags x history) and dominated build time on long-lived repositories).
-            if (options.GitIntegration?.ValidateTagAncestry == true && !IsShallowClone)
-            {
-                var firstReachable = globalVersionTags.FirstOrDefault(vt => vt.Commit == null || IsReachableFromHead(vt.Commit));
-                globalVersionTags = firstReachable == null ? new List<VersionTag>() : new List<VersionTag> { firstReachable };
-            }
+            var selected = options.GitIntegration?.ValidateTagAncestry == true && !IsShallowClone
+                ? candidates.FirstOrDefault(IsCandidateReachable)
+                : candidates.FirstOrDefault();
+            var globalVersionTags = selected == null
+                ? new List<VersionTag>()
+                : new List<VersionTag> { Materialize(selected, isGlobal: true, projectName: null) };
 
             // Consider BaseVersion from config as a potential global version
             if (!string.IsNullOrEmpty(options.BaseVersion))
@@ -526,46 +492,22 @@ namespace Mister.Version.Core.Services
 
             // Note: We don't support suffix format (v1.2.3-projectname) as it conflicts with feature branch tags
 
-            var projectVersionTags = _repository.Tags
-                .Where(t =>
-                    // Check prefix formats: ProjectName-v1.0.0, ProjectName/v1.0.0
-                    possiblePrefixes.Any(prefix =>
-                        t.FriendlyName.StartsWith(prefix, StringComparison.OrdinalIgnoreCase)))
+            var projectCandidates = OrderByPrecedence(GetTagRefs()
                 .Select(t =>
                 {
-                    var tagName = t.FriendlyName;
-                    string versionPart = null;
-
-                    // Extract version part from prefix format
-                    foreach (var prefix in possiblePrefixes)
+                    // Extract the version part after the first matching prefix
+                    foreach (var candidatePrefix in possiblePrefixes)
                     {
-                        if (tagName.StartsWith(prefix, StringComparison.OrdinalIgnoreCase) &&
-                            tagName.Length > prefix.Length)
+                        if (t.Name.Length > candidatePrefix.Length &&
+                            t.Name.StartsWith(candidatePrefix, StringComparison.OrdinalIgnoreCase))
                         {
-                            versionPart = tagName.Substring(prefix.Length);
-                            break;
+                            return new TagCandidate(t.Name, t.TargetSha, ParseSemVer(t.Name.Substring(candidatePrefix.Length)));
                         }
                     }
-
-                    // Peel annotated tags to get the actual commit
-                    GitObject target = t.Target;
-                    while (target is TagAnnotation annotation)
-                        target = annotation.Target;
-
-                    return new VersionTag
-                    {
-                        Tag = t,
-                        SemVer = ParseSemVer(versionPart),
-                        Commit = target as Commit,
-                        IsGlobal = false,
-                        ProjectName = projectName
-                    };
+                    return null;
                 })
-                .Where(vt => vt.SemVer != null)
+                .Where(c => c?.SemVer != null))
                 .ToList();
-
-            // Sort version tags by precedence
-            projectVersionTags = SortVersionTagsByPrecedence(projectVersionTags).ToList();
 
             // Filter tags based on branch type
             if (branchType == BranchType.Release)
@@ -582,22 +524,20 @@ namespace Mister.Version.Core.Services
                     var releaseVersion = ExtractReleaseVersion(releaseBranch, tagPrefix);
                     if (releaseVersion != null)
                     {
-                        projectVersionTags = projectVersionTags
-                            .Where(vt => vt.SemVer.Major == releaseVersion.Major &&
-                                        vt.SemVer.Minor == releaseVersion.Minor)
+                        projectCandidates = projectCandidates
+                            .Where(c => c.SemVer.Major == releaseVersion.Major && c.SemVer.Minor == releaseVersion.Minor)
                             .ToList();
                     }
                 }
             }
 
             // Lazily pick the first (highest-precedence) tag reachable from HEAD - see GetGlobalVersionTag
-            if (options?.GitIntegration?.ValidateTagAncestry == true && !IsShallowClone)
-            {
-                projectVersionTags = projectVersionTags
-                    .Where(vt => vt.Commit == null || IsReachableFromHead(vt.Commit))
-                    .Take(1)
-                    .ToList();
-            }
+            var selectedProjectTag = options?.GitIntegration?.ValidateTagAncestry == true && !IsShallowClone
+                ? projectCandidates.FirstOrDefault(IsCandidateReachable)
+                : projectCandidates.FirstOrDefault();
+            var projectVersionTags = selectedProjectTag == null
+                ? new List<VersionTag>()
+                : new List<VersionTag> { Materialize(selectedProjectTag, isGlobal: false, projectName: projectName) };
 
             var result = projectVersionTags.FirstOrDefault();
 
@@ -1406,6 +1346,95 @@ namespace Mister.Version.Core.Services
                 // In shallow clones or error cases, assume reachable to avoid false negatives
                 return true;
             }
+        }
+
+        private sealed class TagCandidate
+        {
+            public TagCandidate(string name, string targetSha, SemVer semVer)
+            {
+                Name = name;
+                TargetSha = targetSha;
+                SemVer = semVer;
+            }
+
+            public string Name { get; }
+            public string TargetSha { get; }
+            public SemVer SemVer { get; }
+            public bool Peeled { get; set; }
+            public Commit Commit { get; set; }
+        }
+
+        private List<(string Name, string TargetSha)> _tagRefs;
+
+        /// <summary>Every tag as (name, target sha), enumerated once per instance.</summary>
+        private List<(string Name, string TargetSha)> GetTagRefs()
+        {
+            if (_tagRefs != null)
+                return _tagRefs;
+
+            var list = new List<(string, string)>();
+            foreach (var reference in _repository.Refs.FromGlob("refs/tags/*"))
+            {
+                var direct = reference.ResolveToDirectReference();
+                if (direct?.TargetIdentifier == null)
+                    continue;
+                list.Add((reference.CanonicalName.Substring("refs/tags/".Length), direct.TargetIdentifier));
+            }
+            return _tagRefs = list;
+        }
+
+        // Tag/commit object sha -> peeled commit sha ("" when the tag doesn't point at a commit). Objects are
+        // immutable, so this is valid for the lifetime of the process and across repositories.
+        private static readonly System.Collections.Concurrent.ConcurrentDictionary<string, string> PeeledCommitShas =
+            new System.Collections.Concurrent.ConcurrentDictionary<string, string>(StringComparer.Ordinal);
+
+        private Commit Peel(TagCandidate candidate)
+        {
+            if (candidate.Peeled)
+                return candidate.Commit;
+            candidate.Peeled = true;
+
+            if (!PeeledCommitShas.TryGetValue(candidate.TargetSha, out var commitSha))
+            {
+                GitObject target = _repository.Lookup(candidate.TargetSha);
+                while (target is TagAnnotation annotation)
+                    target = annotation.Target;
+                commitSha = (target as Commit)?.Sha ?? string.Empty;
+                if (PeeledCommitShas.Count > 100000)
+                    PeeledCommitShas.Clear();
+                PeeledCommitShas[candidate.TargetSha] = commitSha;
+            }
+
+            candidate.Commit = commitSha.Length == 0 ? null : _repository.Lookup<Commit>(commitSha);
+            return candidate.Commit;
+        }
+
+        private bool IsCandidateReachable(TagCandidate candidate)
+        {
+            var commit = Peel(candidate);
+            return commit == null || IsReachableFromHead(commit);
+        }
+
+        private VersionTag Materialize(TagCandidate candidate, bool isGlobal, string projectName)
+        {
+            return new VersionTag
+            {
+                Tag = _repository.Tags[candidate.Name],
+                SemVer = candidate.SemVer,
+                Commit = Peel(candidate),
+                IsGlobal = isGlobal,
+                ProjectName = projectName
+            };
+        }
+
+        private IEnumerable<TagCandidate> OrderByPrecedence(IEnumerable<TagCandidate> candidates)
+        {
+            return candidates
+                .OrderByDescending(c => c.SemVer.Major)
+                .ThenByDescending(c => c.SemVer.Minor)
+                .ThenByDescending(c => c.SemVer.Patch)
+                .ThenByDescending(c => GetPrereleasePrecedence(c.SemVer.PreRelease))
+                .ThenByDescending(c => GetPrereleaseNumber(c.SemVer.PreRelease));
         }
 
         /// <summary>
