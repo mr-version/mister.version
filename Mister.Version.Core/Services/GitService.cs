@@ -888,7 +888,9 @@ namespace Mister.Version.Core.Services
             var parts = relativePath.Split('/');
             for (var i = 0; i < parts.Length; i++)
             {
-                var entry = current.FirstOrDefault(e => string.Equals(e.Name, parts[i], StringComparison.OrdinalIgnoreCase));
+                // Exact lookup (a binary search in libgit2) first; the case-insensitive scan only when it fails
+                var entry = current[parts[i]] ??
+                            current.FirstOrDefault(e => string.Equals(e.Name, parts[i], StringComparison.OrdinalIgnoreCase));
                 if (entry == null)
                     return null;
                 if (entry.TargetType == TreeEntryTargetType.GitLink)
@@ -987,12 +989,20 @@ namespace Mister.Version.Core.Services
 
                 // A scope inside a submodule (e.g. a reference to a project in a submodule) changes when the
                 // submodule's commit pointer moves; a pathspec diff below the gitlink does not report that
-                foreach (var scope in scopes.Where(scope => !string.IsNullOrEmpty(scope)))
+                var headTree = _repository.Head.Tip.Tree;
+                var tagTree = tagCommit.Tree;
+                var headHasSubmodules = headTree[".gitmodules"] != null;
+                var tagHasSubmodules = tagTree[".gitmodules"] != null;
+                if (headHasSubmodules || tagHasSubmodules)
                 {
-                    var submodule = FindContainingSubmodule(_repository.Head.Tip.Tree, scope) ?? FindContainingSubmodule(tagCommit.Tree, scope);
-                    if (submodule != null && PathChanged(tagCommit.Tree, _repository.Head.Tip.Tree, submodule))
+                    foreach (var scope in scopes.Where(scope => !string.IsNullOrEmpty(scope)))
                     {
-                        changedFiles.Add(submodule);
+                        var submodule = (headHasSubmodules ? FindContainingSubmodule(headTree, scope) : null) ??
+                                        (tagHasSubmodules ? FindContainingSubmodule(tagTree, scope) : null);
+                        if (submodule != null && PathChanged(tagTree, headTree, submodule))
+                        {
+                            changedFiles.Add(submodule);
+                        }
                     }
                 }
 

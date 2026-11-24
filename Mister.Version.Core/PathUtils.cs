@@ -21,7 +21,9 @@ public static class PathUtils
     /// realpath(3). Components that do not exist are kept as they are. On .NET Framework the path is returned
     /// unchanged.
     /// </summary>
-    public static string ResolveLinks(string path)
+    public static string ResolveLinks(string path) => ResolveLinks(path, 0);
+
+    private static string ResolveLinks(string path, int hops)
     {
         if (string.IsNullOrEmpty(path))
             return path;
@@ -44,10 +46,15 @@ public static class PathUtils
                     return Path.Combine(new[] { next }.Concat(parts.Skip(i + 1)).ToArray());
                 }
 
-                if (info.LinkTarget != null)
+                var linkTarget = info.LinkTarget;
+                if (linkTarget != null)
                 {
-                    var target = info.ResolveLinkTarget(returnFinalTarget: true);
-                    next = target != null ? target.FullName : Path.GetFullPath(Path.Combine(current, info.LinkTarget));
+                    // The target may itself go through links (e.g. /var -> /private/var on macOS): resolve the
+                    // target plus the remaining components again, like realpath(3)
+                    if (hops >= 40)
+                        return path;
+                    var target = Path.IsPathRooted(linkTarget) ? linkTarget : Path.Combine(current, linkTarget);
+                    return ResolveLinks(Path.Combine(new[] { target }.Concat(parts.Skip(i + 1)).ToArray()), hops + 1);
                 }
                 current = next;
             }

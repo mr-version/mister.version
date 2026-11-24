@@ -971,12 +971,11 @@ namespace Mister.Version.Core.Services
                 {
                     filter.ExcludeReachableFrom = baseVersionTag.Commit;
                 }
-                // Merge commits are classified by the commits they bring in, which are part of this walk: a
-                // "Merge pull request #12" of chore-only commits is not a patch release (as a squash merge is not)
-                var commits = _gitService.Repository.Commits.QueryBy(filter).Where(c => c.Parents.Count() <= 1).ToList();
+                var commits = _gitService.Repository.Commits.QueryBy(filter).ToList();
 
                 // Only commits that touched this project, its dependencies or its monitored paths decide its bump:
-                // a "feat:" in an unrelated project must not raise this project's minor version.
+                // a "feat:" in an unrelated project must not raise this project's minor version. (A merge commit
+                // touches a scope when it brings changes to it into the first-parent line.)
                 var scopes = GetChangeScopes(options);
                 if (scopes != null)
                 {
@@ -986,6 +985,18 @@ namespace Mister.Version.Core.Services
                         return scopes.Any(scope => GitService.PathChanged(parentTree, c.Tree, scope));
                     }).ToList();
                 }
+
+                // Merge commits are classified by the commits they bring in, which are part of this walk, unless
+                // their own (effective) subject is typed, e.g. a merge titled with the pull request title
+                // ("feat: add login (#12)", or GitHub's "Merge pull request #12 ..." with the title in the body).
+                // A generic "Merge branch ..." of chore-only commits is therefore not a release, as with a squash
+                // merge. When only merge commits brought the change (git subtree pull, conflict resolutions), they
+                // are all kept so the change is not lost.
+                var nonMerges = commits.Where(c => c.Parents.Count() <= 1).ToList();
+                var merges = commits.Where(c => c.Parents.Count() > 1).ToList();
+                commits = nonMerges.Count == 0
+                    ? merges
+                    : nonMerges.Concat(merges.Where(m => ConventionalCommitAnalyzer.HasConventionalType(m.Message))).ToList();
 
                 if (commits.Count == 0)
                 {
@@ -1474,9 +1485,10 @@ namespace Mister.Version.Core.Services
         /// </summary>
         private string RelativeProjectDirectory(VersionOptions options, string projectDir)
         {
-            if (Path.IsPathRooted(options.ProjectPath))
+            if (Path.IsPathRooted(projectDir))
             {
-                var inside = GitService.ToRepoRelativePath(options.ProjectPath, options.RepoRoot);
+                // The directory, not the project file: any project file extension (.wixproj, .msbuildproj, ...)
+                var inside = GitService.ToRepoRelativePath(projectDir, options.RepoRoot, projectFileToDirectory: false);
                 if (inside != null)
                     return inside;
             }

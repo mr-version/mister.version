@@ -94,6 +94,30 @@ namespace Mister.Version.Tests
         }
 
         [Fact]
+        public void LinkWhoseTargetGoesThroughAnotherLink_IsResolved()
+        {
+            // Like macOS, where the temp directory /var/... is itself a link to /private/var/...
+            var real = Path.Combine(_work, "private");
+            var repoRoot = Path.Combine(real, "repo");
+            Directory.CreateDirectory(Path.Combine(repoRoot, "src", "Leaf"));
+            var alias = Path.Combine(_work, "var");
+            var link = Path.Combine(_work, "leaflink");
+            try
+            {
+                Directory.CreateSymbolicLink(alias, real);
+                Directory.CreateSymbolicLink(link, Path.Combine(alias, "repo", "src", "Leaf"));
+            }
+            catch (Exception)
+            {
+                return; // symbolic links need privileges on some Windows machines
+            }
+
+            var viaLink = Path.Combine(link, "Leaf.csproj");
+            Assert.Equal("src/Leaf", GitService.ToRepoRelativePath(viaLink, repoRoot));
+            Assert.Equal("src/Leaf", GitService.ToRepoRelativePath(viaLink, Path.Combine(alias, "repo")));
+        }
+
+        [Fact]
         public void ReferenceIntoASubmodule_BumpsWhenTheSubmodulePointerMoves()
         {
             // Library repository with its own history
