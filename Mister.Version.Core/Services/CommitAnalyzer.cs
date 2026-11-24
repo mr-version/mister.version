@@ -183,25 +183,25 @@ namespace Mister.Version.Core.Services
             }
 
             // Check if commit should be ignored
-            if (config.IgnorePatterns != null && config.IgnorePatterns.Any(pattern => MessageMatchesPattern(message, pattern)))
+            if (config.IgnorePatterns != null && config.IgnorePatterns.Any(pattern => MessageMatchesPattern(message, classification, pattern)))
             {
                 return VersionBumpType.None;
             }
 
             // Check for major patterns
-            if (config.MajorPatterns != null && config.MajorPatterns.Any(pattern => MessageMatchesPattern(message, pattern)))
+            if (config.MajorPatterns != null && config.MajorPatterns.Any(pattern => MessageMatchesPattern(message, classification, pattern)))
             {
                 return VersionBumpType.Major;
             }
 
             // Check for minor patterns
-            if (config.MinorPatterns != null && config.MinorPatterns.Any(pattern => MessageMatchesPattern(message, pattern)))
+            if (config.MinorPatterns != null && config.MinorPatterns.Any(pattern => MessageMatchesPattern(message, classification, pattern)))
             {
                 return VersionBumpType.Minor;
             }
 
             // Check for patch patterns
-            if (config.PatchPatterns != null && config.PatchPatterns.Any(pattern => MessageMatchesPattern(message, pattern)))
+            if (config.PatchPatterns != null && config.PatchPatterns.Any(pattern => MessageMatchesPattern(message, classification, pattern)))
             {
                 return VersionBumpType.Patch;
             }
@@ -214,7 +214,7 @@ namespace Mister.Version.Core.Services
         private bool ShouldIgnoreCommit(string message, string commitType, ConventionalCommitConfig config)
         {
             // Check ignore patterns
-            if (config.IgnorePatterns != null && config.IgnorePatterns.Any(pattern => MessageMatchesPattern(message, pattern)))
+            if (config.IgnorePatterns != null && config.IgnorePatterns.Any(pattern => MessageMatchesPattern(message, null, pattern, commitType)))
             {
                 return true;
             }
@@ -229,15 +229,47 @@ namespace Mister.Version.Core.Services
             return false;
         }
 
-        private bool MessageMatchesPattern(string message, string pattern)
+        private static readonly Regex TypePattern = new Regex(@"^(?<type>[A-Za-z][\w-]*)!?:$", RegexOptions.Compiled | RegexOptions.CultureInvariant);
+
+        /// <summary>
+        /// Matches a configured commit pattern against a commit.
+        /// "type:" patterns (feat:, fix:, docs:, ...) match the parsed conventional-commit type, with or without a
+        /// scope ("feat(api): ...") or '!'; they used to be raw substring matches, so "feat(api):" fell through to a
+        /// patch bump and a "docs:" mentioned inside a fix description made the fix ignored. "BREAKING CHANGE:" and
+        /// "!:" are recognized structurally. Other (free-form) patterns match within the subject line.
+        /// </summary>
+        private bool MessageMatchesPattern(string message, CommitClassification classification, string pattern, string commitType = null)
         {
             if (string.IsNullOrEmpty(message) || string.IsNullOrEmpty(pattern))
             {
                 return false;
             }
 
-            // Case-insensitive prefix match
-            return message.IndexOf(pattern, StringComparison.OrdinalIgnoreCase) >= 0;
+            var trimmed = pattern.Trim();
+            var type = classification?.CommitType ?? commitType;
+
+            if (trimmed == "!:")
+            {
+                return classification != null && classification.IsBreakingChange;
+            }
+
+            if (trimmed.Equals("BREAKING CHANGE:", StringComparison.OrdinalIgnoreCase) ||
+                trimmed.Equals("BREAKING-CHANGE:", StringComparison.OrdinalIgnoreCase))
+            {
+                return BreakingChangePattern.IsMatch(message) ||
+                       message.IndexOf(trimmed, StringComparison.OrdinalIgnoreCase) >= 0;
+            }
+
+            var typeMatch = TypePattern.Match(trimmed);
+            if (typeMatch.Success && !string.IsNullOrEmpty(type) && type != "unknown")
+            {
+                return string.Equals(type, typeMatch.Groups["type"].Value, StringComparison.OrdinalIgnoreCase);
+            }
+
+            // Free-form pattern: case-insensitive match within the subject (first) line
+            var newline = message.IndexOf('\n');
+            var subject = newline >= 0 ? message.Substring(0, newline) : message;
+            return subject.IndexOf(trimmed, StringComparison.OrdinalIgnoreCase) >= 0;
         }
 
         private string GetClassificationReason(CommitClassification classification, ConventionalCommitConfig config)

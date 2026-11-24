@@ -72,6 +72,14 @@ public class VersionConfig
     /// </summary>
     public CalVerConfig CalVer { get; set; }
 
+    /// <summary>Alias of <see cref="Scheme"/> ("versionScheme:" as written in the README and example).</summary>
+    [YamlDotNet.Serialization.YamlMember(Alias = "versionScheme")]
+    public string VersionSchemeAlias { get => null; set => Scheme = value; }
+
+    /// <summary>Alias of <see cref="CalVer"/> ("calver:" as written in the README and example).</summary>
+    [YamlDotNet.Serialization.YamlMember(Alias = "calver")]
+    public CalVerConfig CalVerAlias { get => null; set => CalVer = value; }
+
     /// <summary>
     /// Version validation constraints
     /// </summary>

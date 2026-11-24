@@ -78,7 +78,7 @@ namespace Mister.Version.Core.Services
             }
 
             // Get current branch and determine type
-            var currentBranch = _gitService.CurrentBranch;
+            var currentBranch = !string.IsNullOrEmpty(options.BranchName) ? options.BranchName : _gitService.CurrentBranch;
             var branchType = _gitService.GetBranchType(currentBranch);
             
             _logger("Debug", $"Current branch: {currentBranch}");
@@ -178,7 +178,7 @@ namespace Mister.Version.Core.Services
                     result.PreviousVersion,
                     options.Constraints,
                     bumpType,
-                    majorApproved: false); // TODO: Add majorApproved parameter to options if needed
+                    majorApproved: options.MajorVersionApproved);
 
                 result.ValidationResult = validationResult;
 
@@ -299,6 +299,20 @@ namespace Mister.Version.Core.Services
             bool isInitialRepository = changeDetection.IsInitialRepository;
             baseVersionTag = changeDetection.UpdatedBaseVersionTag ?? baseVersionTag;
 
+            // With conventional commits or file-pattern detection enabled, changes that are all ignored
+            // (docs-only files, chore:/docs: commits) are not a reason to release: keep the existing version.
+            // Previously "no bump" fell back to the default patch increment, so ignored changes always bumped.
+            if (hasChanges && !isInitialRepository && baseVersionTag.Commit != null &&
+                ((options.CommitConventions?.Enabled ?? false) || (options.ChangeDetection?.Enabled ?? false)))
+            {
+                DetermineIncrementFromCommits(baseVersionTag, options, out var analyzedBump, out _);
+                if (analyzedBump == VersionBumpType.None)
+                {
+                    _logger("Info", $"All changes for {projectName} since {baseVersionTag.SemVer.ToVersionString()} are ignored by the configured patterns; keeping the version");
+                    hasChanges = false;
+                }
+            }
+
             // Populate commit information for current HEAD
             PopulateCommitInfo(result);
 
@@ -321,7 +335,8 @@ namespace Mister.Version.Core.Services
             if (options.GitIntegration?.IncludeBranchInMetadata == true)
             {
                 result.SemVer = _gitService.AddBranchMetadata(result.SemVer, branchName, options.GitIntegration);
-                result.Version = result.SemVer.ToVersionString();
+                // ToString keeps "+<build metadata>" (ToVersionString drops it, which made this option a no-op)
+                result.Version = result.SemVer.ToString();
             }
 
             return result;
@@ -861,7 +876,25 @@ namespace Mister.Version.Core.Services
         /// <param name="bumpType">Output parameter for the determined bump type</param>
         /// <param name="commitClassifications">Output parameter for commit classifications</param>
         /// <returns>Increment type string (major, minor, or patch)</returns>
+        private (VersionTag Base, VersionOptions Options, string Increment, VersionBumpType? Bump, List<CommitClassification> Classifications) _incrementMemo;
+
         private string DetermineIncrementFromCommits(VersionTag baseVersionTag, VersionOptions options,
+            out VersionBumpType? bumpType, out System.Collections.Generic.List<CommitClassification> commitClassifications)
+        {
+            // Memoized per calculation: the no-bump check and the branch strategy both need it
+            if (ReferenceEquals(_incrementMemo.Base, baseVersionTag) && ReferenceEquals(_incrementMemo.Options, options))
+            {
+                bumpType = _incrementMemo.Bump;
+                commitClassifications = _incrementMemo.Classifications;
+                return _incrementMemo.Increment;
+            }
+
+            var increment = DetermineIncrementFromCommitsCore(baseVersionTag, options, out bumpType, out commitClassifications);
+            _incrementMemo = (baseVersionTag, options, increment, bumpType, commitClassifications);
+            return increment;
+        }
+
+        private string DetermineIncrementFromCommitsCore(VersionTag baseVersionTag, VersionOptions options,
             out VersionBumpType? bumpType, out System.Collections.Generic.List<CommitClassification> commitClassifications)
         {
             bumpType = null;
@@ -1237,7 +1270,7 @@ namespace Mister.Version.Core.Services
             }
 
             // Get the current branch type to determine if changes matter
-            var currentBranch = _gitService.CurrentBranch;
+            var currentBranch = !string.IsNullOrEmpty(options.BranchName) ? options.BranchName : _gitService.CurrentBranch;
             var branchType = _gitService.GetBranchType(currentBranch);
 
             _logger("Debug", $"CalVer - Current branch: {currentBranch}");

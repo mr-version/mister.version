@@ -29,6 +29,9 @@
          keeps the project's own version; set to true to make it an error -->
     <MonoRepoRequireGitRepository Condition="'$(MonoRepoRequireGitRepository)' == ''">false</MonoRepoRequireGitRepository>
     <MonoRepoTagPrefix Condition="'$(MonoRepoTagPrefix)' == ''">v</MonoRepoTagPrefix>
+    <!-- Branch to version as (default: the checked-out branch; for a detached HEAD the CI system's branch or a
+         branch whose tip is HEAD) -->
+    <MonoRepoBranchName Condition="'$(MonoRepoBranchName)' == ''"></MonoRepoBranchName>
     <!-- Default to NOT updating project files to avoid requiring commits -->
     <MonoRepoUpdateProjectFile Condition="'$(MonoRepoUpdateProjectFile)' == ''">false</MonoRepoUpdateProjectFile>
     <MonoRepoDebug Condition="'$(MonoRepoDebug)' == ''">false</MonoRepoDebug>

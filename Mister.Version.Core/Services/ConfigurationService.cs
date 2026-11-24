@@ -77,11 +77,26 @@ namespace Mister.Version.Core.Services
             try
             {
                 var yaml = File.ReadAllText(configPath);
-                var deserializer = new DeserializerBuilder()
-                    .WithNamingConvention(YamlDotNet.Serialization.NamingConventions.CamelCaseNamingConvention.Instance)
-                    .Build();
-                
-                var config = deserializer.Deserialize<VersionConfig>(yaml);
+                VersionConfig config;
+                try
+                {
+                    config = new DeserializerBuilder()
+                        .WithNamingConvention(YamlDotNet.Serialization.NamingConventions.CamelCaseNamingConvention.Instance)
+                        .Build()
+                        .Deserialize<VersionConfig>(yaml);
+                }
+                catch (YamlDotNet.Core.YamlException ex) when (ex.Message.IndexOf("not found on type", StringComparison.OrdinalIgnoreCase) >= 0 ||
+                                                                ex.InnerException?.Message.IndexOf("not found on type", StringComparison.OrdinalIgnoreCase) >= 0)
+                {
+                    // An unknown key used to discard the entire file silently. Keep every known setting and say
+                    // which key is not understood.
+                    logger?.Invoke("Warning", $"{configPath}: {GetInnermostMessage(ex)} Unknown keys are ignored; the rest of the configuration is applied.");
+                    config = new DeserializerBuilder()
+                        .WithNamingConvention(YamlDotNet.Serialization.NamingConventions.CamelCaseNamingConvention.Instance)
+                        .IgnoreUnmatchedProperties()
+                        .Build()
+                        .Deserialize<VersionConfig>(yaml);
+                }
                 logger?.Invoke("Info", $"Loaded configuration from {configPath}");
 
                 // Validate version policy configuration if present
@@ -189,6 +204,13 @@ namespace Mister.Version.Core.Services
 
             return result;
         }
+
+        private static string GetInnermostMessage(Exception ex)
+        {
+            while (ex.InnerException != null)
+                ex = ex.InnerException;
+            return ex.Message;
+        }
     }
 
     /// <summary>
@@ -203,5 +225,6 @@ namespace Mister.Version.Core.Services
         public bool? SkipTestProjects { get; set; }
         public bool? SkipNonPackableProjects { get; set; }
         public string ForceVersion { get; set; }
+
     }
 }

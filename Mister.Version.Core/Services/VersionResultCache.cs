@@ -2,6 +2,7 @@ using System;
 using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.IO;
+using System.Linq;
 using System.Security.Cryptography;
 using System.Text;
 using LibGit2Sharp;
@@ -53,12 +54,23 @@ namespace Mister.Version.Core.Services
             sb.Append("head=").Append(repo.Info.IsHeadDetached ? "(detached)" : head?.CanonicalName)
               .Append('@').Append(head?.Tip?.Sha ?? "(unborn)").Append('\n');
 
+            // Tags always matter; with a detached HEAD the branch is resolved from branch tips and CI variables
+            var detached = repo.Info.IsHeadDetached;
             var tags = new List<string>();
             foreach (var reference in repo.Refs)
             {
-                if (reference.CanonicalName.StartsWith("refs/tags/", StringComparison.Ordinal))
+                if (reference.CanonicalName.StartsWith("refs/tags/", StringComparison.Ordinal) ||
+                    (detached && (reference.CanonicalName.StartsWith("refs/heads/", StringComparison.Ordinal) ||
+                                  reference.CanonicalName.StartsWith("refs/remotes/", StringComparison.Ordinal))))
                 {
                     tags.Add(reference.CanonicalName + "=" + reference.TargetIdentifier);
+                }
+            }
+            if (detached)
+            {
+                foreach (var variable in GitService.CiBranchVariables.Concat(GitService.CiCommitVariables).Concat(new[] { "GITHUB_REF_TYPE" }))
+                {
+                    sb.Append("env:").Append(variable).Append('=').Append(Environment.GetEnvironmentVariable(variable)).Append('\n');
                 }
             }
             tags.Sort(StringComparer.Ordinal);
