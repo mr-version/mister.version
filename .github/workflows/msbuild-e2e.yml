@@ -120,3 +120,33 @@ jobs:
 
     - name: Run 80-project stress test
       run: dotnet run e2e/msbuild-stress.cs -- --projects 80
+
+  edge:
+    # Layout/SDK edge cases (e2e/msbuild-edge.cs): multi-targeting outer build, source-generator and
+    # PrivateAssets references, property-based and Directory.Build.targets references, Web SDK,
+    # duplicate project names, submodules, symlinks, nested worktrees, numeric feature branches,
+    # non-packable projects and references outside the repository - MSBuild and CLI must agree.
+    name: edge cases (${{ matrix.name }})
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { name: linux-x64,   os: ubuntu-latest }
+          - { name: windows-x64, os: windows-latest }
+          - { name: osx-arm64,   os: macos-latest }
+
+    steps:
+    - name: Checkout Code
+      uses: actions/checkout@v4
+
+    - name: Setup .NET
+      uses: actions/setup-dotnet@v4
+      with:
+        dotnet-version: |
+          8.0.x
+          10.0.x
+
+    - name: Run edge-case tests
+      run: dotnet run e2e/msbuild-edge.cs
