@@ -279,8 +279,7 @@ namespace Mister.Version.Core.Services
         {
             try
             {
-                // Get current HEAD SHA
-                var headSha = _gitService.Repository?.Head?.Tip?.Sha;
+                var headSha = GetFileCacheKey(request);
                 if (string.IsNullOrEmpty(headSha))
                 {
                     _logger("Debug", "Cannot use file cache: Unable to get HEAD SHA");
@@ -328,8 +327,7 @@ namespace Mister.Version.Core.Services
         {
             try
             {
-                // Get current HEAD SHA
-                var headSha = _gitService.Repository?.Head?.Tip?.Sha;
+                var headSha = GetFileCacheKey(request);
                 if (string.IsNullOrEmpty(headSha))
                 {
                     _logger("Debug", "Cannot save to file cache: Unable to get HEAD SHA");
@@ -358,6 +356,46 @@ namespace Mister.Version.Core.Services
             {
                 _logger("Warning", $"Failed to save to file cache due to invalid operation: {invOpEx.Message}");
             }
+        }
+
+        /// <summary>
+        /// Key for the opt-in file cache. Historically this was the HEAD commit SHA alone, which returned stale
+        /// versions after a tag was added (or configuration/settings changed) without a new commit. It now
+        /// covers the full repository fingerprint (HEAD, tags, config, ...) plus every request setting.
+        /// </summary>
+        private string GetFileCacheKey(VersioningRequest request)
+        {
+            var repository = _gitService.Repository;
+            if (repository?.Head?.Tip == null)
+            {
+                return null;
+            }
+
+            var fingerprint = RepositoryFingerprint.Compute(repository, _repoRoot, request.ConfigFile);
+            return VersionResultCache.CreateKey(fingerprint, DescribeRequest(request));
+        }
+
+        /// <summary>
+        /// Stable textual description of every setting in a request, for cache keys.
+        /// </summary>
+        internal static string DescribeRequest(VersioningRequest request)
+        {
+            var sb = new System.Text.StringBuilder();
+            foreach (var property in typeof(VersioningRequest).GetProperties().OrderBy(p => p.Name, StringComparer.Ordinal))
+            {
+                var value = property.GetValue(request);
+                string text;
+                if (value is IEnumerable<string> list && !(value is string))
+                {
+                    text = string.Join("|", list.Where(x => x != null).OrderBy(x => x, StringComparer.Ordinal));
+                }
+                else
+                {
+                    text = Convert.ToString(value, System.Globalization.CultureInfo.InvariantCulture);
+                }
+                sb.Append(property.Name).Append('=').Append(text).Append('\n');
+            }
+            return sb.ToString();
         }
 
         /// <summary>

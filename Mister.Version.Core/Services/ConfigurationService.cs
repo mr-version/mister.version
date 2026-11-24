@@ -7,12 +7,18 @@ namespace Mister.Version.Core.Services
 {
     public static class ConfigurationService
     {
-        private static readonly string[] DefaultConfigFiles = new[] 
-        { 
-            "mr-version.yml", 
-            "mr-version.yaml", 
-            "mister-version.yaml" 
+        private static readonly string[] DefaultConfigFiles = new[]
+        {
+            "mr-version.yml",
+            "mr-version.yaml",
+            "mister-version.yml",
+            "mister-version.yaml"
         };
+
+        /// <summary>
+        /// File names (relative to the repository root) that are auto-discovered, in priority order.
+        /// </summary>
+        public static System.Collections.Generic.IReadOnlyList<string> DefaultConfigFileNames => DefaultConfigFiles;
 
         /// <summary>
         /// Loads configuration from a YAML file or discovers default configuration files

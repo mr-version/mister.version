@@ -136,6 +136,13 @@ public class MonoRepoVersionTask : Task
     public bool EnableCache { get; set; } = true;
 
     /// <summary>
+    /// Optional per-project file in which the calculated version is cached across processes
+    /// (parallel build nodes, separate build/pack/test invocations). The entry is keyed on a fingerprint
+    /// of the repository state and all task inputs, so it can never return a stale version.
+    /// </summary>
+    public string CacheFile { get; set; }
+
+    /// <summary>
     /// Enable file-based caching of version results (default: false).
     /// When enabled, version results are stored in .mrversion/[git-sha]/[project-name]/version.props
     /// This allows for fast version lookups when the git SHA hasn't changed, even across separate build processes.
@@ -353,7 +360,7 @@ public class MonoRepoVersionTask : Task
     /// <summary>
     /// Gets or creates the static cache for the current repository
     /// </summary>
-    private VersionCache GetOrCreateCache(string repoRoot, string currentHeadSha)
+    private VersionCache GetOrCreateCache(string repoRoot, string repositoryStateKey)
     {
         if (!EnableCache)
             return null;
@@ -363,16 +370,17 @@ public class MonoRepoVersionTask : Task
             // If cache doesn't exist or is for a different repo, create a new one
             if (_staticCache == null || _cacheRepoRoot != repoRoot)
             {
-                _staticCache = new VersionCache(repoRoot, currentHeadSha);
+                _staticCache = new VersionCache(repoRoot, repositoryStateKey);
                 _cacheRepoRoot = repoRoot;
                 Log.LogMessage(MessageImportance.Low, $"[Mister.Version] Created new cache for repository: {repoRoot}");
             }
             else
             {
-                // Validate cache and invalidate if HEAD changed
-                if (_staticCache.ValidateAndInvalidate(currentHeadSha))
+                // Invalidate when anything the versions depend on changed (HEAD, branch, tags, config) - not just HEAD,
+                // otherwise a tag created between two builds served by the same reused MSBuild node is ignored.
+                if (_staticCache.ValidateAndInvalidate(repositoryStateKey))
                 {
-                    Log.LogMessage(MessageImportance.Low, "[Mister.Version] Cache invalidated due to HEAD change");
+                    Log.LogMessage(MessageImportance.Low, "[Mister.Version] Cache invalidated due to repository state change");
                 }
             }
 
@@ -390,6 +398,7 @@ public class MonoRepoVersionTask : Task
             _staticCache = null;
             _cacheRepoRoot = null;
         }
+        VersionResultCache.ClearMemory();
     }
 
     public override bool Execute()
@@ -405,7 +414,7 @@ public class MonoRepoVersionTask : Task
                 ? Path.GetDirectoryName(ProjectPath) 
                 : RepoRoot;
                 
-            Log.LogMessage(MessageImportance.High, $"Starting Mister.Version versioning for {ProjectPath}");
+            Log.LogMessage(Debug ? MessageImportance.High : MessageImportance.Low, $"Starting Mister.Version versioning for {ProjectPath}");
 
             // Create logger function for core services
             var logger = MSBuildLoggerFactory.CreateMSBuildLogger(Log, Debug, ExtraDebug);
@@ -419,11 +428,28 @@ public class MonoRepoVersionTask : Task
                 return false;
             }
 
-            // Get current HEAD SHA for cache validation
-            var currentHeadSha = GetRepositoryHeadSha(gitRepoRoot);
+            // Fingerprint of everything the version depends on (HEAD, branch, tags, config, ...).
+            // Computed once per build per node and reused by every project / TFM in that node.
+            var repositoryState = GetRepositoryFingerprint(gitRepoRoot);
+
+            // Side effects (project file update, tag creation, changelog) must run every time, so skip the result cache.
+            string resultCacheKey = null;
+            if (EnableCache && repositoryState != null && !UpdateProjectFile && !CreateTag && !GenerateChangelog)
+            {
+                resultCacheKey = VersionResultCache.CreateKey(repositoryState, DescribeInputs());
+                if (VersionResultCache.TryGet(resultCacheKey, CacheFile, out var cached))
+                {
+                    Version = cached.Version;
+                    VersionChanged = cached.VersionChanged;
+                    DiscoveredRepoRoot = gitRepoRoot;
+                    Log.LogMessage(Debug ? MessageImportance.High : MessageImportance.Low,
+                        $"Calculated version: {Version} for {Path.GetFileNameWithoutExtension(ProjectPath)} (cached)");
+                    return true;
+                }
+            }
 
             // Get or create cache
-            var cache = GetOrCreateCache(gitRepoRoot, currentHeadSha);
+            var cache = GetOrCreateCache(gitRepoRoot, repositoryState);
 
             // Log cache statistics if in debug mode
             if (Debug && cache != null)
@@ -505,11 +531,21 @@ public class MonoRepoVersionTask : Task
             VersionChanged = versionResult.VersionChanged;
             DiscoveredRepoRoot = gitRepoRoot;
 
-            Log.LogMessage(MessageImportance.High, $"Calculated version: {Version} for {versionResult.ProjectName}");
+            Log.LogMessage(Debug ? MessageImportance.High : MessageImportance.Normal, $"Calculated version: {Version} for {versionResult.ProjectName}");
 
             if (VersionChanged)
             {
-                Log.LogMessage(MessageImportance.High, $"Version changed: {versionResult.ChangeReason}");
+                Log.LogMessage(Debug ? MessageImportance.High : MessageImportance.Normal, $"Version changed: {versionResult.ChangeReason}");
+            }
+
+            if (resultCacheKey != null)
+            {
+                VersionResultCache.Store(resultCacheKey, CacheFile, new CachedVersionResult
+                {
+                    Version = versionResult.Version,
+                    VersionChanged = versionResult.VersionChanged,
+                    ChangeReason = versionResult.ChangeReason
+                });
             }
 
             // Update the project file if enabled (disabled by default)
@@ -609,24 +645,80 @@ public class MonoRepoVersionTask : Task
     }
 
     /// <summary>
-    /// Gets the current HEAD SHA from a repository efficiently
+    /// Returns the repository fingerprint, memoized for the duration of the current build in this node
+    /// (IBuildEngine4 registered task object), or null if the repository cannot be read.
     /// </summary>
-    /// <param name="repoRoot">Repository root path</param>
-    /// <returns>HEAD SHA or null if unavailable</returns>
-    private static string GetRepositoryHeadSha(string repoRoot)
+    private string GetRepositoryFingerprint(string repoRoot)
     {
+        var configFile = string.IsNullOrEmpty(ConfigFile) ? null : Path.GetFullPath(ConfigFile);
+        var key = "Mister.Version.RepositoryFingerprint|" + repoRoot + "|" + configFile;
+
         try
         {
-            using (var repo = new LibGit2Sharp.Repository(repoRoot))
+            if (BuildEngine is IBuildEngine4 engine4 &&
+                engine4.GetRegisteredTaskObject(key, RegisteredTaskObjectLifetime.Build) is string memoized)
             {
-                return repo.Head?.Tip?.Sha;
+                return memoized;
             }
+
+            var fingerprint = RepositoryFingerprint.Compute(repoRoot, configFile);
+
+            if (BuildEngine is IBuildEngine4 engine)
+            {
+                engine.RegisterTaskObject(key, fingerprint, RegisteredTaskObjectLifetime.Build, allowEarlyCollection: false);
+            }
+
+            return fingerprint;
         }
-        catch
+        catch (Exception ex)
         {
-            // If we can't get HEAD SHA, caching will be disabled
+            // Caching is disabled if the repository state can't be fingerprinted; the calculation still runs.
+            Log.LogMessage(MessageImportance.Low, $"[Mister.Version] Unable to fingerprint repository state: {ex.Message}");
             return null;
         }
     }
+
+    private static readonly HashSet<string> NonKeyInputs = new HashSet<string>(StringComparer.Ordinal)
+    {
+        nameof(EnableCache), nameof(CacheFile), nameof(Debug), nameof(ExtraDebug), nameof(DryRun)
+    };
+
+    private static readonly System.Reflection.PropertyInfo[] KeyInputProperties = typeof(MonoRepoVersionTask)
+        .GetProperties(System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.DeclaredOnly)
+        .Where(p => p.CanRead && p.CanWrite && !NonKeyInputs.Contains(p.Name) &&
+                    !p.IsDefined(typeof(OutputAttribute), inherit: true))
+        .OrderBy(p => p.Name, StringComparer.Ordinal)
+        .ToArray();
+
+    /// <summary>
+    /// Stable description of every task input that can influence the calculated version.
+    /// </summary>
+    internal string DescribeInputs()
+    {
+        var sb = new System.Text.StringBuilder(1024);
+        foreach (var property in KeyInputProperties)
+        {
+            var value = property.GetValue(this);
+            string text;
+            if (value is ITaskItem[] items)
+            {
+                text = string.Join("|", items
+                    .Select(i => NormalizeForKey(i.GetMetadata("FullPath") is string full && full.Length > 0 ? full : i.ItemSpec))
+                    .OrderBy(x => x, StringComparer.Ordinal));
+            }
+            else if (property.Name == nameof(ProjectPath) && value is string path && path.Length > 0)
+            {
+                text = NormalizeForKey(Path.GetFullPath(path));
+            }
+            else
+            {
+                text = Convert.ToString(value, System.Globalization.CultureInfo.InvariantCulture);
+            }
+            sb.Append(property.Name).Append('=').Append(text).Append('\n');
+        }
+        return sb.ToString();
+    }
+
+    private static string NormalizeForKey(string path) => path?.Replace('\\', '/');
 
 }
