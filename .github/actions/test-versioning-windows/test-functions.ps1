@@ -233,7 +233,7 @@ function Test-VersioningTool {
         [string]$TestName
     )
 
-    $projectFile = Get-ChildItem -Path $RepoPath -Filter "*.csproj" -Recurse | Select-Object -First 1
+    $projectFile = Get-ChildItem -LiteralPath $RepoPath -Filter "*.csproj" -Recurse | Select-Object -First 1
     if (-not $projectFile) {
         Write-ColorOutput "✗ FAILED: No .csproj file found in $RepoPath" -Color Red
         Add-TestResult -TestName $TestName -Passed $false -Detail "No .csproj file found in $RepoPath"
