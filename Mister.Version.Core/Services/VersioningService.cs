@@ -210,7 +210,7 @@ namespace Mister.Version.Core.Services
                     DefaultIncrement = configOverrides.DefaultIncrement ?? "patch",
                     ForceVersion = configOverrides.ForceVersion,
                     Dependencies = request.Dependencies ?? new List<string>(),
-                    BranchName = string.IsNullOrWhiteSpace(request.BranchName) ? null : request.BranchName.Trim(),
+                    BranchName = string.IsNullOrWhiteSpace(request.BranchName) ? null : GitService.NormalizeBranchName(request.BranchName),
                     // Monitored paths count as changes even when file-pattern change detection is off
                     AdditionalMonitorPaths = ParsePatternString(request.AdditionalMonitorPaths)
                         .Concat(config?.Projects != null && !string.IsNullOrEmpty(projectName) &&

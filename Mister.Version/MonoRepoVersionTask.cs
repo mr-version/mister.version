@@ -450,15 +450,17 @@ public class MonoRepoVersionTask : Task
                     return true;
                 }
 
+                // A .git that cannot be opened (e.g. owned by another user) is not "no repository"
+                var discoveryProblem = GitRepositoryHelper.DescribeDiscoveryFailure(searchStartPath);
                 if (RequireGitRepository)
                 {
-                    Log.LogError(string.Format(RepositoryService.NoRepositoryFoundError, searchStartPath));
+                    Log.LogError(discoveryProblem ?? string.Format(RepositoryService.NoRepositoryFoundError, searchStartPath));
                     Log.LogError(RepositoryService.EnsureGitRepositoryMessage);
                     return false;
                 }
 
                 Log.LogWarning(null, "MRV003", null, null, 0, 0, 0, 0,
-                    "[Mister.Version] " + string.Format(RepositoryService.NoRepositoryFoundError, searchStartPath) +
+                    "[Mister.Version] " + (discoveryProblem ?? string.Format(RepositoryService.NoRepositoryFoundError, searchStartPath)) +
                     ". The version is not calculated" +
                     (string.IsNullOrEmpty(ShallowCloneFallbackVersion) ? " and the project's own version is kept" : $"; using {ShallowCloneFallbackVersion}") +
                     ". Set MonoRepoRequireGitRepository=true to make this an error.");

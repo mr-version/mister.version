@@ -215,8 +215,8 @@ namespace Mister.Version.Core.Services
                 if (ShallowCloneWarnings.TryAdd(options.RepoRoot ?? string.Empty, true))
                 {
                     _logger("Warning", "The repository is a shallow clone and no version tag is reachable, so versions " +
-                        $"fall back to {globalTag?.SemVer?.ToVersionString() ?? "0.1.0"}. Fetch the history and tags " +
-                        "(for example actions/checkout with 'fetch-depth: 0'), or set MonoRepoShallowCloneFallbackVersion.");
+                        $"are calculated from the initial version {globalTag?.SemVer?.ToVersionString() ?? "0.1.0"} instead of your releases. " +
+                        "Fetch the history and tags (for example actions/checkout with 'fetch-depth: 0'), or set MonoRepoShallowCloneFallbackVersion.");
                 }
             }
             catch (Exception)
@@ -733,7 +733,17 @@ namespace Mister.Version.Core.Services
                     break;
 
                 case BranchType.Release:
-                    ApplyReleaseBranchVersioning(newVersion, baseVersionTag, branchName, options, result);
+                    if (_gitService.ExtractReleaseVersion(branchName, options.TagPrefix) == null)
+                    {
+                        // release/next, release/foo: no target version in the name. Version it like the main
+                        // branch instead of re-issuing the already-released base version.
+                        _logger("Debug", $"Release branch '{branchName}' names no version; versioning it like the main branch");
+                        ApplyMainBranchVersioning(newVersion, baseVersionTag, options, result, isInitialRepository);
+                    }
+                    else
+                    {
+                        ApplyReleaseBranchVersioning(newVersion, baseVersionTag, branchName, options, result);
+                    }
                     break;
 
                 case BranchType.Feature:
@@ -957,7 +967,9 @@ namespace Mister.Version.Core.Services
                 {
                     filter.ExcludeReachableFrom = baseVersionTag.Commit;
                 }
-                var commits = _gitService.Repository.Commits.QueryBy(filter).ToList();
+                // Merge commits are classified by the commits they bring in, which are part of this walk: a
+                // "Merge pull request #12" of chore-only commits is not a patch release (as a squash merge is not)
+                var commits = _gitService.Repository.Commits.QueryBy(filter).Where(c => c.Parents.Count() <= 1).ToList();
 
                 // Only commits that touched this project, its dependencies or its monitored paths decide its bump:
                 // a "feat:" in an unrelated project must not raise this project's minor version.
@@ -1227,6 +1239,17 @@ namespace Mister.Version.Core.Services
                 featureName = "feature";
             }
 
+            // SemVer 2.0: a numeric prerelease identifier must not have leading zeros (feature/0042 would give
+            // 1.0.1-0042.1, which NuGet rejects when packing)
+            if (featureName.All(char.IsDigit) && featureName.Length > 1)
+            {
+                featureName = featureName.TrimStart('0');
+                if (featureName.Length == 0)
+                {
+                    featureName = "0";
+                }
+            }
+
             // Calculate commit height from base tag
             var commitHeight = _gitService.GetCommitHeight(baseVersionTag.Commit);
             // Ensure commit height is non-negative
@@ -1267,12 +1290,19 @@ namespace Mister.Version.Core.Services
             _logger("Debug", $"CalVer - Current branch: {currentBranch}");
             _logger("Debug", $"CalVer - Branch type: {branchType}");
 
-            // Get the latest version tag for this project
+            // The latest version tag for this project, or the global tag when it is newer (as in SemVer mode):
+            // looking only at project tags made every build in a period repeat an existing global version
             var projectVersionTag = _gitService.GetProjectVersionTag(
                 options.ProjectName,
                 branchType,
                 options.TagPrefix,
                 options);
+            var globalVersionTag = _gitService.GetGlobalVersionTag(branchType, options);
+            if (globalVersionTag?.Commit != null &&
+                (projectVersionTag?.SemVer == null || CompareNumeric(globalVersionTag.SemVer, projectVersionTag.SemVer) > 0))
+            {
+                projectVersionTag = globalVersionTag;
+            }
 
             // Use the latest tag's version as the base
             SemVer existingVersion = projectVersionTag?.SemVer;
@@ -1289,6 +1319,22 @@ namespace Mister.Version.Core.Services
             // Calculate new CalVer version
             var calculationDate = DateTime.UtcNow;
             var newVersion = _calVerCalculator.CalculateVersion(options.CalVer, calculationDate, existingVersion);
+
+            // Never go below the latest tag: a tag from a later period (created on a machine whose clock was ahead)
+            // would otherwise make the version go backwards and repeat an earlier version. Continue its period.
+            if (existingVersion != null &&
+                (newVersion.Major < existingVersion.Major ||
+                 (newVersion.Major == existingVersion.Major && newVersion.Minor < existingVersion.Minor)))
+            {
+                _logger("Warning", $"{options.ProjectName}: the latest version tag {existingVersion.ToVersionString()} is in a later CalVer period than " +
+                                   $"today ({newVersion.Major}{options.CalVer.Separator ?? "."}{newVersion.Minor}); continuing from it so versions keep increasing");
+                newVersion = new SemVer
+                {
+                    Major = existingVersion.Major,
+                    Minor = existingVersion.Minor,
+                    Patch = existingVersion.Patch
+                };
+            }
 
             // Check if there are changes in the project
             bool hasChanges = false;
@@ -1378,6 +1424,14 @@ namespace Mister.Version.Core.Services
                 Scheme = VersionScheme.CalVer,
                 CalVerConfig = options.CalVer
             };
+        }
+
+        /// <summary>Compares major.minor.patch only.</summary>
+        private static int CompareNumeric(SemVer a, SemVer b)
+        {
+            if (a.Major != b.Major) return a.Major.CompareTo(b.Major);
+            if (a.Minor != b.Minor) return a.Minor.CompareTo(b.Minor);
+            return a.Patch.CompareTo(b.Patch);
         }
 
         /// <summary>
