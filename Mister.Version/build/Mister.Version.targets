@@ -23,6 +23,12 @@
   <UsingTask TaskName="Mister.Version.MonoRepoVersionTask" AssemblyFile="$(_MrVersionTaskAssembly)" />
   <UsingTask TaskName="Mister.Version.HasChangesTask" AssemblyFile="$(_MrVersionTaskAssembly)" />
 
+  <!-- Microsoft.Build.Traversal entry points (dirs.proj) only build other projects: nothing to version (it used to
+       compute a meaningless version from a walk over every project it references) -->
+  <PropertyGroup Condition="'$(UsingMicrosoftTraversalSdk)' == 'true'">
+    <MonoRepoVersioningEnabled>false</MonoRepoVersioningEnabled>
+  </PropertyGroup>
+
   <!-- Test projects are not versioned unless MonoRepoSkipTestProjects=false -->
   <PropertyGroup Condition="'$(IsTestProject)' == 'true' and '$(MonoRepoSkipTestProjects)' != 'false'">
     <MonoRepoVersioningEnabled>false</MonoRepoVersioningEnabled>
@@ -211,8 +217,11 @@
   </Target>
 
   <!-- Convenience target: dotnet msbuild -t:GetMrVersion -getProperty:Version -->
+  <!-- On a Microsoft.Build.Traversal entry point (dirs.proj) it prints the version of every referenced project. -->
   <Target Name="GetMrVersion" DependsOnTargets="_MonoRepoSetVersion" Returns="$(Version)">
-    <Message Text="$(MSBuildProjectName): $(Version)" Importance="High" />
+    <MSBuild Projects="@(ProjectReference)" Targets="GetMrVersion" SkipNonexistentTargets="true" BuildInParallel="true"
+             Condition="'$(UsingMicrosoftTraversalSdk)' == 'true'" />
+    <Message Text="$(MSBuildProjectName): $(Version)" Importance="High" Condition="'$(UsingMicrosoftTraversalSdk)' != 'true'" />
   </Target>
 
 </Project>

@@ -389,8 +389,10 @@ namespace Mister.Version.Core.Services
                 {
                     _logger("Debug", $"Saved version {versionResult.Version} for {projectName} to file cache");
 
-                    // Cleanup old cache entries (keep last 10 SHAs)
-                    fileCache.CleanupOldCache(10);
+                    // Prune old entries. Every project and repository state has its own entry, so the limit must be
+                    // well above the number of projects in a solution (with 10, solutions of more than 10 projects
+                    // evicted their own entries before reading them and never got a cache hit).
+                    fileCache.CleanupOldCache(FileCacheEntryLimit);
                 }
             }
             catch (IOException ioEx)
@@ -420,13 +422,13 @@ namespace Mister.Version.Core.Services
                 return;
             }
 
-            var projects = DiscoverProjectFiles(request.RepoRoot);
+            var fingerprint = SafeFingerprint(request);
+            var projects = DiscoverProjectFiles(request.RepoRoot, fingerprint);
             var linked = engine.GetLinkedProjects(projectName, projects.Keys.ToList(), policy);
             var group = policy.Policy == VersionPolicy.LockStep ? null : engine.GetProjectGroup(projectName, policy);
 
             var highest = versionResult.SemVer;
             var highestFrom = projectName;
-            var fingerprint = SafeFingerprint(request);
 
             foreach (var member in linked)
             {
@@ -460,6 +462,9 @@ namespace Mister.Version.Core.Services
                 versionResult.ChangeReason = $"{versionResult.ChangeReason} (aligned to {highest} by the {policyName})";
             }
         }
+
+        /// <summary>Entries kept in the legacy shared file cache (one per project and repository state).</summary>
+        private const int FileCacheEntryLimit = 2000;
 
         private static readonly System.Collections.Concurrent.ConcurrentDictionary<string, SemVer> PolicyMemberCache =
             new System.Collections.Concurrent.ConcurrentDictionary<string, SemVer>(StringComparer.Ordinal);
@@ -509,49 +514,32 @@ namespace Mister.Version.Core.Services
         private static readonly System.Collections.Concurrent.ConcurrentDictionary<string, Dictionary<string, string>> ProjectFileCache =
             new System.Collections.Concurrent.ConcurrentDictionary<string, Dictionary<string, string>>(StringComparer.OrdinalIgnoreCase);
 
-        /// <summary>Project name -> project file for every project in the repository (bin/obj/.git excluded).</summary>
-        private static Dictionary<string, string> DiscoverProjectFiles(string repoRoot)
+        /// <summary>
+        /// Project name -> project file for every project in the repository (the projects `mr-version report` lists:
+        /// nested repositories, worktrees and linked directories excluded). Memoized per repository state, so a
+        /// commit that adds or removes a project is seen by long-lived MSBuild nodes (it used to be cached per
+        /// repository path for the life of the process, giving lock-step versions from a stale project list).
+        /// </summary>
+        private Dictionary<string, string> DiscoverProjectFiles(string repoRoot, string fingerprint)
         {
-            return ProjectFileCache.GetOrAdd(repoRoot ?? string.Empty, root =>
+            Dictionary<string, string> Scan()
             {
                 var result = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
-                var pending = new Stack<string>();
-                pending.Push(root);
-                while (pending.Count > 0)
+                foreach (var file in ProjectDiscovery.FindProjectFiles(repoRoot))
                 {
-                    var dir = pending.Pop();
-                    try
-                    {
-                        foreach (var file in Directory.EnumerateFiles(dir))
-                        {
-                            var extension = Path.GetExtension(file);
-                            if (extension.Equals(".csproj", StringComparison.OrdinalIgnoreCase) ||
-                                extension.Equals(".fsproj", StringComparison.OrdinalIgnoreCase) ||
-                                extension.Equals(".vbproj", StringComparison.OrdinalIgnoreCase))
-                            {
-                                var name = Path.GetFileNameWithoutExtension(file);
-                                if (!result.ContainsKey(name))
-                                    result[name] = file;
-                            }
-                        }
-                        foreach (var sub in Directory.EnumerateDirectories(dir))
-                        {
-                            var name = Path.GetFileName(sub);
-                            if (name == ".git" || name.Equals("bin", StringComparison.OrdinalIgnoreCase) ||
-                                name.Equals("obj", StringComparison.OrdinalIgnoreCase) || name == "node_modules")
-                                continue;
-                            pending.Push(sub);
-                        }
-                    }
-                    catch (UnauthorizedAccessException)
-                    {
-                    }
-                    catch (IOException)
-                    {
-                    }
+                    var name = Path.GetFileNameWithoutExtension(file);
+                    if (!result.ContainsKey(name))
+                        result[name] = file;
                 }
                 return result;
-            });
+            }
+
+            if (fingerprint == null)
+                return Scan();
+
+            if (ProjectFileCache.Count > 256)
+                ProjectFileCache.Clear();
+            return ProjectFileCache.GetOrAdd((repoRoot ?? string.Empty) + "|" + fingerprint, _ => Scan());
         }
 
         /// <summary>Transitive ProjectReference closure of a project file (parsed from the project files).</summary>

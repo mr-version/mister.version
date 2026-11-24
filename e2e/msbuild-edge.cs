@@ -232,6 +232,20 @@ try
         Check(CliVersion(r, "src/Internal/Internal.csproj") == "5.0.0", $"CLI reports Internal 5.0.0 (got {CliVersion(r, "src/Internal/Internal.csproj")})");
     });
 
+    Scenario("traversal-entry-point", () =>
+    {
+        var r = NewRepo("traversal");
+        Proj(r, "src/Core/Core.csproj");
+        Proj(r, "src/App/App.csproj", items: "<ProjectReference Include=\"../Core/Core.csproj\" />");
+        File.WriteAllText(Path.Combine(r, "global.json"), "{ \"msbuild-sdks\": { \"Microsoft.Build.Traversal\": \"4.1.0\" } }");
+        File.WriteAllText(Path.Combine(r, "dirs.proj"), "<Project Sdk=\"Microsoft.Build.Traversal\"><ItemGroup><ProjectReference Include=\"src/**/*.csproj\" /></ItemGroup></Project>");
+        Commit(r, "init"); Tag(r, "v1.0.0"); Touch(r, "src/Core/C.cs"); Commit(r, "fix: core");
+        var build = Dotnet(r, "build", "dirs.proj", "-c", "Release", "-nologo", "-p:MonoRepoDebug=true");
+        Require(build.ExitCode == 0, "build dirs.proj", build.Output);
+        Check(Info(r, "src/App", "net10.0") == "1.0.1", $"App is 1.0.1 through the traversal entry point (got {Info(r, "src/App", "net10.0")})");
+        Check(!build.Output.Contains("[MrVersion] dirs ="), "the traversal project itself is not versioned");
+    });
+
     Scenario("reference-outside-repository", () =>
     {
         var r = NewRepo("outside");
