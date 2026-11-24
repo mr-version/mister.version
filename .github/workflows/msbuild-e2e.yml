@@ -60,9 +60,13 @@ jobs:
       run: dotnet run e2e/msbuild-e2e.cs
 
   e2e-msbuild-exe:
-    name: e2e (Visual Studio MSBuild.exe, net472 task)
+    name: e2e (Visual Studio MSBuild.exe ${{ matrix.arch }}, net472 task)
     runs-on: windows-latest
     timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        arch: [x86, x64]
 
     steps:
     - name: Checkout Code
@@ -77,6 +81,8 @@ jobs:
 
     - name: Setup MSBuild
       uses: microsoft/setup-msbuild@v2
+      with:
+        msbuild-architecture: ${{ matrix.arch }}
 
     - name: Run MSBuild E2E with MSBuild.exe
       shell: pwsh

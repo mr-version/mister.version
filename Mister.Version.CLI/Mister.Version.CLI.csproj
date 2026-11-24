@@ -11,6 +11,8 @@
 		<Title>Mister.Version CLI Tool</Title>
 		<Description>Command-line tool for reporting and calculating versions in a monorepo with enhanced dev and feature branch support</Description>
 		<PackageTags>versioning;monorepo;git;cli</PackageTags>
+		<!-- Run on the newest installed runtime when .NET 8 is not present (SDK 9/10-only images and runners) -->
+		<RollForward>Major</RollForward>
 	</PropertyGroup>
 
 	<Import Project="$(ProjectDir)../Project.props" />
@@ -37,11 +39,5 @@
 		<ProjectReference Include="..\Mister.Version.Core\Mister.Version.Core.csproj" />
 	</ItemGroup>
 
-	<!-- Ensure native libraries are copied to output -->
-	<ItemGroup>
-		<None Include="../libs/libgit2-3f4182d.so" CopyToOutputDirectory="PreserveNewest" />
-		<None Include="../libs/libgit2-3f4182d.dylib" CopyToOutputDirectory="PreserveNewest" />
-		<None Include="../libs/git2-3f4182d.dll" CopyToOutputDirectory="PreserveNewest" />
-	</ItemGroup>
 
 </Project>

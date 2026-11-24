@@ -67,11 +67,40 @@ namespace Mister.Version.Core.Services
                 }
                 return gitRepoRoot;
             }
+            catch (Exception ex) when (IsNativeLoadFailure(ex))
+            {
+                // A missing or wrong-architecture libgit2 used to be swallowed here and reported as
+                // "No Git repository found", hiding the real cause on unsupported hosts.
+                throw new InvalidOperationException(
+                    "The libgit2 native library could not be loaded " +
+                    $"(OS: {System.Runtime.InteropServices.RuntimeInformation.OSDescription}, " +
+                    $"process architecture: {System.Runtime.InteropServices.RuntimeInformation.ProcessArchitecture}, " +
+                    $"runtime: {System.Runtime.InteropServices.RuntimeInformation.FrameworkDescription}, " +
+                    $"LibGit2Sharp: {Path.GetDirectoryName(typeof(Repository).Assembly.Location)}). " +
+                    RepositoryService.LibGit2SharpIssuesMessage + " " + GetInnermostMessage(ex), ex);
+            }
             catch
             {
-                // Return null if discovery fails
+                // Not a repository (or not readable): return null so callers report "No Git repository found"
                 return null;
             }
+        }
+
+        private static bool IsNativeLoadFailure(Exception ex)
+        {
+            for (var e = ex; e != null; e = e.InnerException)
+            {
+                if (e is DllNotFoundException || e is BadImageFormatException || e is EntryPointNotFoundException)
+                    return true;
+            }
+            return ex is TypeInitializationException;
+        }
+
+        private static string GetInnermostMessage(Exception ex)
+        {
+            while (ex.InnerException != null)
+                ex = ex.InnerException;
+            return ex.Message;
         }
 
         private static string TrimTrailingSeparators(string path)

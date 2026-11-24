@@ -1,6 +1,7 @@
 ﻿<Project Sdk="Microsoft.NET.Sdk">
 	<PropertyGroup>
-		<TargetFrameworks>net472;net8.0;net9.0;net10.0</TargetFrameworks>
+		<!-- net472: Visual Studio / MSBuild.exe; net8.0: dotnet CLI MSBuild (also loads on .NET 9/10+ hosts) -->
+		<TargetFrameworks>net472;net8.0</TargetFrameworks>
 		<IsPackable>true</IsPackable>
 		<Title>Mister.Version</Title>
 		<Description>Generates versions independently for C# projects in a mono-repo with enhanced dev and feature branch support.</Description>
@@ -13,12 +14,16 @@
 		</TargetsForTfmSpecificBuildOutput>
 		<!-- This property tells MSBuild where the root folder of the package's build assets should be. Because we are not a library package, we should not pack to 'lib'. Instead, we choose 'tasks' by convention. -->
 		<BuildOutputTargetFolder>tasks</BuildOutputTargetFolder>
+		<!-- NuGet silently drops .so/.dylib from the build output folder unless they are allowed explicitly -->
+		<AllowedOutputExtensionsInPackageBuildOutputFolder>$(AllowedOutputExtensionsInPackageBuildOutputFolder);.so;.dylib</AllowedOutputExtensionsInPackageBuildOutputFolder>
 		<!-- NuGet does validation that libraries in a package are exposed as dependencies, but we _explicitly_ do not want that behavior for MSBuild tasks. They are isolated by design. Therefore we ignore this specific warning. -->
 		<NoWarn>$(NoWarn);NU5100</NoWarn>
 		<!-- Suppress NuGet warning NU5128. -->
 		<SuppressDependenciesWhenPacking>true</SuppressDependenciesWhenPacking>
 		<!-- Tell the SDK to generate a deps.json file -->
 		<GenerateDependencyFile>true</GenerateDependencyFile>
+		<!-- Keep packages.lock.json (OS-independent, see the net472 reference below) -->
+		<RestorePackagesWithLockFile>true</RestorePackagesWithLockFile>
 	</PropertyGroup>
 
 	<Import Project="$(ProjectDir)../Project.props" />
@@ -34,7 +39,9 @@
 		  <IncludeAssets>compile; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
 		</PackageReference>
 		<PackageReference Include="LibGit2Sharp" Version="0.31.0" PrivateAssets="all" />
-		<PackageReference Include="LibGit2Sharp.NativeBinaries" Version="2.0.323" PrivateAssets="all" ExcludeAssets="all" />
+		<!-- Native libgit2 for every RID: tasks/net8.0/runtimes/<rid>/native (resolved through the task's deps.json by
+		     MSBuild's plugin load context) and tasks/net472/lib/win32/<arch> (LibGit2Sharp's .NET Framework probe path) -->
+		<PackageReference Include="LibGit2Sharp.NativeBinaries" Version="2.0.323" PrivateAssets="all" />
 		<PackageReference Include="Microsoft.Extensions.Logging.Abstractions" Version="10.0.0" PrivateAssets="all" />
 		<PackageReference Include="System.Text.Json" Version="10.0.0" PrivateAssets="all" />
 		<PackageReference Include="YamlDotNet" Version="16.3.0" PrivateAssets="all" />
@@ -66,57 +73,17 @@
 
 	<Target Name="CopyProjectReferencesToPackage" DependsOnTargets="ResolveReferences">
 		<ItemGroup>
-			<!-- Include native libraries from libs folder -->
-			<LibGitRefs Include="../libs/git2-3f4182d.dll" />
-			<LibGitRefs Include="../libs/libgit2-3f4182d.dylib" />
-			<LibGitRefs Include="../libs/libgit2-3f4182d.so" />
-			
-			<!-- The TargetPath is the path inside the package that the source file will be placed. This is already precomputed in the ReferenceCopyLocalPaths items' DestinationSubPath, so reuse it here. -->
-			<BuildOutputInPackage Include="@(ReferenceCopyLocalPaths)" TargetPath="%(ReferenceCopyLocalPaths.DestinationSubPath)" />
-			
-			<!-- Add native libraries to both framework targets -->
-			<BuildOutputInPackage Include="../libs/git2-3f4182d.dll" TargetPath="git2-3f4182d.dll">
-				<TargetFramework>net472</TargetFramework>
-			</BuildOutputInPackage>
-			<BuildOutputInPackage Include="../libs/libgit2-3f4182d.dylib" TargetPath="libgit2-3f4182d.dylib">
-				<TargetFramework>net472</TargetFramework>
-			</BuildOutputInPackage>
-			<BuildOutputInPackage Include="../libs/libgit2-3f4182d.so" TargetPath="libgit2-3f4182d.so">
-				<TargetFramework>net472</TargetFramework>
-			</BuildOutputInPackage>
-			
-			<BuildOutputInPackage Include="../libs/git2-3f4182d.dll" TargetPath="git2-3f4182d.dll">
-				<TargetFramework>net8.0</TargetFramework>
-			</BuildOutputInPackage>
-			<BuildOutputInPackage Include="../libs/libgit2-3f4182d.dylib" TargetPath="libgit2-3f4182d.dylib">
-				<TargetFramework>net8.0</TargetFramework>
-			</BuildOutputInPackage>
-			<BuildOutputInPackage Include="../libs/libgit2-3f4182d.so" TargetPath="libgit2-3f4182d.so">
-				<TargetFramework>net8.0</TargetFramework>
-			</BuildOutputInPackage>
-			
-			<BuildOutputInPackage Include="../libs/git2-3f4182d.dll" TargetPath="git2-3f4182d.dll">
-				<TargetFramework>net9.0</TargetFramework>
-			</BuildOutputInPackage>
-			<BuildOutputInPackage Include="../libs/libgit2-3f4182d.dylib" TargetPath="libgit2-3f4182d.dylib">
-				<TargetFramework>net9.0</TargetFramework>
-			</BuildOutputInPackage>
-			<BuildOutputInPackage Include="../libs/libgit2-3f4182d.so" TargetPath="libgit2-3f4182d.so">
-				<TargetFramework>net9.0</TargetFramework>
-			</BuildOutputInPackage>
-			
-			<BuildOutputInPackage Include="../libs/git2-3f4182d.dll" TargetPath="git2-3f4182d.dll">
-				<TargetFramework>net10.0</TargetFramework>
-			</BuildOutputInPackage>
-			<BuildOutputInPackage Include="../libs/libgit2-3f4182d.dylib" TargetPath="libgit2-3f4182d.dylib">
-				<TargetFramework>net10.0</TargetFramework>
-			</BuildOutputInPackage>
-			<BuildOutputInPackage Include="../libs/libgit2-3f4182d.so" TargetPath="libgit2-3f4182d.so">
-				<TargetFramework>net10.0</TargetFramework>
-			</BuildOutputInPackage>
+			<!-- Managed dependencies and (net8.0) runtimes/<rid>/native/* for all RIDs; DestinationSubPath keeps the
+			     runtimes layout that the task's deps.json describes. Microsoft.Build.Framework comes from MSBuild itself. -->
+			<BuildOutputInPackage Include="@(ReferenceCopyLocalPaths)" TargetPath="%(ReferenceCopyLocalPaths.DestinationSubPath)"
+			                      Condition="'%(ReferenceCopyLocalPaths.Filename)' != 'Microsoft.Build.Framework'" />
+			<!-- net472: LibGit2Sharp loads <dir of LibGit2Sharp.dll>/lib/win32/{x86,x64,arm64}/git2-*.dll on .NET Framework,
+			     so 32-bit and ARM64 MSBuild.exe work as well as x64 -->
+			<BuildOutputInPackage Include="@(ContentWithTargetPath)" TargetPath="%(ContentWithTargetPath.TargetPath)"
+			                      Condition="'$(TargetFramework)' == 'net472' and $([System.String]::new('%(ContentWithTargetPath.TargetPath)').StartsWith('lib\win32\'))" />
 		</ItemGroup>
 	</Target>
-	
+
 	<!-- This target adds the generated deps.json file to our package output -->
 	<Target Name="AddBuildDependencyFileToBuiltProjectOutputGroupOutput" BeforeTargets="BuiltProjectOutputGroup" Condition=" '$(GenerateDependencyFile)' == 'true'">
 		<ItemGroup>
@@ -137,23 +104,6 @@
 		<Content Include="buildMultiTargeting\Mister.Version.props" PackagePath="buildMultiTargeting\" />
 		<Content Include="buildMultiTargeting\Mister.Version.targets" PackagePath="buildMultiTargeting\" />
 
-		<!-- Include native libraries for all platforms -->
-		<Content Include="../libs/git2-3f4182d.dll" PackagePath="tasks/net472/" />
-		<Content Include="../libs/libgit2-3f4182d.dylib" PackagePath="tasks/net472/" />
-		<Content Include="../libs/libgit2-3f4182d.so" PackagePath="tasks/net472/" />
-		<Content Include="../libs/git2-3f4182d.dll" PackagePath="tasks/net8.0/" />
-		<Content Include="../libs/libgit2-3f4182d.dylib" PackagePath="tasks/net8.0/" />
-		<Content Include="../libs/libgit2-3f4182d.so" PackagePath="tasks/net8.0/" />
-		<Content Include="../libs/git2-3f4182d.dll" PackagePath="tasks/net9.0/" />
-		<Content Include="../libs/libgit2-3f4182d.dylib" PackagePath="tasks/net9.0/" />
-		<Content Include="../libs/libgit2-3f4182d.so" PackagePath="tasks/net9.0/" />
-		<Content Include="../libs/git2-3f4182d.dll" PackagePath="tasks/net10.0/" />
-		<Content Include="../libs/libgit2-3f4182d.dylib" PackagePath="tasks/net10.0/" />
-		<Content Include="../libs/libgit2-3f4182d.so" PackagePath="tasks/net10.0/" />
-	</ItemGroup>
-
-	<ItemGroup>
-	  <ProjectReference Include="..\Mister.Version.Core\Mister.Version.Core.csproj" />
 	</ItemGroup>
 
 </Project>
