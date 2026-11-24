@@ -660,7 +660,8 @@ mr-version report -o graph --changed-only
 | `-p, --project-dir` | Projects directory | Repository root |
 | `-o, --output` | Output format (text, json, csv, graph) | `text` |
 | `-f, --file` | Output file path | Console |
-| `-b, --branch` | Branch to analyze | Current branch |
+| `-b, --branch` | Version as if on this branch (e.g. for detached-HEAD CI checkouts) | Current branch |
+| `-t, --tag-prefix` | Tag prefix (a `tagPrefix` in `mr-version.yml` takes precedence) | `v` |
 | `--include-commits` | Include commit information | `true` |
 | `--include-dependencies` | Include dependency information | `true` |
 | `--include-test-projects` | Include test projects | `false` |
@@ -668,6 +669,9 @@ mr-version report -o graph --changed-only
 | `--graph-format` | Graph format (mermaid, dot, ascii) | `mermaid` |
 | `--show-versions` | Show version numbers in graph nodes | `true` |
 | `--changed-only` | Show only projects with changes | `false` |
+
+Boolean options accept a bare flag (`--changed-only`) or an explicit value (`--changed-only true|false`,
+`--show-versions=false`), so options that default to `true` can be turned off.
 
 ### Calculate Single Project Version
 
@@ -680,7 +684,16 @@ mr-version version -p src/MyProject/MyProject.csproj -d
 
 # JSON output for automation
 mr-version version -p src/MyProject/MyProject.csproj -j
+
+# Version as if on a given branch, adding extra dependency directories
+mr-version version -p src/MyProject/MyProject.csproj -b main --dependencies shared/common
 ```
+
+The CLI computes the same versions as the MSBuild task: transitive project references are detected
+automatically, and projects are packable unless `IsPackable=false` and test projects when `IsTestProject=true`
+or they reference `Microsoft.NET.Test.Sdk` (including values set in `Directory.Build.props`). MSBuild properties
+set only in project files (e.g. `MonoRepoConventionalCommitsEnabled`) are not read by the CLI; put shared settings
+in `mr-version.yml` so both agree.
 
 ### Generate Changelog
 
@@ -716,7 +729,7 @@ mr-version changelog --project MyProject
 | Option | Description | Default |
 |--------|-------------|---------|
 | `-r, --repo` | Repository root path | Current directory |
-| `-p, --project` | Project name for monorepo | None |
+| `-p, --project` | Project name or project file; limits the changelog to commits touching that project | None |
 | `-f, --from` | Start version tag | Previous tag |
 | `-t, --to` | End version tag | HEAD |
 | `-o, --output` | Output format (markdown, text, json) | `markdown` |
@@ -727,6 +740,9 @@ mr-version changelog --project MyProject
 | `--include-issues` | Include issue references | `true` |
 | `--include-prs` | Include PR references | `true` |
 | `--group-breaking` | Group breaking changes separately | `true` |
+
+The boolean options accept `true`/`false` values, and settings from the `changelog:` section of `mr-version.yml`
+apply unless the option is given explicitly.
 
 #### Example Changelog Output
 
