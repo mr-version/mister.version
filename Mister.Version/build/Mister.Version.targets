@@ -117,6 +117,12 @@
       <Output TaskParameter="DiscoveredRepoRoot" PropertyName="DiscoveredRepoRoot" />
     </MonoRepoVersionTask>
 
+    <!-- A Version set by the project, Directory.Build.props or the command line (-p:Version) is replaced:
+         ForceVersion is the way to pin a version. Say so (detailed verbosity) instead of dropping it silently. -->
+    <Message Text="[MrVersion] $(MSBuildProjectName): replacing Version '$(Version)' with the calculated '$(FullVersion)' (set ForceVersion to pin a version)"
+             Importance="Normal"
+             Condition="'$(FullVersion)' != '' and '$(_MrVersionCalculated)' == '' and '$(Version)' != '' and '$(Version)' != '1.0.0' and '$(Version)' != '$(FullVersion)'" />
+
     <PropertyGroup Condition="'$(FullVersion)' != ''">
       <!-- Numeric part for AssemblyVersion/FileVersion: strip prerelease (-...) and build metadata (+...) -->
       <MainVersion>$(FullVersion.Split('-')[0].Split('+')[0])</MainVersion>
@@ -141,6 +147,14 @@
           BeforeTargets="PrepareForBuild;GetAssemblyVersion"
           DependsOnTargets="_MonoRepoSetVersion"
           Condition="'$(MonoRepoVersioningEnabled)' == 'true' and ('$(IsTestProject)' != 'true' or '$(MonoRepoSkipTestProjects)' == 'false') and '$(DesignTimeBuild)' != 'true'" />
+
+  <!-- Multi-targeting outer build: Build only dispatches to the inner builds, so nothing above runs there. Compute
+       the version before dispatching, so targets hooked on the outer Build (AfterTargets="Build", e.g. zipping or
+       signing outputs once per project) see the same $(Version) as the inner builds. The result is cached. -->
+  <Target Name="_MonoRepoCalculateVersionOuter"
+          BeforeTargets="DispatchToInnerBuilds"
+          DependsOnTargets="_MonoRepoSetVersion"
+          Condition="('$(IsCrossTargetingBuild)' == 'true' or ('$(TargetFrameworks)' != '' and '$(TargetFramework)' == '')) and '$(MonoRepoVersioningEnabled)' == 'true' and ('$(IsTestProject)' != 'true' or '$(MonoRepoSkipTestProjects)' == 'false') and '$(DesignTimeBuild)' != 'true'" />
 
   <!-- ============================================================
        HasChanges - standalone change detection (opt-in, not part of the normal build)

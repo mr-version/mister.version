@@ -1,6 +1,7 @@
 ﻿using global::System.IO;
 using System;
 using System.Diagnostics;
+using System.Linq;
 using System.Runtime.CompilerServices;
 using System.Text;
 
@@ -15,6 +16,50 @@ namespace Mister.Version.Core;
 // but they will handle most string operations.
 public static class PathUtils
 {
+    /// <summary>
+    /// <paramref name="path"/> (absolute) with symbolic links and junctions in any of its components resolved, like
+    /// realpath(3). Components that do not exist are kept as they are. On .NET Framework the path is returned
+    /// unchanged.
+    /// </summary>
+    public static string ResolveLinks(string path)
+    {
+        if (string.IsNullOrEmpty(path))
+            return path;
+#if NET472
+        return path;
+#else
+        try
+        {
+            var full = Path.GetFullPath(path);
+            var root = Path.GetPathRoot(full) ?? string.Empty;
+            var parts = full.Substring(root.Length).Split(new[] { Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar }, StringSplitOptions.RemoveEmptyEntries);
+            var current = root;
+            for (var i = 0; i < parts.Length; i++)
+            {
+                var next = Path.Combine(current, parts[i]);
+                FileSystemInfo info = Directory.Exists(next) ? new DirectoryInfo(next) : new FileInfo(next);
+                if (!info.Exists)
+                {
+                    // Nothing further can be a link: append the rest unchanged
+                    return Path.Combine(new[] { next }.Concat(parts.Skip(i + 1)).ToArray());
+                }
+
+                if (info.LinkTarget != null)
+                {
+                    var target = info.ResolveLinkTarget(returnFinalTarget: true);
+                    next = target != null ? target.FullName : Path.GetFullPath(Path.Combine(current, info.LinkTarget));
+                }
+                current = next;
+            }
+            return current;
+        }
+        catch (Exception)
+        {
+            return path;
+        }
+#endif
+    }
+
     /// <summary>
     /// Create a relative path from one path to another. Paths will be resolved before calculating the difference.
     /// Default path comparison for the active platform will be used (OrdinalIgnoreCase for Windows or Mac, Ordinal for Unix).

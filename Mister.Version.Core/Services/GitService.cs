@@ -721,10 +721,39 @@ namespace Mister.Version.Core.Services
 
             if (relative == ".." || relative.StartsWith("../", StringComparison.Ordinal) || Path.IsPathRooted(relative))
             {
+                // A path reached through a symbolic link (e.g. a link into the repository) may still be inside
+                // the repository once links are resolved
+                if (!_resolvingLinks && !string.IsNullOrEmpty(repoRoot))
+                {
+                    var absolute = Path.IsPathRooted(value)
+                        ? value
+                        : baseDirectory != null ? Path.Combine(baseDirectory, value) : null;
+                    if (absolute != null)
+                    {
+                        var resolvedPath = Mister.Version.Core.PathUtils.ResolveLinks(Path.GetFullPath(absolute));
+                        var resolvedRoot = Mister.Version.Core.PathUtils.ResolveLinks(Path.GetFullPath(repoRoot));
+                        if (!string.Equals(resolvedPath, Path.GetFullPath(absolute), StringComparison.Ordinal) ||
+                            !string.Equals(resolvedRoot, Path.GetFullPath(repoRoot), StringComparison.Ordinal))
+                        {
+                            try
+                            {
+                                _resolvingLinks = true;
+                                return ToRepoRelativePath(resolvedPath, resolvedRoot, projectFileToDirectory);
+                            }
+                            finally
+                            {
+                                _resolvingLinks = false;
+                            }
+                        }
+                    }
+                }
                 return null; // outside the repository
             }
             return relative;
         }
+
+        [ThreadStatic]
+        private static bool _resolvingLinks;
 
         private static string GetRelativePath(string relativeTo, string path)
         {
@@ -770,13 +799,41 @@ namespace Mister.Version.Core.Services
             foreach (var part in relativePath.Split('/'))
             {
                 if (current == null)
-                    return null;
+                {
+                    // A path below a submodule: the submodule's commit pointer stands for everything in it
+                    return found != null && found.TargetType == TreeEntryTargetType.GitLink ? found : null;
+                }
                 found = current.FirstOrDefault(e => string.Equals(e.Name, part, StringComparison.OrdinalIgnoreCase));
                 if (found == null)
                     return null;
                 current = found.TargetType == TreeEntryTargetType.Tree ? (Tree)found.Target : null;
             }
             return found;
+        }
+
+        /// <summary>
+        /// The repository-relative path of the submodule (gitlink) that contains <paramref name="relativePath"/>, or
+        /// null when the path is not inside a submodule of <paramref name="tree"/>.
+        /// </summary>
+        private static string FindContainingSubmodule(Tree tree, string relativePath)
+        {
+            if (tree == null || string.IsNullOrEmpty(relativePath))
+                return null;
+
+            var current = tree;
+            var parts = relativePath.Split('/');
+            for (var i = 0; i < parts.Length; i++)
+            {
+                var entry = current.FirstOrDefault(e => string.Equals(e.Name, parts[i], StringComparison.OrdinalIgnoreCase));
+                if (entry == null)
+                    return null;
+                if (entry.TargetType == TreeEntryTargetType.GitLink)
+                    return i < parts.Length - 1 ? string.Join("/", parts.Take(i + 1)) : null;
+                if (entry.TargetType != TreeEntryTargetType.Tree)
+                    return null;
+                current = (Tree)entry.Target;
+            }
+            return null;
         }
 
         /// <summary>
@@ -861,6 +918,17 @@ namespace Mister.Version.Core.Services
                         {
                             changedFiles.Add(path.Replace('\\', '/'));
                         }
+                    }
+                }
+
+                // A scope inside a submodule (e.g. a reference to a project in a submodule) changes when the
+                // submodule's commit pointer moves; a pathspec diff below the gitlink does not report that
+                foreach (var scope in scopes.Where(scope => !string.IsNullOrEmpty(scope)))
+                {
+                    var submodule = FindContainingSubmodule(_repository.Head.Tip.Tree, scope) ?? FindContainingSubmodule(tagCommit.Tree, scope);
+                    if (submodule != null && PathChanged(tagCommit.Tree, _repository.Head.Tip.Tree, submodule))
+                    {
+                        changedFiles.Add(submodule);
                     }
                 }
 

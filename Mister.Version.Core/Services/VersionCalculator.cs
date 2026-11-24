@@ -92,11 +92,7 @@ namespace Mister.Version.Core.Services
                     }
                     else
                     {
-#if NET472
-                        relativeProjectPath = NormalizePath(Mister.Version.Core.PathUtils.GetRelativePath(options.RepoRoot, projectDir));
-#else
-                        relativeProjectPath = NormalizePath(Path.GetRelativePath(options.RepoRoot, projectDir));
-#endif
+                        relativeProjectPath = RelativeProjectDirectory(options, projectDir);
                     }
                 }
                 catch (ArgumentException)
@@ -107,6 +103,7 @@ namespace Mister.Version.Core.Services
             }
 
             _logger("Debug", $"Project path: {relativeProjectPath}");
+            WarnAboutPathsOutsideRepository(options);
 
             // Get version tags
             var globalVersionTag = _gitService.GetGlobalVersionTag(branchType, options);
@@ -1321,11 +1318,7 @@ namespace Mister.Version.Core.Services
                             var projectDir = Path.GetDirectoryName(options.ProjectPath);
                             if (!string.IsNullOrEmpty(projectDir))
                             {
-#if NET472
-                                relativeProjectPath = NormalizePath(Mister.Version.Core.PathUtils.GetRelativePath(options.RepoRoot, projectDir));
-#else
-                                relativeProjectPath = NormalizePath(Path.GetRelativePath(options.RepoRoot, projectDir));
-#endif
+                                relativeProjectPath = RelativeProjectDirectory(options, projectDir);
                             }
                         }
                         catch (ArgumentException)
@@ -1417,6 +1410,59 @@ namespace Mister.Version.Core.Services
         /// <summary>
         /// Creates a version result for skipped projects (test projects or non-packable projects)
         /// </summary>
+        /// <summary>
+        /// The project directory relative to the repository root ("/" separators), resolving symbolic links when the
+        /// project is reached through a link into the repository; a "../"-path when it is outside the repository.
+        /// </summary>
+        private string RelativeProjectDirectory(VersionOptions options, string projectDir)
+        {
+            if (Path.IsPathRooted(options.ProjectPath))
+            {
+                var inside = GitService.ToRepoRelativePath(options.ProjectPath, options.RepoRoot);
+                if (inside != null)
+                    return inside;
+            }
+#if NET472
+            return NormalizePath(Mister.Version.Core.PathUtils.GetRelativePath(options.RepoRoot, projectDir));
+#else
+            return NormalizePath(Path.GetRelativePath(options.RepoRoot, projectDir));
+#endif
+        }
+
+        /// <summary>
+        /// Changes outside the repository cannot be detected: say so instead of silently never bumping (references)
+        /// or always bumping (a project reached through a path that is not under the repository root).
+        /// </summary>
+        private void WarnAboutPathsOutsideRepository(VersionOptions options)
+        {
+            if (string.IsNullOrEmpty(options.RepoRoot))
+                return;
+
+            try
+            {
+                if (!string.IsNullOrEmpty(options.ProjectPath) && Path.IsPathRooted(options.ProjectPath) &&
+                    GitService.ToRepoRelativePath(options.ProjectPath, options.RepoRoot) == null)
+                {
+                    _logger("Warning", $"{options.ProjectName}: the project is not inside the repository {options.RepoRoot}; " +
+                                       "its changes cannot be detected, so it is treated as changed");
+                }
+
+                foreach (var dependency in (options.Dependencies ?? new List<string>()).Distinct(StringComparer.OrdinalIgnoreCase))
+                {
+                    if (!string.IsNullOrEmpty(dependency) && Path.IsPathRooted(dependency) &&
+                        GitService.ToRepoRelativePath(dependency, options.RepoRoot) == null)
+                    {
+                        _logger("Warning", $"{options.ProjectName}: project reference {dependency} is outside the repository " +
+                                           $"{options.RepoRoot}; changes to it are not detected and do not bump {options.ProjectName}");
+                    }
+                }
+            }
+            catch (Exception)
+            {
+                // Diagnostics only
+            }
+        }
+
         /// <summary>
         /// Result for a project that is not versioned (test / non-packable): with a configured base version it is
         /// built with that version, otherwise it keeps the version its project file sets (or 1.0.0).
