@@ -145,6 +145,24 @@ namespace Mister.Version.Tests
         }
 
         [Fact]
+        public void LockStepPolicy_SeesProjectsAddedAfterAnEarlierCalculationInTheSameProcess()
+        {
+            using var repo = CreateRepo("versionPolicy:\n  policy: LockStep\n");
+            repo.ApplyTag("v1.1.0");
+            Assert.Equal("1.1.0", VersionOf("Beta"));
+
+            // A new project is added and committed while the process (e.g. a reused MSBuild node) keeps running
+            Directory.CreateDirectory(Path.Combine(_root, "src", "Delta"));
+            File.WriteAllText(Path.Combine(_root, "src", "Delta", "Delta.csproj"), "<Project Sdk=\"Microsoft.NET.Sdk\" />");
+            Commands.Stage(repo, "*");
+            repo.Commit("feat: add delta", _sig, _sig);
+
+            MonoRepoVersionTask.ClearCache();
+            Assert.Equal("1.1.1", VersionOf("Delta"));
+            Assert.Equal("1.1.1", VersionOf("Beta"));
+        }
+
+        [Fact]
         public void IndependentPolicy_DoesNotAlign()
         {
             using var repo = CreateRepo("commitConventions:\n  enabled: true\nversionPolicy:\n  policy: Independent\n");

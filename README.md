@@ -1448,7 +1448,8 @@ longer applies and versions continue from the previous reachable tag.
    - Format: `v1.0.0` (prefix + version)
    - Used to mark releases or milestones across the entire monorepo
 
-A project uses its own tag unless a global tag starts a newer major/minor release cycle. Builds never create
+A project uses its own tag unless a global tag starts a newer major/minor release cycle: after `v2.0.0`, an
+unchanged project whose own latest tag is `Core/v1.2.0` is `2.0.0`, and its next change is `2.0.1`. Builds never create
 tags; create them with `git tag`, the CLI, or the `mr-version/tag` GitHub Action.
 
 ### Enhanced Change Detection
@@ -1616,7 +1617,8 @@ For even more details:
 dotnet build -p:MonoRepoExtraDebug=true
 ```
 
-To print each project's version without building: `dotnet msbuild -t:GetMrVersion`.
+To print each project's version without building: `dotnet msbuild -t:GetMrVersion` (on a solution, or on a
+`Microsoft.Build.Traversal` `dirs.proj`, which is not versioned itself and forwards the target to its projects).
 
 This will display:
 - Branch type detection

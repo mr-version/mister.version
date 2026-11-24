@@ -250,17 +250,22 @@ namespace Mister.Version.Core.Services
                             Directory.Delete(sortedDirs[i].Path, true);
                             _logger("Debug", $"Cleaned up old cache: {Path.GetFileName(sortedDirs[i].Path)}");
                         }
+                        catch (DirectoryNotFoundException)
+                        {
+                            // Another build node removed it first: nothing to do
+                        }
                         catch (Exception ex)
                         {
-                            _logger("Warning", $"Failed to delete old cache {sortedDirs[i].Path}: {ex.Message}");
+                            // A cache that cannot be pruned is not a build problem
+                            _logger("Debug", $"Failed to delete old cache {sortedDirs[i].Path}: {ex.Message}");
                         }
                     }
 
-                    _logger("Info", $"Cleaned up {toDelete} old cache entries");
+                    _logger("Debug", $"Cleaned up {toDelete} old cache entries");
                 }
                 catch (Exception ex)
                 {
-                    _logger("Warning", $"Failed to cleanup old cache: {ex.Message}");
+                    _logger("Debug", $"Failed to cleanup old cache: {ex.Message}");
                 }
             }
         }

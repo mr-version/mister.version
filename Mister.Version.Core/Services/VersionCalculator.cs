@@ -765,9 +765,13 @@ namespace Mister.Version.Core.Services
         private void HandleNoChangesDetected(VersionTag projectTag, VersionTag globalTag,
             VersionTag baseVersionTag, SemVer newVersion, BranchType branchType, VersionResult result)
         {
-            // No changes detected - use the existing project version if available
-            // Only use baseVersion for projects that actually have changes
-            if (projectTag != null && projectTag.Commit != null)
+            // No changes detected - use the existing project version if available, unless a global tag starts a newer
+            // major/minor release cycle (the rule DetermineBaseVersion applies): an older project tag must not win over
+            // a newer release, which made unchanged projects go back to (and re-issue) their old version
+            var globalStartsNewerCycle = projectTag?.Commit != null && globalTag?.Commit != null &&
+                (globalTag.SemVer.Major > projectTag.SemVer.Major ||
+                 (globalTag.SemVer.Major == projectTag.SemVer.Major && globalTag.SemVer.Minor > projectTag.SemVer.Minor));
+            if (projectTag != null && projectTag.Commit != null && !globalStartsNewerCycle)
             {
                 // Project has an existing version and no changes - keep the existing version
                 result.SemVer = projectTag.SemVer.Clone();

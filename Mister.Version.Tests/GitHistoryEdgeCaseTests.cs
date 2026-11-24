@@ -190,6 +190,25 @@ namespace Mister.Version.Tests
             Assert.Equal("1.0.0", Version(Conventional));
         }
 
+        // ------------------------------------------------------------------ release tags
+
+        [Fact]
+        public void NewerGlobalReleaseTag_WinsOverAnOlderProjectTag_ForUnchangedProjects()
+        {
+            _repo.ApplyTag("v1.0.0");
+            Change("fix: core");
+            _repo.ApplyTag("Core/v1.2.0");
+            Change("fix: core again");
+            Assert.Equal("1.2.1", Version());
+
+            // A monorepo-wide release that does not touch Core
+            Write("src/Other/Other.csproj", "<Project Sdk=\"Microsoft.NET.Sdk\" />");
+            Commit("feat: other");
+            _repo.ApplyTag("v2.0.0");
+            // Core must not go back to (and re-issue) 1.2.0
+            Assert.Equal("2.0.0", Version());
+        }
+
         // ------------------------------------------------------------------ CalVer
 
         private static string CurrentPeriod => $"{DateTime.UtcNow.Year}.{DateTime.UtcNow.Month}";
