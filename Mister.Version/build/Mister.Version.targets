@@ -1,446 +1,200 @@
 <?xml version="1.0" encoding="utf-8"?>
-<Project xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
-	<!-- Include the versioning tasks -->
-	<UsingTask TaskName="Mister.Version.MonoRepoVersionTask" AssemblyFile="$(MSBuildThisFileDirectory)../tasks/$(AppSettingStronglyTyped_TFM)/Mister.Version.dll" />
-	<UsingTask TaskName="Mister.Version.HasChangesTask" AssemblyFile="$(MSBuildThisFileDirectory)../tasks/$(AppSettingStronglyTyped_TFM)/Mister.Version.dll" />
+<!--
+  Mister.Version: MSBuild integration.
 
-	<!-- CRITICAL: Ensure test projects have versions set immediately to prevent GenerateDepsFile errors -->
-	<PropertyGroup Condition="'$(IsTestProject)' == 'true'">
-		<AssemblyVersion Condition="'$(AssemblyVersion)' == ''">1.0.0.0</AssemblyVersion>
-		<FileVersion Condition="'$(FileVersion)' == ''">1.0.0.0</FileVersion>
-		<Version Condition="'$(Version)' == ''">1.0.0</Version>
-		<PackageVersion Condition="'$(PackageVersion)' == ''">1.0.0</PackageVersion>
-		<InformationalVersion Condition="'$(InformationalVersion)' == ''">1.0.0</InformationalVersion>
-		<MonoRepoVersioningEnabled>false</MonoRepoVersioningEnabled>
-	</PropertyGroup>
+  Imported by NuGet for single-targeted and inner (per-TFM) builds (build/), and by
+  buildMultiTargeting/Mister.Version.targets for multi-targeting outer builds.
 
-	<!-- ============================================================
-	     Core Version Calculation Target
-	     Uses HasChanges for early-exit optimization when cache is available
-	     ============================================================ -->
-	<Target Name="_MonoRepoSetVersion"
-        Condition="'$(MonoRepoVersioningEnabled)'=='true' and '$(IsTestProject)' != 'true'">
+  How the version flows:
+    * _MonoRepoSetVersion runs MonoRepoVersionTask once per project instance and sets Version, PackageVersion,
+      AssemblyVersion, FileVersion and InformationalVersion.
+    * Inner builds: it runs before PrepareForBuild/GetAssemblyVersion, so the SDK's own GenerateAssemblyInfo
+      stamps the assembly (incrementally - unchanged versions do not trigger recompilation).
+    * Pack (single- and multi-targeted): it runs via GenerateNuspecDependsOn before the nuspec and package file
+      name are computed.
+    * ProjectReference -> package dependency versions: NuGet calls _GetProjectVersion on referenced projects,
+      which depends on $(GetPackageVersionDependsOn), where this target is registered.
 
-		<!-- Check for cached version first -->
-		<PropertyGroup>
-			<_CachedVersionPropsPath>$(MSBuildProjectDirectory)\obj\$(Configuration)\$(MSBuildProjectName).outerbuild.version.props</_CachedVersionPropsPath>
-			<_CacheFileExists Condition="Exists('$(_CachedVersionPropsPath)')">true</_CacheFileExists>
-			<_CacheFileExists Condition="!Exists('$(_CachedVersionPropsPath)')">false</_CacheFileExists>
-		</PropertyGroup>
+  The task caches its result (in memory per node and in obj/ per project) keyed on a fingerprint of the
+  repository state and all settings, so the git history walk happens at most once per project per state.
+-->
+<Project>
 
-		<!-- Automatically detect dependencies based on ProjectReference -->
-		<ItemGroup>
-			<_MonoRepoDependencies Include="@(ProjectReference)" />
-		</ItemGroup>
+  <UsingTask TaskName="Mister.Version.MonoRepoVersionTask" AssemblyFile="$(_MrVersionTaskAssembly)" />
+  <UsingTask TaskName="Mister.Version.HasChangesTask" AssemblyFile="$(_MrVersionTaskAssembly)" />
 
-		<!-- OPTIMIZATION: Run lightweight HasChanges check if we have a cache -->
-		<HasChangesTask
-			Condition="'$(_CacheFileExists)' == 'true'"
-			ProjectPath="$(MSBuildProjectFullPath)"
-			RepoRoot="$(MonoRepoRoot)"
-			TagPrefix="$(MonoRepoTagPrefix)"
-			ChangeDetectionEnabled="$(MonoRepoChangeDetectionEnabled)"
-			IgnoreFilePatterns="$(MonoRepoIgnoreFilePatterns)"
-			MajorFilePatterns="$(MonoRepoMajorFilePatterns)"
-			MinorFilePatterns="$(MonoRepoMinorFilePatterns)"
-			PatchFilePatterns="$(MonoRepoPatchFilePatterns)"
-			AdditionalMonitorPaths="$(MonoRepoAdditionalMonitorPaths)"
-			Debug="$(MonoRepoDebug)"
-			Dependencies="@(_MonoRepoDependencies)">
-			<Output TaskParameter="HasChanges" PropertyName="_HasChanges" />
-			<Output TaskParameter="ChangeType" PropertyName="_ChangeType" />
-			<Output TaskParameter="ComparedAgainst" PropertyName="_ComparedAgainst" />
-			<Output TaskParameter="DiscoveredRepoRoot" PropertyName="DiscoveredRepoRoot" />
-		</HasChangesTask>
+  <!-- Test projects are never versioned -->
+  <PropertyGroup Condition="'$(IsTestProject)' == 'true'">
+    <MonoRepoVersioningEnabled>false</MonoRepoVersioningEnabled>
+  </PropertyGroup>
 
-		<!-- If no changes and cache exists, load from cache -->
-		<XmlPeek XmlInputPath="$(_CachedVersionPropsPath)"
-		         Query="/Project/PropertyGroup/PackageVersion/text()"
-		         Condition="'$(_CacheFileExists)' == 'true' and '$(_HasChanges)' == 'false'">
-			<Output TaskParameter="Result" ItemName="_CachedPackageVersionItem" />
-		</XmlPeek>
+  <PropertyGroup Condition="'$(MonoRepoVersioningEnabled)' == 'true'">
+    <!-- Mister.Version provides InformationalVersion; don't let the SDK append "+<commit sha>" to it. -->
+    <IncludeSourceRevisionInInformationalVersion Condition="'$(IncludeSourceRevisionInInformationalVersion)' == ''">false</IncludeSourceRevisionInInformationalVersion>
 
-		<PropertyGroup Condition="'$(_CacheFileExists)' == 'true' and '$(_HasChanges)' == 'false'">
-			<_UseCachedVersion>true</_UseCachedVersion>
-			<FullVersion>@(_CachedPackageVersionItem)</FullVersion>
-		</PropertyGroup>
+    <_MrVersionCacheFile Condition="'$(_MrVersionCacheFile)' == ''">$([MSBuild]::NormalizePath('$(MSBuildProjectDirectory)', '$(BaseIntermediateOutputPath)', '$(MSBuildProjectName).mrversion.cache'))</_MrVersionCacheFile>
 
-		<Message Text="[MrVersion] ✓ No changes since $(_ComparedAgainst) - using cached version $(FullVersion)"
-		         Importance="High"
-		         Condition="'$(_UseCachedVersion)' == 'true' and '$(MonoRepoDebug)'=='true'" />
+    <!-- Make the version available to pack (single- and multi-targeted) and to NuGet's ProjectReference version lookup -->
+    <GenerateNuspecDependsOn>_MonoRepoSetVersion;$(GenerateNuspecDependsOn)</GenerateNuspecDependsOn>
+    <GetPackageVersionDependsOn>_MonoRepoSetVersion;$(GetPackageVersionDependsOn)</GetPackageVersionDependsOn>
+  </PropertyGroup>
 
-		<!-- Run the full versioning task only if needed -->
-		<MonoRepoVersionTask
-			Condition="'$(_UseCachedVersion)' != 'true'"
-			ProjectPath="$(MSBuildProjectFullPath)"
-			RepoRoot="$(MonoRepoRoot)"
-			TagPrefix="$(MonoRepoTagPrefix)"
-			UpdateProjectFile="$(MonoRepoUpdateProjectFile)"
-			ForceVersion="$(ForceVersion)"
-			Debug="$(MonoRepoDebug)"
-			ExtraDebug="$(MonoRepoExtraDebug)"
-			SkipTestProjects="$(MonoRepoSkipTestProjects)"
-			SkipNonPackableProjects="$(MonoRepoSkipNonPackableProjects)"
-			IsTestProject="$(IsTestProject)"
-			IsPackable="$(IsPackable)"
-			PrereleaseType="$(MonoRepoPrereleaseType)"
-			ConfigFile="$(MonoRepoConfigFile)"
-			ConventionalCommitsEnabled="$(MonoRepoConventionalCommitsEnabled)"
-			MajorPatterns="$(MonoRepoMajorPatterns)"
-			MinorPatterns="$(MonoRepoMinorPatterns)"
-			PatchPatterns="$(MonoRepoPatchPatterns)"
-			IgnorePatterns="$(MonoRepoIgnorePatterns)"
-			ChangeDetectionEnabled="$(MonoRepoChangeDetectionEnabled)"
-			IgnoreFilePatterns="$(MonoRepoIgnoreFilePatterns)"
-			MajorFilePatterns="$(MonoRepoMajorFilePatterns)"
-			MinorFilePatterns="$(MonoRepoMinorFilePatterns)"
-			PatchFilePatterns="$(MonoRepoPatchFilePatterns)"
-			SourceOnlyMode="$(MonoRepoSourceOnlyMode)"
-			AdditionalMonitorPaths="$(MonoRepoAdditionalMonitorPaths)"
-			GenerateChangelog="$(MonoRepoGenerateChangelog)"
-			ChangelogFormat="$(MonoRepoChangelogFormat)"
-			ChangelogOutputPath="$(MonoRepoChangelogOutputPath)"
-			ChangelogRepositoryUrl="$(MonoRepoChangelogRepositoryUrl)"
-			ChangelogIncludeAuthors="$(MonoRepoChangelogIncludeAuthors)"
-			ShallowCloneSupport="$(MonoRepoShallowCloneSupport)"
-			ShallowCloneFallbackVersion="$(MonoRepoShallowCloneFallbackVersion)"
-			SubmoduleSupport="$(MonoRepoSubmoduleSupport)"
-			CustomTagPatterns="$(MonoRepoCustomTagPatterns)"
-			BranchBasedVersioning="$(MonoRepoBranchBasedVersioning)"
-			BranchVersioningRules="$(MonoRepoBranchVersioningRules)"
-			IncludeBranchInMetadata="$(MonoRepoIncludeBranchInMetadata)"
-			ValidateTagAncestry="$(MonoRepoValidateTagAncestry)"
-			FetchDepth="$(MonoRepoFetchDepth)"
-			ValidationEnabled="$(MonoRepoValidationEnabled)"
-			MinimumVersion="$(MonoRepoMinimumVersion)"
-			MaximumVersion="$(MonoRepoMaximumVersion)"
-			AllowedVersionRange="$(MonoRepoAllowedVersionRange)"
-			ValidateDependencyVersions="$(MonoRepoValidateDependencyVersions)"
-			RequireMajorApproval="$(MonoRepoRequireMajorApproval)"
-			BlockedVersions="$(MonoRepoBlockedVersions)"
-			RequireMonotonicIncrease="$(MonoRepoRequireMonotonicIncrease)"
-			MajorVersionApproved="$(MonoRepoMajorVersionApproved)"
-			EnableFileCache="$(MonoRepoEnableFileCache)"
-			FileCachePath="$(MonoRepoFileCachePath)"
-			Dependencies="@(_MonoRepoDependencies)">
-			<Output TaskParameter="Version" PropertyName="FullVersion" />
-			<Output TaskParameter="VersionChanged" PropertyName="VersionChanged" />
-			<Output TaskParameter="DiscoveredRepoRoot" PropertyName="DiscoveredRepoRoot" />
-		</MonoRepoVersionTask>
+  <!-- ============================================================
+       Version calculation
+       ============================================================ -->
+  <Target Name="_MonoRepoSetVersion"
+          Condition="'$(MonoRepoVersioningEnabled)' == 'true' and '$(IsTestProject)' != 'true'">
 
-		<!-- Calculate version formats (done once, used everywhere) -->
-		<PropertyGroup>
-			<IsPrerelease Condition="$(FullVersion.Contains('-'))">true</IsPrerelease>
-			<IsPrerelease Condition="!$(FullVersion.Contains('-'))">false</IsPrerelease>
-			<MainVersion Condition="'$(IsPrerelease)' == 'true'">$(FullVersion.Split('-')[0])</MainVersion>
-			<MainVersion Condition="'$(IsPrerelease)' == 'false'">$(FullVersion)</MainVersion>
-		</PropertyGroup>
+    <ItemGroup>
+      <_MonoRepoDependencies Remove="@(_MonoRepoDependencies)" />
+      <_MonoRepoDependencies Include="@(ProjectReference->'%(FullPath)')" />
+    </ItemGroup>
 
-		<!-- Write version to TFM-specific location for current build -->
-		<PropertyGroup>
-			<MrVersionAssemblyRefFile>$(IntermediateOutputPath)$(MSBuildProjectName).version.props</MrVersionAssemblyRefFile>
-		</PropertyGroup>
+    <MonoRepoVersionTask
+      ProjectPath="$(MSBuildProjectFullPath)"
+      RepoRoot="$(MonoRepoRoot)"
+      TagPrefix="$(MonoRepoTagPrefix)"
+      UpdateProjectFile="$(MonoRepoUpdateProjectFile)"
+      ForceVersion="$(ForceVersion)"
+      Debug="$(MonoRepoDebug)"
+      ExtraDebug="$(MonoRepoExtraDebug)"
+      SkipTestProjects="$(MonoRepoSkipTestProjects)"
+      SkipNonPackableProjects="$(MonoRepoSkipNonPackableProjects)"
+      IsTestProject="$(IsTestProject)"
+      IsPackable="$(IsPackable)"
+      PrereleaseType="$(MonoRepoPrereleaseType)"
+      ConfigFile="$(MonoRepoConfigFile)"
+      ConventionalCommitsEnabled="$(MonoRepoConventionalCommitsEnabled)"
+      MajorPatterns="$(MonoRepoMajorPatterns)"
+      MinorPatterns="$(MonoRepoMinorPatterns)"
+      PatchPatterns="$(MonoRepoPatchPatterns)"
+      IgnorePatterns="$(MonoRepoIgnorePatterns)"
+      ChangeDetectionEnabled="$(MonoRepoChangeDetectionEnabled)"
+      IgnoreFilePatterns="$(MonoRepoIgnoreFilePatterns)"
+      MajorFilePatterns="$(MonoRepoMajorFilePatterns)"
+      MinorFilePatterns="$(MonoRepoMinorFilePatterns)"
+      PatchFilePatterns="$(MonoRepoPatchFilePatterns)"
+      SourceOnlyMode="$(MonoRepoSourceOnlyMode)"
+      AdditionalMonitorPaths="$(MonoRepoAdditionalMonitorPaths)"
+      GenerateChangelog="$(MonoRepoGenerateChangelog)"
+      ChangelogFormat="$(MonoRepoChangelogFormat)"
+      ChangelogOutputPath="$(MonoRepoChangelogOutputPath)"
+      ChangelogRepositoryUrl="$(MonoRepoChangelogRepositoryUrl)"
+      ChangelogIncludeAuthors="$(MonoRepoChangelogIncludeAuthors)"
+      ShallowCloneSupport="$(MonoRepoShallowCloneSupport)"
+      ShallowCloneFallbackVersion="$(MonoRepoShallowCloneFallbackVersion)"
+      SubmoduleSupport="$(MonoRepoSubmoduleSupport)"
+      CustomTagPatterns="$(MonoRepoCustomTagPatterns)"
+      BranchBasedVersioning="$(MonoRepoBranchBasedVersioning)"
+      BranchVersioningRules="$(MonoRepoBranchVersioningRules)"
+      IncludeBranchInMetadata="$(MonoRepoIncludeBranchInMetadata)"
+      ValidateTagAncestry="$(MonoRepoValidateTagAncestry)"
+      FetchDepth="$(MonoRepoFetchDepth)"
+      VersionScheme="$(MonoRepoVersionScheme)"
+      CalVerFormat="$(MonoRepoCalVerFormat)"
+      CalVerStartDate="$(MonoRepoCalVerStartDate)"
+      CalVerResetPatch="$(MonoRepoCalVerResetPatch)"
+      CalVerSeparator="$(MonoRepoCalVerSeparator)"
+      ValidationEnabled="$(MonoRepoValidationEnabled)"
+      MinimumVersion="$(MonoRepoMinimumVersion)"
+      MaximumVersion="$(MonoRepoMaximumVersion)"
+      AllowedVersionRange="$(MonoRepoAllowedVersionRange)"
+      ValidateDependencyVersions="$(MonoRepoValidateDependencyVersions)"
+      RequireMajorApproval="$(MonoRepoRequireMajorApproval)"
+      BlockedVersions="$(MonoRepoBlockedVersions)"
+      RequireMonotonicIncrease="$(MonoRepoRequireMonotonicIncrease)"
+      MajorVersionApproved="$(MonoRepoMajorVersionApproved)"
+      EnableFileCache="$(MonoRepoEnableFileCache)"
+      FileCachePath="$(MonoRepoFileCachePath)"
+      EnableCache="$(MonoRepoVersionCacheEnabled)"
+      CacheFile="$(_MrVersionCacheFile)"
+      Dependencies="@(_MonoRepoDependencies)">
+      <Output TaskParameter="Version" PropertyName="FullVersion" />
+      <Output TaskParameter="VersionChanged" PropertyName="VersionChanged" />
+      <Output TaskParameter="DiscoveredRepoRoot" PropertyName="DiscoveredRepoRoot" />
+    </MonoRepoVersionTask>
 
-		<MakeDir Directories="$(IntermediateOutputPath)" />
+    <PropertyGroup Condition="'$(FullVersion)' != ''">
+      <!-- Numeric part for AssemblyVersion/FileVersion: strip prerelease (-...) and build metadata (+...) -->
+      <MainVersion>$(FullVersion.Split('-')[0].Split('+')[0])</MainVersion>
+      <IsPrerelease>false</IsPrerelease>
+      <IsPrerelease Condition="$(FullVersion.Split('+')[0].Contains('-'))">true</IsPrerelease>
 
-		<!-- Write version properties to TFM-specific file -->
-		<WriteLinesToFile File="$(MrVersionAssemblyRefFile)"
-            Lines="&lt;?xml version=&quot;1.0&quot; encoding=&quot;utf-8&quot;?&gt;;&lt;Project&gt;;&lt;PropertyGroup&gt;;&lt;PackageVersion&gt;$(FullVersion)&lt;/PackageVersion&gt;;&lt;Version&gt;$(FullVersion)&lt;/Version&gt;;&lt;AssemblyVersion&gt;$(MainVersion)&lt;/AssemblyVersion&gt;;&lt;FileVersion&gt;$(MainVersion)&lt;/FileVersion&gt;;&lt;InformationalVersion&gt;$(FullVersion)&lt;/InformationalVersion&gt;;&lt;/PropertyGroup&gt;;&lt;/Project&gt;"
-            Overwrite="true" />
+      <Version>$(FullVersion)</Version>
+      <PackageVersion>$(FullVersion)</PackageVersion>
+      <AssemblyVersion>$(MainVersion)</AssemblyVersion>
+      <FileVersion>$(MainVersion)</FileVersion>
+      <InformationalVersion>$(FullVersion)</InformationalVersion>
+      <_MrVersionCalculated>$(FullVersion)</_MrVersionCalculated>
+    </PropertyGroup>
 
-		<!-- Write to TFM-agnostic location for cross-project queries -->
-		<!-- Only write from first TFM to avoid parallel file access conflicts -->
-		<PropertyGroup>
-			<_SharedVersionPropsPath>$(MSBuildProjectDirectory)\obj\$(Configuration)\$(MSBuildProjectName).outerbuild.version.props</_SharedVersionPropsPath>
-			<_ShouldWriteSharedVersion>false</_ShouldWriteSharedVersion>
-			<_ShouldWriteSharedVersion Condition="!Exists('$(_SharedVersionPropsPath)')">true</_ShouldWriteSharedVersion>
-			<_FirstTargetFramework>$(TargetFrameworks.Split(';')[0])</_FirstTargetFramework>
-			<_ShouldWriteSharedVersion Condition="'$(TargetFramework)' == '$(_FirstTargetFramework)'">true</_ShouldWriteSharedVersion>
-			<_ShouldWriteSharedVersion Condition="'$(TargetFrameworks)' == ''">true</_ShouldWriteSharedVersion>
-			<!-- Don't overwrite if we just used the cache -->
-			<_ShouldWriteSharedVersion Condition="'$(_UseCachedVersion)' == 'true'">false</_ShouldWriteSharedVersion>
-		</PropertyGroup>
+    <Message Text="[MrVersion] $(MSBuildProjectName) = $(FullVersion)" Importance="High" Condition="'$(MonoRepoDebug)' == 'true'" />
+  </Target>
 
-		<MakeDir Directories="$(MSBuildProjectDirectory)\obj\$(Configuration)" Condition="'$(_ShouldWriteSharedVersion)' == 'true'" />
+  <!-- Inner/single-TFM builds: compute the version before anything reads it during the build
+       (assembly attributes via the SDK's GenerateAssemblyInfo, deps.json, publish, ...).
+       Skipped for IDE design-time builds, which do not need it. -->
+  <Target Name="_MonoRepoCalculateVersion"
+          BeforeTargets="PrepareForBuild;GetAssemblyVersion"
+          DependsOnTargets="_MonoRepoSetVersion"
+          Condition="'$(MonoRepoVersioningEnabled)' == 'true' and '$(IsTestProject)' != 'true' and '$(DesignTimeBuild)' != 'true'" />
 
-		<ItemGroup Condition="'$(_ShouldWriteSharedVersion)' == 'true'">
-			<_SharedVersionLines Include="&lt;?xml version=&quot;1.0&quot; encoding=&quot;utf-8&quot;?&gt;" />
-			<_SharedVersionLines Include="&lt;Project&gt;" />
-			<_SharedVersionLines Include="  &lt;PropertyGroup&gt;" />
-			<_SharedVersionLines Include="    &lt;!-- Generated by Mister.Version for cross-project version queries --&gt;" />
-			<_SharedVersionLines Include="    &lt;PackageVersion&gt;$(FullVersion)&lt;/PackageVersion&gt;" />
-			<_SharedVersionLines Include="    &lt;Version&gt;$(FullVersion)&lt;/Version&gt;" />
-			<_SharedVersionLines Include="    &lt;AssemblyVersion&gt;$(MainVersion)&lt;/AssemblyVersion&gt;" />
-			<_SharedVersionLines Include="    &lt;FileVersion&gt;$(MainVersion)&lt;/FileVersion&gt;" />
-			<_SharedVersionLines Include="    &lt;InformationalVersion&gt;$(FullVersion)&lt;/InformationalVersion&gt;" />
-			<_SharedVersionLines Include="  &lt;/PropertyGroup&gt;" />
-			<_SharedVersionLines Include="&lt;/Project&gt;" />
-		</ItemGroup>
+  <!-- ============================================================
+       HasChanges - standalone change detection (opt-in, not part of the normal build)
+       ============================================================ -->
+  <Target Name="_MonoRepoHasChanges"
+          Condition="'$(MonoRepoVersioningEnabled)' == 'true'">
+    <ItemGroup>
+      <_MonoRepoDependencies Remove="@(_MonoRepoDependencies)" />
+      <_MonoRepoDependencies Include="@(ProjectReference->'%(FullPath)')" />
+    </ItemGroup>
 
-		<WriteLinesToFile File="$(_SharedVersionPropsPath)"
-		                  Lines="@(_SharedVersionLines)"
-		                  Overwrite="true"
-		                  WriteOnlyWhenDifferent="true"
-		                  ContinueOnError="true"
-		                  Condition="'$(_ShouldWriteSharedVersion)' == 'true'" />
+    <HasChangesTask
+      ProjectPath="$(MSBuildProjectFullPath)"
+      RepoRoot="$(MonoRepoRoot)"
+      TagPrefix="$(MonoRepoTagPrefix)"
+      SinceTag="$(MonoRepoSinceTag)"
+      SinceCommit="$(MonoRepoSinceCommit)"
+      ChangeDetectionEnabled="$(MonoRepoChangeDetectionEnabled)"
+      IgnoreFilePatterns="$(MonoRepoIgnoreFilePatterns)"
+      MajorFilePatterns="$(MonoRepoMajorFilePatterns)"
+      MinorFilePatterns="$(MonoRepoMinorFilePatterns)"
+      PatchFilePatterns="$(MonoRepoPatchFilePatterns)"
+      AdditionalMonitorPaths="$(MonoRepoAdditionalMonitorPaths)"
+      Debug="$(MonoRepoDebug)"
+      Dependencies="@(_MonoRepoDependencies)">
+      <Output TaskParameter="HasChanges" PropertyName="MonoRepoHasChanges" />
+      <Output TaskParameter="ChangeType" PropertyName="MonoRepoChangeType" />
+      <Output TaskParameter="ChangeReason" PropertyName="MonoRepoChangeReason" />
+      <Output TaskParameter="ChangedFiles" ItemName="MonoRepoChangedFiles" />
+      <Output TaskParameter="ComparedAgainst" PropertyName="MonoRepoComparedAgainst" />
+      <Output TaskParameter="DiscoveredRepoRoot" PropertyName="DiscoveredRepoRoot" />
+    </HasChangesTask>
 
-		<Message Text="[MrVersion] Written version properties to: $(MrVersionAssemblyRefFile)" Importance="High" Condition="'$(MonoRepoDebug)'=='true'" />
+    <Message Text="[MrVersion] HasChanges: $(MonoRepoHasChanges), Type: $(MonoRepoChangeType)" Importance="High" Condition="'$(MonoRepoDebug)' == 'true'" />
+  </Target>
 
-		<!-- Set all version properties -->
-		<PropertyGroup>
-			<Version>$(FullVersion)</Version>
-			<PackageVersion>$(FullVersion)</PackageVersion>
-			<AssemblyVersion>$(MainVersion)</AssemblyVersion>
-			<FileVersion>$(MainVersion)</FileVersion>
-			<InformationalVersion>$(FullVersion)</InformationalVersion>
-			<_MrVersionCalculated>$(FullVersion)</_MrVersionCalculated>
+  <!-- Convenience target: dotnet msbuild -t:CheckForChanges -->
+  <Target Name="CheckForChanges" DependsOnTargets="_MonoRepoHasChanges">
+    <Message Text="Project has changes: $(MonoRepoHasChanges)" Importance="High" />
+    <Message Text="Change type: $(MonoRepoChangeType)" Importance="High" Condition="'$(MonoRepoHasChanges)' == 'true'" />
+    <Message Text="Reason: $(MonoRepoChangeReason)" Importance="High" />
+    <Message Text="Compared against: $(MonoRepoComparedAgainst)" Importance="High" />
+  </Target>
 
-			<!-- Disable automatic assembly info generation to avoid duplicates -->
-			<GenerateAssemblyInfo>true</GenerateAssemblyInfo>
-			<GenerateAssemblyVersionAttribute>false</GenerateAssemblyVersionAttribute>
-			<GenerateAssemblyFileVersionAttribute>false</GenerateAssemblyFileVersionAttribute>
-			<GenerateAssemblyInformationalVersionAttribute>false</GenerateAssemblyInformationalVersionAttribute>
-		</PropertyGroup>
+  <!-- Sets _MonoRepoShouldSkipBuild=true when the project has no changes (opt-in via MonoRepoSkipUnchanged=true) -->
+  <Target Name="_MonoRepoConditionalBuild"
+          DependsOnTargets="_MonoRepoHasChanges"
+          Condition="'$(MonoRepoSkipUnchanged)' == 'true'">
+    <PropertyGroup Condition="'$(MonoRepoHasChanges)' == 'false'">
+      <_MonoRepoShouldSkipBuild>true</_MonoRepoShouldSkipBuild>
+    </PropertyGroup>
+    <Message Text="[MrVersion] No changes since $(MonoRepoComparedAgainst) - build may be skipped" Importance="High" Condition="'$(_MonoRepoShouldSkipBuild)' == 'true'" />
+  </Target>
 
-		<!-- Force immediate property update using CreateProperty tasks -->
-		<CreateProperty Value="$(FullVersion)" Condition="'$(IsPackable)' == 'true'">
-			<Output TaskParameter="ValueSetByTask" PropertyName="PackageVersion" />
-		</CreateProperty>
-		<CreateProperty Value="$(FullVersion)" Condition="'$(IsPackable)' == 'true'">
-			<Output TaskParameter="ValueSetByTask" PropertyName="Version" />
-		</CreateProperty>
-		<CreateProperty Value="false">
-			<Output TaskParameter="ValueSetByTask" PropertyName="GenerateAssemblyVersionAttribute" />
-		</CreateProperty>
-		<CreateProperty Value="false">
-			<Output TaskParameter="ValueSetByTask" PropertyName="GenerateAssemblyFileVersionAttribute" />
-		</CreateProperty>
-		<CreateProperty Value="false">
-			<Output TaskParameter="ValueSetByTask" PropertyName="GenerateAssemblyInformationalVersionAttribute" />
-		</CreateProperty>
-
-        <Message Text="MonoRepo Versioning: Set version $(FullVersion) for $(MSBuildProjectName)" Importance="High" Condition="'$(MonoRepoDebug)'=='true'"/>
-	</Target>
-
-	<!-- ============================================================
-	     Generate AssemblyInfo - runs early in build process
-	     ============================================================ -->
-	<Target Name="_MonoRepoCalculateVersion"
-        DependsOnTargets="_MonoRepoSetVersion"
-        BeforeTargets="GetAssemblyAttributes;GenerateAssemblyInfo;CoreGenerateAssemblyInfo;PrepareForBuild"
-        Condition="'$(MonoRepoVersioningEnabled)'=='true' and '$(IsTestProject)' != 'true'">
-
-		<PropertyGroup>
-			<MrVersionAssemblyInfoFile>$(IntermediateOutputPath)$(MSBuildProjectName).mrv.g.cs</MrVersionAssemblyInfoFile>
-		</PropertyGroup>
-
-		<MakeDir Directories="$(IntermediateOutputPath)" />
-
-		<!-- Generate AssemblyInfo file with assembly attributes -->
-		<WriteLinesToFile File="$(MrVersionAssemblyInfoFile)"
-            Lines="// &lt;auto-generated&gt;;// This code was generated by Mister.Version;// &lt;/auto-generated&gt;;;using System.Reflection%3B;;[assembly: AssemblyVersion(&quot;$(MainVersion)&quot;)];[assembly: AssemblyFileVersion(&quot;$(MainVersion)&quot;)];[assembly: AssemblyInformationalVersion(&quot;$(Version)&quot;)]"
-            Overwrite="true" />
-
-		<ItemGroup>
-			<Compile Include="$(MrVersionAssemblyInfoFile)" />
-		</ItemGroup>
-
-        <Message Text="[MrVersion] Generated AssemblyInfo for $(MSBuildProjectName) with version $(Version)" Importance="High" Condition="'$(MonoRepoDebug)'=='true'" />
-	</Target>
-
-	<!-- ============================================================
-	     CONSOLIDATED: Single target to ensure version for all consumers
-	     Replaces: _EnsureVersionForPack, _ForceVersionRecalculation,
-	               _MonoRepoSetVersionEarly, _OverridePackageProperties,
-	               _ForceVersionCalculationForPack, _EnsureMainProjectVersionForPack,
-	               _GenerateVersionForNuspec
-	     ============================================================ -->
-	<Target Name="_MonoRepoEnsureVersion"
-	        BeforeTargets="GenerateNuspec;GetTargetPath;Build;Pack;_LoadPackInputItems;CollectPackageReferences;ResolvePackageAssets;_GetTargetFrameworksOutput;_GetBuildOutputFilesWithTfm"
-	        DependsOnTargets="_MonoRepoSetVersion"
-	        Condition="'$(MonoRepoVersioningEnabled)'=='true' and '$(IsPackable)' == 'true' and '$(IsTestProject)' != 'true'">
-
-		<PropertyGroup>
-			<PackageVersion>$(FullVersion)</PackageVersion>
-			<Version>$(FullVersion)</Version>
-			<AssemblyVersion>$(MainVersion)</AssemblyVersion>
-			<FileVersion>$(MainVersion)</FileVersion>
-			<InformationalVersion>$(FullVersion)</InformationalVersion>
-		</PropertyGroup>
-
-		<!-- Force property update via CreateProperty -->
-		<CreateProperty Value="$(FullVersion)">
-			<Output TaskParameter="ValueSetByTask" PropertyName="PackageVersion" />
-		</CreateProperty>
-		<CreateProperty Value="$(FullVersion)">
-			<Output TaskParameter="ValueSetByTask" PropertyName="Version" />
-		</CreateProperty>
-
-		<Message Importance="High" Text="[MrVersion] Ensured version: $(PackageId) = $(PackageVersion)" Condition="'$(MonoRepoDebug)'=='true'" />
-	</Target>
-
-	<!-- ============================================================
-	     Cross-targeting build support (outer build for NuGet Pack)
-	     ============================================================ -->
-	<PropertyGroup Condition="'$(IsCrossTargetingBuild)' == 'true' and '$(IsPackable)' == 'true'">
-		<MonoRepoVersioningEnabled>true</MonoRepoVersioningEnabled>
-		<GenerateNuspecDependsOn>$(GenerateNuspecDependsOn);_MonoRepoSetVersionForOuterBuild</GenerateNuspecDependsOn>
-	</PropertyGroup>
-
-	<Target Name="_MonoRepoSetVersionForOuterBuild"
-	        Condition="'$(IsCrossTargetingBuild)' == 'true' and '$(IsPackable)' == 'true'">
-		<Message Importance="High" Text="[MrVersion] Running versioning for outer build" Condition="'$(MonoRepoDebug)'=='true'" />
-
-		<ItemGroup>
-			<_MonoRepoDependencies Include="@(ProjectReference)" />
-		</ItemGroup>
-
-		<MonoRepoVersionTask
-			ProjectPath="$(MSBuildProjectFullPath)"
-			RepoRoot="$(MonoRepoRoot)"
-			TagPrefix="$(MonoRepoTagPrefix)"
-			UpdateProjectFile="$(MonoRepoUpdateProjectFile)"
-			ForceVersion="$(ForceVersion)"
-			Debug="$(MonoRepoDebug)"
-			ExtraDebug="$(MonoRepoExtraDebug)"
-			SkipTestProjects="$(MonoRepoSkipTestProjects)"
-			SkipNonPackableProjects="$(MonoRepoSkipNonPackableProjects)"
-			IsTestProject="$(IsTestProject)"
-			IsPackable="$(IsPackable)"
-			PrereleaseType="$(MonoRepoPrereleaseType)"
-			ConfigFile="$(MonoRepoConfigFile)"
-			EnableFileCache="$(MonoRepoEnableFileCache)"
-			FileCachePath="$(MonoRepoFileCachePath)"
-			Dependencies="@(_MonoRepoDependencies)">
-			<Output TaskParameter="Version" PropertyName="FullVersion" />
-			<Output TaskParameter="VersionChanged" PropertyName="VersionChanged" />
-			<Output TaskParameter="DiscoveredRepoRoot" PropertyName="DiscoveredRepoRoot" />
-		</MonoRepoVersionTask>
-
-		<PropertyGroup>
-			<IsPrerelease Condition="$(FullVersion.Contains('-'))">true</IsPrerelease>
-			<IsPrerelease Condition="!$(FullVersion.Contains('-'))">false</IsPrerelease>
-			<MainVersion Condition="'$(IsPrerelease)' == 'true'">$(FullVersion.Split('-')[0])</MainVersion>
-			<MainVersion Condition="'$(IsPrerelease)' == 'false'">$(FullVersion)</MainVersion>
-			<PackageVersion>$(FullVersion)</PackageVersion>
-			<Version>$(FullVersion)</Version>
-			<AssemblyVersion>$(MainVersion)</AssemblyVersion>
-			<FileVersion>$(MainVersion)</FileVersion>
-			<InformationalVersion>$(FullVersion)</InformationalVersion>
-		</PropertyGroup>
-
-		<Message Importance="High" Text="[MrVersion] Outer build version: $(PackageVersion)" Condition="'$(MonoRepoDebug)'=='true'" />
-	</Target>
-
-	<!-- ============================================================
-	     Project Reference Version Resolution
-	     ============================================================ -->
-	<Target Name="GetTargetPath"
-            DependsOnTargets="_MonoRepoSetVersion"
-            Returns="@(TargetPathWithTargetPlatformMoniker)"
-            Condition="'$(MonoRepoVersioningEnabled)'=='true' and '$(IsTestProject)' != 'true'">
-
-		<PropertyGroup>
-			<PackageVersion>$(FullVersion)</PackageVersion>
-			<Version>$(FullVersion)</Version>
-		</PropertyGroup>
-
-		<ItemGroup>
-			<TargetPathWithTargetPlatformMoniker Include="$(TargetPath)">
-				<TargetPlatformMoniker>$(TargetPlatformMoniker)</TargetPlatformMoniker>
-				<TargetPlatformIdentifier>$(TargetPlatformIdentifier)</TargetPlatformIdentifier>
-				<PackageVersion>$(FullVersion)</PackageVersion>
-				<Version>$(FullVersion)</Version>
-				<ProjectName>$(MSBuildProjectName)</ProjectName>
-			</TargetPathWithTargetPlatformMoniker>
-		</ItemGroup>
-
-		<Message Text="[MrVersion] GetTargetPath: $(MSBuildProjectName) = $(FullVersion)" Importance="High" Condition="'$(MonoRepoExtraDebug)'=='true'" />
-	</Target>
-
-	<!-- NuGet Pack package version resolution -->
-	<Target Name="_GetPackageVersion"
-            DependsOnTargets="_MonoRepoSetVersion"
-            Returns="$(FullVersion)"
-            Condition="'$(MonoRepoVersioningEnabled)'=='true' and '$(IsTestProject)' != 'true'">
-		<PropertyGroup>
-			<PackageVersion>$(FullVersion)</PackageVersion>
-			<Version>$(FullVersion)</Version>
-		</PropertyGroup>
-		<Message Text="[MrVersion] GetPackageVersion: $(MSBuildProjectName) = $(FullVersion)" Importance="High" Condition="'$(MonoRepoExtraDebug)'=='true'" />
-	</Target>
-
-	<!-- NuGet dependency resolution for project references -->
-	<Target Name="_GetProjectVersion"
-            DependsOnTargets="_MonoRepoSetVersion"
-            Returns="@(_ProjectPathWithVersion)">
-
-		<PropertyGroup>
-			<_VersionForPack Condition="'$(FullVersion)' != ''">$(FullVersion)</_VersionForPack>
-			<_VersionForPack Condition="'$(_VersionForPack)' == '' and '$(PackageVersion)' != ''">$(PackageVersion)</_VersionForPack>
-			<_VersionForPack Condition="'$(_VersionForPack)' == '' and '$(Version)' != ''">$(Version)</_VersionForPack>
-			<_VersionForPack Condition="'$(_VersionForPack)' == ''">1.0.0</_VersionForPack>
-		</PropertyGroup>
-
-		<ItemGroup>
-			<_ProjectPathWithVersion Include="$(MSBuildProjectFullPath)">
-				<ProjectVersion>$(_VersionForPack)</ProjectVersion>
-			</_ProjectPathWithVersion>
-		</ItemGroup>
-
-		<Message Importance="High" Text="[MrVersion] GetProjectVersion: $(MSBuildProjectName) = $(_VersionForPack)" Condition="'$(MonoRepoExtraDebug)' == 'true'" />
-	</Target>
-
-	<!-- ============================================================
-	     HasChanges Task - Standalone change detection
-	     ============================================================ -->
-	<Target Name="_MonoRepoHasChanges"
-	        Condition="'$(MonoRepoVersioningEnabled)'=='true'">
-		<ItemGroup>
-			<_MonoRepoDependencies Include="@(ProjectReference)" />
-		</ItemGroup>
-
-		<HasChangesTask
-			ProjectPath="$(MSBuildProjectFullPath)"
-			RepoRoot="$(MonoRepoRoot)"
-			TagPrefix="$(MonoRepoTagPrefix)"
-			SinceTag="$(MonoRepoSinceTag)"
-			SinceCommit="$(MonoRepoSinceCommit)"
-			ChangeDetectionEnabled="$(MonoRepoChangeDetectionEnabled)"
-			IgnoreFilePatterns="$(MonoRepoIgnoreFilePatterns)"
-			MajorFilePatterns="$(MonoRepoMajorFilePatterns)"
-			MinorFilePatterns="$(MonoRepoMinorFilePatterns)"
-			PatchFilePatterns="$(MonoRepoPatchFilePatterns)"
-			AdditionalMonitorPaths="$(MonoRepoAdditionalMonitorPaths)"
-			Debug="$(MonoRepoDebug)"
-			Dependencies="@(_MonoRepoDependencies)">
-			<Output TaskParameter="HasChanges" PropertyName="MonoRepoHasChanges" />
-			<Output TaskParameter="ChangeType" PropertyName="MonoRepoChangeType" />
-			<Output TaskParameter="ChangeReason" PropertyName="MonoRepoChangeReason" />
-			<Output TaskParameter="ChangedFiles" ItemName="MonoRepoChangedFiles" />
-			<Output TaskParameter="ComparedAgainst" PropertyName="MonoRepoComparedAgainst" />
-			<Output TaskParameter="DiscoveredRepoRoot" PropertyName="DiscoveredRepoRoot" />
-		</HasChangesTask>
-
-		<Message Text="[MrVersion] HasChanges: $(MonoRepoHasChanges), Type: $(MonoRepoChangeType)" Importance="High" Condition="'$(MonoRepoDebug)'=='true'" />
-	</Target>
-
-	<!-- Convenience target for explicit change checking -->
-	<Target Name="CheckForChanges" DependsOnTargets="_MonoRepoHasChanges">
-		<Message Text="Project has changes: $(MonoRepoHasChanges)" Importance="High" />
-		<Message Text="Change type: $(MonoRepoChangeType)" Importance="High" Condition="'$(MonoRepoHasChanges)' == 'true'" />
-		<Message Text="Reason: $(MonoRepoChangeReason)" Importance="High" />
-		<Message Text="Compared against: $(MonoRepoComparedAgainst)" Importance="High" />
-	</Target>
-
-	<!-- Conditional build based on changes -->
-	<Target Name="_MonoRepoConditionalBuild"
-	        DependsOnTargets="_MonoRepoHasChanges"
-	        Condition="'$(MonoRepoSkipUnchanged)' == 'true'">
-		<PropertyGroup Condition="'$(MonoRepoHasChanges)' == 'false'">
-			<_MonoRepoShouldSkipBuild>true</_MonoRepoShouldSkipBuild>
-		</PropertyGroup>
-		<Message Text="[MrVersion] No changes since $(MonoRepoComparedAgainst) - build may be skipped" Importance="High" Condition="'$(_MonoRepoShouldSkipBuild)' == 'true'" />
-	</Target>
+  <!-- Convenience target: dotnet msbuild -t:GetMrVersion -getProperty:Version -->
+  <Target Name="GetMrVersion" DependsOnTargets="_MonoRepoSetVersion" Returns="$(Version)">
+    <Message Text="$(MSBuildProjectName): $(Version)" Importance="High" />
+  </Target>
 
 </Project>

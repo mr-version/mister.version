@@ -1,0 +1,86 @@
+name: MSBuild E2E
+
+# Packs the Mister.Version MSBuild task package and consumes it from a throwaway git monorepo
+# (e2e/msbuild-e2e.cs), asserting on the versions that end up in assemblies and nupkgs,
+# incremental-build behavior and tag pick-up. Runs on every OS/architecture the package ships
+# native libgit2 binaries for, plus Visual Studio's MSBuild.exe (.NET Framework task).
+
+on:
+  push:
+    branches: [ main, dev ]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  e2e:
+    name: e2e (${{ matrix.name }})
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { name: linux-x64,     os: ubuntu-latest }
+          - { name: linux-arm64,   os: ubuntu-24.04-arm }
+          - { name: windows-x64,   os: windows-latest }
+          - { name: windows-arm64, os: windows-11-arm }
+          - { name: osx-arm64,     os: macos-latest }
+
+    steps:
+    - name: Checkout Code
+      uses: actions/checkout@v4
+
+    - name: Setup .NET
+      uses: actions/setup-dotnet@v4
+      with:
+        dotnet-version: |
+          8.0.x
+          10.0.x
+
+    - name: Run MSBuild E2E
+      run: dotnet run e2e/msbuild-e2e.cs
+
+  e2e-alpine:
+    name: e2e (linux-musl-x64)
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    container: mcr.microsoft.com/dotnet/sdk:10.0-alpine
+
+    steps:
+    - name: Install git
+      run: apk add --no-cache git
+
+    - name: Checkout Code
+      uses: actions/checkout@v4
+
+    - name: Run MSBuild E2E
+      run: dotnet run e2e/msbuild-e2e.cs
+
+  e2e-msbuild-exe:
+    name: e2e (Visual Studio MSBuild.exe, net472 task)
+    runs-on: windows-latest
+    timeout-minutes: 30
+
+    steps:
+    - name: Checkout Code
+      uses: actions/checkout@v4
+
+    - name: Setup .NET
+      uses: actions/setup-dotnet@v4
+      with:
+        dotnet-version: |
+          8.0.x
+          10.0.x
+
+    - name: Setup MSBuild
+      uses: microsoft/setup-msbuild@v2
+
+    - name: Run MSBuild E2E with MSBuild.exe
+      shell: pwsh
+      run: |
+        $msbuild = (Get-Command msbuild.exe).Source
+        Write-Host "Using $msbuild"
+        dotnet run e2e/msbuild-e2e.cs -- --msbuild "$msbuild"

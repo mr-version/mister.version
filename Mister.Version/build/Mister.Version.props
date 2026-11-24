@@ -1,117 +1,98 @@
 <?xml version="1.0" encoding="utf-8"?>
-<Project xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+<!--
+  Mister.Version: default settings.
 
-  <!-- Import outer build version if it exists (written by buildMultiTargeting during Pack) -->
-  <!-- This makes the version available during inner builds for dependency resolution -->
+  This file is imported by NuGet for single-targeted and inner (per-TFM) builds (build/), and by
+  buildMultiTargeting/Mister.Version.props for multi-targeting outer builds, so every build context
+  computes the version from exactly the same settings.
+
+  Projects can override any of these in the project file or Directory.Build.props.
+-->
+<Project>
+
   <PropertyGroup>
-    <_OuterBuildVersionPropsPath>$(MSBuildProjectDirectory)\obj\$(Configuration)\$(MSBuildProjectName).outerbuild.version.props</_OuterBuildVersionPropsPath>
+    <!-- Task assembly: Visual Studio / .NET Framework MSBuild loads the net472 build, dotnet CLI MSBuild the net8.0 one
+         (the net8.0 assembly also runs on the .NET 9/10+ MSBuild hosts). -->
+    <_MrVersionTaskFramework Condition="'$(MSBuildRuntimeType)' == 'Core'">net8.0</_MrVersionTaskFramework>
+    <_MrVersionTaskFramework Condition="'$(MSBuildRuntimeType)' != 'Core'">net472</_MrVersionTaskFramework>
+    <_MrVersionTaskAssembly>$([MSBuild]::NormalizePath('$(MSBuildThisFileDirectory)', '..', 'tasks', '$(_MrVersionTaskFramework)', 'Mister.Version.dll'))</_MrVersionTaskAssembly>
+    <!-- Kept for backward compatibility with customizations that referenced the old property name -->
+    <AppSettingStronglyTyped_TFM Condition="'$(AppSettingStronglyTyped_TFM)' == ''">$(_MrVersionTaskFramework)</AppSettingStronglyTyped_TFM>
   </PropertyGroup>
-  <Import Project="$(_OuterBuildVersionPropsPath)" Condition="Exists('$(_OuterBuildVersionPropsPath)')" />
 
-  <!-- Define properties -->
   <PropertyGroup>
-    <AppSettingStronglyTyped_TFM Condition=" '$(MSBuildRuntimeType)' != 'Core' ">net472</AppSettingStronglyTyped_TFM>
-    <AppSettingStronglyTyped_TFM Condition=" '$(MSBuildRuntimeType)' == 'Core' ">net8.0</AppSettingStronglyTyped_TFM>
-    <!-- CRITICAL: Disable for test projects immediately -->
-    <MonoRepoVersioningEnabled Condition="'$(IsTestProject)' == 'true'">false</MonoRepoVersioningEnabled>
-    <MonoRepoVersioningEnabled Condition="'$(IsPackable)'=='false'">false</MonoRepoVersioningEnabled>
+    <!-- Master switch. Test projects are always excluded (see Mister.Version.targets). -->
     <MonoRepoVersioningEnabled Condition="'$(MonoRepoVersioningEnabled)' == ''">true</MonoRepoVersioningEnabled>
-    <MonoRepoRoot Condition="'$(MonoRepoRoot)' == ''">$(ProjectDir)</MonoRepoRoot>
+    <!-- Where to start looking for the git repository (defaults to the project directory) -->
+    <MonoRepoRoot Condition="'$(MonoRepoRoot)' == ''">$(MSBuildProjectDirectory)</MonoRepoRoot>
     <MonoRepoTagPrefix Condition="'$(MonoRepoTagPrefix)' == ''">v</MonoRepoTagPrefix>
     <!-- Default to NOT updating project files to avoid requiring commits -->
     <MonoRepoUpdateProjectFile Condition="'$(MonoRepoUpdateProjectFile)' == ''">false</MonoRepoUpdateProjectFile>
-    <!-- Enable debug mode for extra logging -->
     <MonoRepoDebug Condition="'$(MonoRepoDebug)' == ''">false</MonoRepoDebug>
-    <!-- Enable extra debug mode for detailed dependency and commit info -->
     <MonoRepoExtraDebug Condition="'$(MonoRepoExtraDebug)' == ''">false</MonoRepoExtraDebug>
-    <!-- Skip test projects by default -->
     <MonoRepoSkipTestProjects Condition="'$(MonoRepoSkipTestProjects)' == ''">true</MonoRepoSkipTestProjects>
-    <!-- Skip non-packable projects by default -->
     <MonoRepoSkipNonPackableProjects Condition="'$(MonoRepoSkipNonPackableProjects)' == ''">true</MonoRepoSkipNonPackableProjects>
     <!-- Prerelease type for main/dev branches (none, alpha, beta, rc) -->
     <MonoRepoPrereleaseType Condition="'$(MonoRepoPrereleaseType)' == ''">none</MonoRepoPrereleaseType>
-    <!-- Optional path to version configuration YAML file -->
+    <!-- Optional path to the YAML configuration file. When empty, mr-version.yml / mr-version.yaml / mister-version.yml /
+         mister-version.yaml are discovered at the repository root. -->
     <MonoRepoConfigFile Condition="'$(MonoRepoConfigFile)' == ''"></MonoRepoConfigFile>
-    <!-- Enable conventional commits analysis for semantic version bump detection -->
+
+    <!-- Conventional commits -->
     <MonoRepoConventionalCommitsEnabled Condition="'$(MonoRepoConventionalCommitsEnabled)' == ''">false</MonoRepoConventionalCommitsEnabled>
-    <!-- Commit patterns for major version bumps -->
     <MonoRepoMajorPatterns Condition="'$(MonoRepoMajorPatterns)' == ''">BREAKING CHANGE:;!:</MonoRepoMajorPatterns>
-    <!-- Commit patterns for minor version bumps -->
     <MonoRepoMinorPatterns Condition="'$(MonoRepoMinorPatterns)' == ''">feat:;feature:</MonoRepoMinorPatterns>
-    <!-- Commit patterns for patch version bumps -->
     <MonoRepoPatchPatterns Condition="'$(MonoRepoPatchPatterns)' == ''">fix:;bugfix:;perf:;refactor:</MonoRepoPatchPatterns>
-    <!-- Commit patterns to ignore for versioning -->
     <MonoRepoIgnorePatterns Condition="'$(MonoRepoIgnorePatterns)' == ''">chore:;docs:;style:;test:;ci:</MonoRepoIgnorePatterns>
-    <!-- Enable file pattern-based change detection for smart versioning -->
+
+    <!-- File pattern-based change detection -->
     <MonoRepoChangeDetectionEnabled Condition="'$(MonoRepoChangeDetectionEnabled)' == ''">false</MonoRepoChangeDetectionEnabled>
-    <!-- File patterns to ignore (won't trigger version bumps) -->
     <MonoRepoIgnoreFilePatterns Condition="'$(MonoRepoIgnoreFilePatterns)' == ''">**/*.md;**/docs/**;**/*.txt;**/.editorconfig;**/.gitignore</MonoRepoIgnoreFilePatterns>
-    <!-- File patterns that require major version bumps -->
     <MonoRepoMajorFilePatterns Condition="'$(MonoRepoMajorFilePatterns)' == ''"></MonoRepoMajorFilePatterns>
-    <!-- File patterns that require minor version bumps -->
     <MonoRepoMinorFilePatterns Condition="'$(MonoRepoMinorFilePatterns)' == ''"></MonoRepoMinorFilePatterns>
-    <!-- File patterns that require patch version bumps -->
     <MonoRepoPatchFilePatterns Condition="'$(MonoRepoPatchFilePatterns)' == ''"></MonoRepoPatchFilePatterns>
-    <!-- Source-only mode: only version when source code changes (ignore test/doc changes) -->
     <MonoRepoSourceOnlyMode Condition="'$(MonoRepoSourceOnlyMode)' == ''">false</MonoRepoSourceOnlyMode>
-    <!-- Additional directories to monitor for changes (semicolon-separated paths) -->
+    <!-- Additional directories to monitor for changes (semicolon-separated, relative to the repository root) -->
     <MonoRepoAdditionalMonitorPaths Condition="'$(MonoRepoAdditionalMonitorPaths)' == ''"></MonoRepoAdditionalMonitorPaths>
-    <!-- Enable automatic changelog generation during build -->
+
+    <!-- Changelog generation during build -->
     <MonoRepoGenerateChangelog Condition="'$(MonoRepoGenerateChangelog)' == ''">false</MonoRepoGenerateChangelog>
-    <!-- Changelog output format (markdown, text, json) -->
     <MonoRepoChangelogFormat Condition="'$(MonoRepoChangelogFormat)' == ''">markdown</MonoRepoChangelogFormat>
-    <!-- Changelog output file path -->
     <MonoRepoChangelogOutputPath Condition="'$(MonoRepoChangelogOutputPath)' == ''">CHANGELOG.md</MonoRepoChangelogOutputPath>
-    <!-- Repository URL for generating links in changelog -->
     <MonoRepoChangelogRepositoryUrl Condition="'$(MonoRepoChangelogRepositoryUrl)' == ''"></MonoRepoChangelogRepositoryUrl>
-    <!-- Include commit authors in changelog -->
     <MonoRepoChangelogIncludeAuthors Condition="'$(MonoRepoChangelogIncludeAuthors)' == ''">false</MonoRepoChangelogIncludeAuthors>
-    <!-- Enable shallow clone support for repos cloned with depth limit -->
+
+    <!-- Git integration -->
     <MonoRepoShallowCloneSupport Condition="'$(MonoRepoShallowCloneSupport)' == ''">true</MonoRepoShallowCloneSupport>
-    <!-- Fallback version for shallow clones with limited history -->
     <MonoRepoShallowCloneFallbackVersion Condition="'$(MonoRepoShallowCloneFallbackVersion)' == ''"></MonoRepoShallowCloneFallbackVersion>
-    <!-- Enable submodule change detection (tracks .gitmodules and submodule pointer changes) -->
     <MonoRepoSubmoduleSupport Condition="'$(MonoRepoSubmoduleSupport)' == ''">false</MonoRepoSubmoduleSupport>
     <!-- Custom tag patterns (semicolon-separated): ProjectName={name}-{prefix}{version} -->
     <MonoRepoCustomTagPatterns Condition="'$(MonoRepoCustomTagPatterns)' == ''"></MonoRepoCustomTagPatterns>
-    <!-- Enable branch-based versioning strategies -->
     <MonoRepoBranchBasedVersioning Condition="'$(MonoRepoBranchBasedVersioning)' == ''">false</MonoRepoBranchBasedVersioning>
-    <!-- Branch versioning rules (semicolon-separated): branchPattern=strategy -->
     <MonoRepoBranchVersioningRules Condition="'$(MonoRepoBranchVersioningRules)' == ''"></MonoRepoBranchVersioningRules>
-    <!-- Include branch name in version build metadata for feature branches -->
     <MonoRepoIncludeBranchInMetadata Condition="'$(MonoRepoIncludeBranchInMetadata)' == ''">false</MonoRepoIncludeBranchInMetadata>
-    <!-- Validate that version tags are reachable from current branch -->
     <MonoRepoValidateTagAncestry Condition="'$(MonoRepoValidateTagAncestry)' == ''">true</MonoRepoValidateTagAncestry>
-    <!-- Fetch depth for shallow clone operations -->
     <MonoRepoFetchDepth Condition="'$(MonoRepoFetchDepth)' == ''">50</MonoRepoFetchDepth>
-    <!-- Version scheme to use: semver or calver (default: semver) -->
+
+    <!-- Version scheme: semver or calver -->
     <MonoRepoVersionScheme Condition="'$(MonoRepoVersionScheme)' == ''">semver</MonoRepoVersionScheme>
     <!-- CalVer format: YYYY.MM.PATCH, YY.0M.PATCH, YYYY.WW.PATCH, YYYY.0M.PATCH -->
     <MonoRepoCalVerFormat Condition="'$(MonoRepoCalVerFormat)' == ''">YYYY.MM.PATCH</MonoRepoCalVerFormat>
-    <!-- CalVer start date (optional): YYYY-MM-DD format -->
     <MonoRepoCalVerStartDate Condition="'$(MonoRepoCalVerStartDate)' == ''"></MonoRepoCalVerStartDate>
-    <!-- Reset patch version periodically for CalVer (monthly/weekly) -->
     <MonoRepoCalVerResetPatch Condition="'$(MonoRepoCalVerResetPatch)' == ''">true</MonoRepoCalVerResetPatch>
-    <!-- CalVer separator (default: .) -->
     <MonoRepoCalVerSeparator Condition="'$(MonoRepoCalVerSeparator)' == ''">.</MonoRepoCalVerSeparator>
-    <!-- Enable file-based version caching for improved build performance -->
+
+    <!-- Validation constraints -->
+    <MonoRepoValidationEnabled Condition="'$(MonoRepoValidationEnabled)' == ''">false</MonoRepoValidationEnabled>
+    <MonoRepoRequireMonotonicIncrease Condition="'$(MonoRepoRequireMonotonicIncrease)' == ''">true</MonoRepoRequireMonotonicIncrease>
+
+    <!-- Result caching. The version is cached in memory per build node and on disk per project, keyed on a
+         fingerprint of everything it depends on (HEAD, branch, tags, configuration, task settings), so
+         repeated invocations (other TFMs, the pack outer build, later builds) skip the git history walk. -->
+    <MonoRepoVersionCacheEnabled Condition="'$(MonoRepoVersionCacheEnabled)' == ''">true</MonoRepoVersionCacheEnabled>
+    <!-- Legacy opt-in shared file cache under the repository (.mrversion); prefer MonoRepoVersionCacheEnabled -->
     <MonoRepoEnableFileCache Condition="'$(MonoRepoEnableFileCache)' == ''">false</MonoRepoEnableFileCache>
-    <!-- Custom path for file cache storage (defaults to .mister-version-cache in repo root) -->
     <MonoRepoFileCachePath Condition="'$(MonoRepoFileCachePath)' == ''"></MonoRepoFileCachePath>
   </PropertyGroup>
-
-  <PropertyGroup>
-    <SanitizedProjectName>$(MSBuildProjectName.Replace(".", "_"))</SanitizedProjectName>
-  </PropertyGroup>
-
-  <!-- CRITICAL: Hook into NuGet's GetPackageVersion extension point -->
-  <!-- This ensures our version calculation runs before NuGet queries project versions -->
-  <PropertyGroup>
-    <GetPackageVersionDependsOn>_MonoRepoSetVersion;$(GetPackageVersionDependsOn)</GetPackageVersionDependsOn>
-  </PropertyGroup>
-
-  <!-- Import early version calculation props if available -->
-  <Import Project="$(IntermediateOutputPath)$(MSBuildProjectName).version.props"
-          Condition="'$(MonoRepoVersioningEnabled)'=='true' and '$(IsPackable)' == 'true' and Exists('$(IntermediateOutputPath)$(MSBuildProjectName).version.props')" />
 
 </Project>

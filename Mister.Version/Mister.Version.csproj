@@ -45,6 +45,12 @@
 		<ProjectReference Include="..\Mister.Version.Core\Mister.Version.Core.csproj" PrivateAssets="all" />
 	</ItemGroup>
 
+	<!-- The SDK only adds this implicitly on non-Windows hosts, which made packages.lock.json differ per OS.
+	     Referencing it explicitly keeps the lock file identical on Windows, Linux and macOS. -->
+	<ItemGroup Condition="'$(TargetFramework)'=='net472'">
+		<PackageReference Include="Microsoft.NETFramework.ReferenceAssemblies" Version="1.0.3" PrivateAssets="all" />
+	</ItemGroup>
+
 	<Choose>
 		<When Condition="'$(TargetFramework)'=='net472'">
 			<PropertyGroup>
