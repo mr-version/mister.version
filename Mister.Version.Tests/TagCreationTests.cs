@@ -24,7 +24,7 @@ namespace Mister.Version.Tests
             var sig = new Signature("Test User", "test@example.com", DateTimeOffset.Now);
             var testFile = Path.Combine(_testRepoPath, "test.txt");
             File.WriteAllText(testFile, "test content");
-            Commands.Stage(_repo, testFile);
+            Commands.Stage(_repo, Path.GetFileName(testFile)); // repo-relative: the absolute path may be spelled through a symlink (macOS TMPDIR)
             _repo.Commit("Initial commit", sig, sig);
         }
 

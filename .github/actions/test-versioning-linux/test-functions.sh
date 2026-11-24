@@ -11,6 +11,14 @@ PURPLE="\033[0;35m"
 CYAN="\033[0;36m"
 NC='\033[0m' # No Color
 
+# Portable nanosecond clock (BSD date on macOS does not support %N)
+now_ns() {
+    if [ -n "$EPOCHREALTIME" ]; then local t=${EPOCHREALTIME/[.,]/}; echo "${t}000"
+    elif command -v python3 >/dev/null 2>&1; then python3 -c 'import time; print(int(time.time() * 1e9))'
+    else echo "$(( $(date +%s) * 1000000000 ))"
+    fi
+}
+
 # Results tracking
 TOTAL_TESTS=0
 PASSED_TESTS=0
@@ -1142,9 +1150,9 @@ test_large_monorepo() {
     git tag v1.0.0
 
     # Test 20a: Version calculation on large repo
-    local start_time=$(date +%s%N)
+    local start_time=$(now_ns)
     run_monorepo_versioning_tool "$repo_dir" "./src/Project50/Project50.csproj" "1.0.0" "$test_name - Project50"
-    local end_time=$(date +%s%N)
+    local end_time=$(now_ns)
     local duration_ms=$(( (end_time - start_time) / 1000000 ))
 
     print_status "$BLUE" "Version calculation took ${duration_ms}ms for 100-project repo"

@@ -8,7 +8,8 @@ if (Test-Path "coverage") {
 }
 
 # Run tests with coverage collection
-dotnet test --collect:"XPlat Code Coverage" --results-directory:"coverage" --verbosity:normal
+# The test project uses Microsoft.Testing.Platform (see global.json), which uses --coverage instead of --collect
+dotnet test --coverage --coverage-output-format cobertura --coverage-output coverage.cobertura.xml --results-directory coverage
 
 # Find the coverage file
 $coverageFile = Get-ChildItem -Path "coverage" -Recurse -Filter "coverage.cobertura.xml" | Select-Object -First 1

@@ -12,7 +12,7 @@ jobs:
     runs-on: ${{ matrix.os }}
     strategy:
       matrix:
-        os: [ubuntu-latest, windows-latest] # disabled for now: , macos-latest]
+        os: [ubuntu-latest, windows-latest, macos-latest]
 
     steps:
     - name: Checkout Code
@@ -43,8 +43,9 @@ jobs:
 
   versioning-scenarios:
     strategy:
+      fail-fast: false
       matrix:
-        os: [ubuntu-latest, windows-latest]
+        os: [ubuntu-latest, windows-latest, macos-latest]
         dotnet-version: ['10.0.x']
     runs-on: ${{ matrix.os }}
     needs: build-and-test
