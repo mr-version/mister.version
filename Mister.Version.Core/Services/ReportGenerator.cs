@@ -76,7 +76,8 @@ namespace Mister.Version.Core.Services
             sb.AppendLine();
 
             var filteredProjects = FilterProjects(report.Projects, options);
-            var orderedProjects = filteredProjects.OrderBy(p => p.Name).ToList();
+            var orderedProjects = filteredProjects.OrderBy(p => p.Name).ThenBy(p => p.Path).ToList();
+            var graph = new ProjectGraph(report.Projects);
 
             foreach (var project in orderedProjects)
             {
@@ -117,9 +118,9 @@ namespace Mister.Version.Core.Services
                         sb.AppendLine($"  Direct Dependencies ({project.DirectDependencies.Count}):");
                         foreach (var dep in project.DirectDependencies)
                         {
-                            var depProject = report.Projects.FirstOrDefault(p => p.Name == dep);
+                            var depProject = graph.FindDependency(project, dep);
                             var depVersion = depProject?.Version?.Version ?? "Unknown";
-                            sb.AppendLine($"    - {dep} ({depVersion})");
+                            sb.AppendLine($"    - {(depProject != null ? graph.Label(depProject) : dep)} ({depVersion})");
                         }
                     }
 
@@ -131,9 +132,9 @@ namespace Mister.Version.Core.Services
                             sb.AppendLine($"  Transitive Dependencies ({transitiveDeps.Count}):");
                             foreach (var dep in transitiveDeps.Take(MAX_TRANSITIVE_DEPS_TO_DISPLAY))
                             {
-                                var depProject = report.Projects.FirstOrDefault(p => p.Name == dep);
+                                var depProject = graph.FindDependency(project, dep);
                                 var depVersion = depProject?.Version?.Version ?? "Unknown";
-                                sb.AppendLine($"    - {dep} ({depVersion})");
+                                sb.AppendLine($"    - {(depProject != null ? graph.Label(depProject) : dep)} ({depVersion})");
                             }
                             if (transitiveDeps.Count > MAX_TRANSITIVE_DEPS_TO_DISPLAY)
                             {
@@ -152,6 +153,7 @@ namespace Mister.Version.Core.Services
         public string GenerateJsonReport(VersionReport report, ReportOptions options)
         {
             var filteredProjects = FilterProjects(report.Projects, options);
+            var graph = new ProjectGraph(report.Projects);
 
             var jsonReport = new
             {
@@ -162,7 +164,7 @@ namespace Mister.Version.Core.Services
                 generatedAt = report.GeneratedAt.ToString("yyyy-MM-ddTHH:mm:ssZ"),
                 totalProjects = filteredProjects.Count,
                 projectsWithChanges = filteredProjects.Count(p => p.Version?.VersionChanged == true),
-                projects = filteredProjects.OrderBy(p => p.Name).Select(p => new
+                projects = filteredProjects.OrderBy(p => p.Name).ThenBy(p => p.Path).Select(p => new
                 {
                     name = p.Name,
                     path = p.Path,
@@ -194,12 +196,12 @@ namespace Mister.Version.Core.Services
                         direct = p.DirectDependencies.Select(d => new
                         {
                             name = d,
-                            version = report.Projects.FirstOrDefault(proj => proj.Name == d)?.Version?.Version
+                            version = graph.FindDependency(p, d)?.Version?.Version
                         }),
                         all = p.AllDependencies.Select(d => new
                         {
                             name = d,
-                            version = report.Projects.FirstOrDefault(proj => proj.Name == d)?.Version?.Version,
+                            version = graph.FindDependency(p, d)?.Version?.Version,
                             isTransitive = !p.DirectDependencies.Contains(d)
                         })
                     } : null,
@@ -249,7 +251,7 @@ namespace Mister.Version.Core.Services
             sb.AppendLine(string.Join(",", headers));
 
             // Write data
-            foreach (var project in filteredProjects.OrderBy(p => p.Name))
+            foreach (var project in filteredProjects.OrderBy(p => p.Name).ThenBy(p => p.Path))
             {
                 var row = new List<string>
                 {
@@ -348,13 +350,17 @@ namespace Mister.Version.Core.Services
             sb.AppendLine("    %% MonoRepo Dependency Graph with Versions");
             sb.AppendLine();
 
+            var graph = new ProjectGraph(projects);
+            var ids = NodeIds(graph);
+
             // Generate node definitions with versions and styling
-            foreach (var project in projects.OrderBy(p => p.Name))
+            foreach (var project in Ordered(graph))
             {
-                var nodeId = SanitizeNodeId(project.Name);
-                var label = options.ShowVersions && project.Version != null 
-                    ? $"{project.Name}<br/>{project.Version.Version}"
-                    : project.Name;
+                var nodeId = ids[project];
+                var name = graph.Label(project);
+                var label = options.ShowVersions && project.Version != null
+                    ? $"{name}<br/>{project.Version.Version}"
+                    : name;
 
                 // Style nodes based on type and status
                 var style = GetMermaidNodeStyle(project);
@@ -368,26 +374,22 @@ namespace Mister.Version.Core.Services
             sb.AppendLine();
 
             // Generate dependencies
-            foreach (var project in projects.OrderBy(p => p.Name))
+            foreach (var project in Ordered(graph))
             {
-                var projectNodeId = SanitizeNodeId(project.Name);
-                
-                foreach (var dependency in project.DirectDependencies)
+                var projectNodeId = ids[project];
+
+                foreach (var depProject in graph.DirectDependencies(project))
                 {
-                    var depProject = projects.FirstOrDefault(p => p.Name == dependency);
-                    if (depProject != null)
+                    var depNodeId = ids[depProject];
+                    var edgeLabel = "";
+
+                    // Mermaid edge text goes between the arrow and the target: A -->|text| B
+                    if (options.ShowVersions && !string.IsNullOrEmpty(depProject.Version?.Version))
                     {
-                        var depNodeId = SanitizeNodeId(dependency);
-                        var edgeLabel = "";
-
-                        // Mermaid edge text goes between the arrow and the target: A -->|text| B
-                        if (options.ShowVersions && !string.IsNullOrEmpty(depProject.Version?.Version))
-                        {
-                            edgeLabel = $"|{depProject.Version.Version}|";
-                        }
-
-                        sb.AppendLine($"    {depNodeId} -->{edgeLabel} {projectNodeId}");
+                        edgeLabel = $"|{depProject.Version.Version}|";
                     }
+
+                    sb.AppendLine($"    {depNodeId} -->{edgeLabel} {projectNodeId}");
                 }
             }
 
@@ -412,13 +414,17 @@ namespace Mister.Version.Core.Services
             sb.AppendLine("    edge [color=gray];");
             sb.AppendLine();
 
+            var graph = new ProjectGraph(projects);
+            var ids = NodeIds(graph);
+
             // Generate node definitions
-            foreach (var project in projects.OrderBy(p => p.Name))
+            foreach (var project in Ordered(graph))
             {
-                var nodeId = SanitizeNodeId(project.Name);
-                var label = options.ShowVersions && project.Version != null 
-                    ? $"{project.Name}\\n{project.Version.Version}"
-                    : project.Name;
+                var nodeId = ids[project];
+                var name = graph.Label(project);
+                var label = options.ShowVersions && project.Version != null
+                    ? $"{name}\\n{project.Version.Version}"
+                    : name;
 
                 var style = GetDotNodeStyle(project);
                 sb.AppendLine($"    {nodeId} [label=\"{label}\"{style}];");
@@ -427,25 +433,21 @@ namespace Mister.Version.Core.Services
             sb.AppendLine();
 
             // Generate dependencies
-            foreach (var project in projects.OrderBy(p => p.Name))
+            foreach (var project in Ordered(graph))
             {
-                var projectNodeId = SanitizeNodeId(project.Name);
-                
-                foreach (var dependency in project.DirectDependencies)
+                var projectNodeId = ids[project];
+
+                foreach (var depProject in graph.DirectDependencies(project))
                 {
-                    var depProject = projects.FirstOrDefault(p => p.Name == dependency);
-                    if (depProject != null)
+                    var depNodeId = ids[depProject];
+                    var edgeAttributes = "";
+
+                    if (options.ShowVersions && !string.IsNullOrEmpty(depProject.Version?.Version))
                     {
-                        var depNodeId = SanitizeNodeId(dependency);
-                        var edgeAttributes = "";
-
-                        if (options.ShowVersions && !string.IsNullOrEmpty(depProject.Version?.Version))
-                        {
-                            edgeAttributes = $" [label=\"{depProject.Version.Version}\"]";
-                        }
-
-                        sb.AppendLine($"    {depNodeId} -> {projectNodeId}{edgeAttributes};");
+                        edgeAttributes = $" [label=\"{depProject.Version.Version}\"]";
                     }
+
+                    sb.AppendLine($"    {depNodeId} -> {projectNodeId}{edgeAttributes};");
                 }
             }
 
@@ -461,29 +463,28 @@ namespace Mister.Version.Core.Services
 
             // Tree from the bottom of the dependency graph up: each project is followed by the projects that
             // depend on it. Roots are the projects with no dependencies among the graphed projects.
-            var names = new HashSet<string>(projects.Select(p => p.Name));
-            var rootProjects = projects
-                .Where(p => !p.DirectDependencies.Any(d => names.Contains(d) && d != p.Name))
-                .OrderBy(p => p.Name)
+            var graph = new ProjectGraph(projects);
+            var rootProjects = Ordered(graph)
+                .Where(p => graph.DirectDependencies(p).Count == 0)
                 .ToList();
 
-            var expanded = new HashSet<string>();
+            var expanded = new HashSet<ProjectInfo>();
             foreach (var root in rootProjects)
             {
-                GenerateAsciiNode(sb, root, projects, options, expanded, new HashSet<string>(), 0);
+                GenerateAsciiNode(sb, root, graph, options, expanded, new HashSet<ProjectInfo>(), 0);
             }
 
             // Projects not reachable from a root are part of (or depend on) a dependency cycle
-            var remaining = projects.Where(p => !expanded.Contains(p.Name)).OrderBy(p => p.Name).ToList();
+            var remaining = Ordered(graph).Where(p => !expanded.Contains(p)).ToList();
             if (remaining.Any())
             {
                 sb.AppendLine();
                 sb.AppendLine("=== Circular Dependencies ===");
                 foreach (var project in remaining)
                 {
-                    if (!expanded.Contains(project.Name))
+                    if (!expanded.Contains(project))
                     {
-                        GenerateAsciiNode(sb, project, projects, options, expanded, new HashSet<string>(), 0);
+                        GenerateAsciiNode(sb, project, graph, options, expanded, new HashSet<ProjectInfo>(), 0);
                     }
                 }
             }
@@ -495,22 +496,22 @@ namespace Mister.Version.Core.Services
         /// Writes a project and, indented below it, the projects that depend on it. A project that depends on
         /// several projects is listed under each of them but expanded only the first time ("(see above)").
         /// </summary>
-        private void GenerateAsciiNode(StringBuilder sb, ProjectInfo project, List<ProjectInfo> allProjects,
-            ReportOptions options, HashSet<string> expanded, HashSet<string> ancestors, int depth)
+        private void GenerateAsciiNode(StringBuilder sb, ProjectInfo project, ProjectGraph graph,
+            ReportOptions options, HashSet<ProjectInfo> expanded, HashSet<ProjectInfo> ancestors, int depth)
         {
             var indent = new string(' ', depth * 2);
             var symbol = GetAsciiSymbol(project);
             var versionInfo = options.ShowVersions && !string.IsNullOrEmpty(project.Version?.Version) ? $" ({project.Version.Version})" : "";
             var changeIndicator = project.Version?.VersionChanged == true ? " [CHANGED]" : "";
-            var line = $"{indent}{symbol} {project.Name}{versionInfo}{changeIndicator}";
+            var line = $"{indent}{symbol} {graph.Label(project)}{versionInfo}{changeIndicator}";
 
-            if (ancestors.Contains(project.Name))
+            if (ancestors.Contains(project))
             {
                 sb.AppendLine($"{line} (circular)");
                 return;
             }
 
-            if (expanded.Contains(project.Name))
+            if (expanded.Contains(project))
             {
                 sb.AppendLine($"{line} (see above)");
                 return;
@@ -523,20 +524,39 @@ namespace Mister.Version.Core.Services
             }
 
             sb.AppendLine(line);
-            expanded.Add(project.Name);
-            ancestors.Add(project.Name);
+            expanded.Add(project);
+            ancestors.Add(project);
 
-            var dependents = allProjects
-                .Where(p => p.Name != project.Name && p.DirectDependencies.Contains(project.Name))
-                .OrderBy(p => p.Name)
+            var dependents = graph.Dependents(project)
+                .OrderBy(p => p.Name, StringComparer.Ordinal)
+                .ThenBy(p => p.Path, StringComparer.Ordinal)
                 .ToList();
 
             foreach (var dependent in dependents)
             {
-                GenerateAsciiNode(sb, dependent, allProjects, options, expanded, ancestors, depth + 1);
+                GenerateAsciiNode(sb, dependent, graph, options, expanded, ancestors, depth + 1);
             }
 
-            ancestors.Remove(project.Name);
+            ancestors.Remove(project);
+        }
+
+        private static IEnumerable<ProjectInfo> Ordered(ProjectGraph graph) =>
+            graph.Projects.OrderBy(p => p.Name, StringComparer.Ordinal).ThenBy(p => p.Path, StringComparer.Ordinal);
+
+        /// <summary>Unique, valid node id per project (duplicate names get their directory, then a counter).</summary>
+        private Dictionary<ProjectInfo, string> NodeIds(ProjectGraph graph)
+        {
+            var ids = new Dictionary<ProjectInfo, string>();
+            var used = new HashSet<string>(StringComparer.Ordinal);
+            foreach (var project in Ordered(graph))
+            {
+                var id = SanitizeNodeId(graph.Label(project) ?? "project");
+                var unique = id;
+                for (var i = 2; !used.Add(unique); i++)
+                    unique = id + "_" + i;
+                ids[project] = unique;
+            }
+            return ids;
         }
 
         private string SanitizeNodeId(string name)

@@ -12,6 +12,11 @@ public class ProjectInfo
     public string FullPath { get; set; }
     public VersionResult Version { get; set; }
     public List<string> DirectDependencies { get; set; } = new List<string>();
+    /// <summary>
+    /// Full paths of the direct project references (same order as <see cref="DirectDependencies"/>). Used to tell
+    /// apart projects with the same name in different directories.
+    /// </summary>
+    public List<string> DirectDependencyPaths { get; set; } = new List<string>();
     public List<string> AllDependencies { get; set; } = new List<string>();
     public bool IsTestProject { get; set; }
     public bool IsPackable { get; set; }
